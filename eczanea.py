@@ -2,6 +2,36 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import sqlite3
 from datetime import datetime, date, timedelta
+from cryptography.fernet import Fernet
+import os
+import threading # Programın donmasını engellemek için arka plan işçisi
+
+# --- KRİPTO (ŞİFRELEME) MOTORU ---
+def get_cipher():
+    """Şifreleme anahtarını alır, yoksa yeni bir gizli anahtar üretir."""
+    key_path = "eczane_secret.key"
+    if not os.path.exists(key_path):
+        key = Fernet.generate_key()
+        with open(key_path, "wb") as f:
+            f.write(key)
+    else:
+        with open(key_path, "rb") as f:
+            key = f.read()
+    return Fernet(key)
+
+def sifrele(metin):
+    """Metni veritabanına yazmadan önce kilitler."""
+    if not metin: return ""
+    return get_cipher().encrypt(metin.encode()).decode()
+
+def sifre_coz(sifreli_metin):
+    """Veritabanından okunan kilitli metni normal şifreye dönüştürür."""
+    if not sifreli_metin: return ""
+    try:
+        return get_cipher().decrypt(sifreli_metin.encode()).decode()
+    except:
+        return "" # Eğer anahtar değişmişse veya şifre bozuksa boş döner
+    
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -20,7 +50,13 @@ import urllib.request
 import threading
 import subprocess
 import time
+try:
+    import keyboard
+    KEYBOARD_VAR = True
+except ImportError:
+    KEYBOARD_VAR = False
 global PYSTRAY_VAR
+
 try:
     import pystray
     from pystray import MenuItem as item
@@ -31,9 +67,8 @@ except ImportError:
 
 # --- PROGRAM VERSİYONU VE GÜNCELLEME LİNKLERİ ---
 MEVCUT_VERSIYON = "1.0"
-# (Bu linkleri bir sonraki adımda GitHub'ı kurduğumuzda kendinize göre değiştireceğiz)
-VERSIYON_URL = "https://raw.githubusercontent.com/KULLANICI_ADINIZ/EczaciDefteri/main/version.txt"
-EXE_URL = "https://raw.githubusercontent.com/KULLANICI_ADINIZ/EczaciDefteri/main/EczaciDefteri.exe"
+VERSIYON_URL = "https://raw.githubusercontent.com/knleneshalit-glitch/EczaciDefteri/refs/heads/main/version.txt"
+EXE_URL = "https://github.com/knleneshalit-glitch/EczaciDefteri/raw/refs/heads/main/EczaciDefteri.exe"
 
 
 # 1. KÜTÜPHANE KONTROLLERİ
@@ -61,39 +96,84 @@ def yerel_db_yolunu_kaydet(yeni_yol):
     with open("db_yolu.txt", "w", encoding="utf-8") as f:
         f.write(yeni_yol)
 
-def log_error(msg):
+def global_hata_yakalayici(exc_type, exc_value, exc_tb):
+    """Tüm programdaki (Tkinter dahil) beklenmeyen hataları yakalar ve geliştiriciye gizlice raporlar."""
+    import traceback
+    from datetime import datetime
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    import threading
+
+    # 1. Hatayı metne çevir
+    hata_metni = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    zaman = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    log_metni = f"Zaman: {zaman}\n{hata_metni}\n"
+
+    # 2. Kullanıcının bilgisayarına gizlice kaydet (HATA_KAYDI.txt)
     try:
-        with open("HATA_KAYDI.txt", "w", encoding="utf-8") as f:
-            f.write(f"Zaman: {datetime.now()}\n")
-            f.write(f"Hata: {str(msg)}\n")
-            f.write(traceback.format_exc())
+        with open("HATA_KAYDI.txt", "a", encoding="utf-8") as f:
+            f.write(log_metni + "="*50 + "\n")
     except: pass
 
-# 2. ORTAK TEMA YÖNETİCİSİ
+    # 3. Arka planda geliştiriciye (sana) mail at
+    def mail_yolla():
+        try:
+            import sqlite3
+            ortak_yol = yerel_db_yolunu_getir()
+            db_yolu = os.path.join(ortak_yol, "eczane_skt.db") if ortak_yol else "eczane_skt.db"
+            
+            # Kullanıcının mail ayarlarını veritabanından çek
+            vt = sqlite3.connect(db_yolu, timeout=5)
+            imlec = vt.cursor()
+            imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='gonderen_mail'")
+            g = imlec.fetchone()
+            imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='uygulama_sifresi'")
+            p = imlec.fetchone()
+            vt.close()
+
+            if g and p and g[0] and p[0]:
+                g_mail = g[0]
+                g_sifre = p[0]
+                hedef_mail = "knleneshalit@gmail.com"  # SENİN KENDİ MAİL ADRESİN
+                
+                msg = MIMEMultipart()
+                msg['From'] = f"CRASH REPORT <{g_mail}>"
+                msg['To'] = hedef_mail
+                msg['Subject'] = f"🚨 Eczacı Defteri CRASH - {zaman}"
+                
+                body = f"Kimden: {g_mail}\nZaman: {zaman}\n\nHATA DETAYI (TRACEBACK):\n{'-'*40}\n{hata_metni}"
+                msg.attach(MIMEText(body, 'plain'))
+                
+                server = smtplib.SMTP('smtp.gmail.com', 587)
+                server.starttls()
+                server.login(g_mail, g_sifre)
+                server.send_message(msg)
+                server.quit()
+        except: pass
+
+    # Mail gönderme işlemini programı dondurmaması için arka planda (Thread) başlat
+    threading.Thread(target=mail_yolla, daemon=True).start()
+
+    # 4. Kullanıcıya kibar bir hata mesajı göster (Programın aniden kapanıp korkutmasını engeller)
+    import tkinter.messagebox as messagebox
+    try:
+        messagebox.showerror("Beklenmeyen Hata", "Sistemde beklenmeyen bir hata oluştu.\n\nBu sorunun detayı arka planda geliştirici ekibe iletilmiştir.\nLütfen işleminizi tekrar deneyiniz veya programı yeniden başlatınız.")
+    except: pass
+
+# 2. ORTAK TEMA YÖNETİCİSİ (SADECE AYDINLIK MOD)
 class ThemeManager:
     def __init__(self):
-        self.is_dark = False
+        self.is_dark = False # Başka yerler hata vermesin diye eklendi ama işlevsiz
         self.colors = {
-            "light": {
-                "bg_main": "#f1f5f9", "bg_sidebar": "#1e293b", "fg_text": "#0f172a",
-                "card_bg": "#ffffff", "input_bg": "#ffffff", "input_fg": "#000000",
-                "header_bg": "#334155", "btn_primary": "#3b82f6", "btn_success": "#10b981", 
-                "btn_danger": "#ef4444", "btn_warning": "#f59e0b", "border": "#cbd5e1"
-            },
-            "dark": {
-                "bg_main": "#0f172a", "bg_sidebar": "#020617", "fg_text": "#f1f5f9",
-                "card_bg": "#1e293b", "input_bg": "#334155", "input_fg": "#ffffff",
-                "header_bg": "#1e293b", "btn_primary": "#60a5fa", "btn_success": "#34d399", 
-                "btn_danger": "#f87171", "btn_warning": "#fbbf24", "border": "#475569"
-            }
+            "bg_main": "#f1f5f9", "bg_sidebar": "#1e293b", "fg_text": "#0f172a",
+            "card_bg": "#ffffff", "input_bg": "#ffffff", "input_fg": "#000000",
+            "header_bg": "#334155", "btn_primary": "#3b82f6", "btn_success": "#10b981", 
+            "btn_danger": "#ef4444", "btn_warning": "#f59e0b", "border": "#cbd5e1"
         }
     
     def get_color(self, key):
-        mode = "dark" if self.is_dark else "light"
-        return self.colors[mode].get(key, "#000000")
-
-    def toggle(self):
-        self.is_dark = not self.is_dark
+        return self.colors.get(key, "#000000")
 
 TM = ThemeManager()
 FONT_HEAD = ("Segoe UI", 24, "bold")
@@ -209,39 +289,196 @@ class ModernButton(tk.Canvas):
     def _on_leave(self, event): self.configure(cursor="arrow"); self._draw(self.bg_color)
     def update_color(self, color): self.bg_color = color; self._draw(color)
 
-class DraggableNotebook(ttk.Notebook):
+class DraggableNotebook(tk.Frame):
     def __init__(self, master, on_reorder=None, **kwargs):
-        super().__init__(master, **kwargs)
+        super().__init__(master, bg=TM.get_color("bg_main"), **kwargs)
+        
         self.on_reorder = on_reorder
-        self.bind("<Button-1>", self.on_click)
-        self.bind("<B1-Motion>", self.on_drag)
-        self.bind("<ButtonRelease-1>", self.on_release)
-        self._drag_data = {"x": 0, "y": 0, "index": None}
+        self.tab_frames = [] 
+        self.current_tab = None
+        self._drag_data = {"tab": None, "start_y": 0} # Sürükleme hafızası artık Y ekseninde
+        
+        # --- SOL MENÜ (SIDEBAR) ALANI ---
+        self.sidebar = tk.Frame(self, bg=TM.get_color("bg_sidebar"), width=325) # 240 olan genişliği 300 yaptık
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False) # Genişliği 300px'de sabitle
+        
+        # Dikey Kaydırma için Canvas ve Scrollbar
+        self.canvas = tk.Canvas(self.sidebar, bg=TM.get_color("bg_sidebar"), highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.sidebar, orient="vertical", command=self.canvas.yview)
+        
+        self.tab_container = tk.Frame(self.canvas, bg=TM.get_color("bg_sidebar"))
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.tab_container, anchor="nw")
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.canvas.pack(side="left", fill="both", expand=True)
+        # Sadece sekmeler ekrana sığmazsa scrollbar görünür
+        self.scrollbar.pack(side="right", fill="y")
+        
+        self.tab_container.bind("<Configure>", self._on_tab_container_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        
+        # Fare tekerleği ile dikey kaydırma
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        
+        # --- SAĞ İÇERİK ALANI ---
+        self.content_area = tk.Frame(self, bg=TM.get_color("bg_main"))
+        self.content_area.pack(side="left", fill="both", expand=True)
 
-    def on_click(self, event):
+    def _on_tab_container_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_window, width=event.width)
+
+    def _on_mousewheel(self, event):
+        # Sadece fare sol menünün üzerindeyse kaydır
+        if not self.winfo_exists(): return
         try:
-            index = self.index(f"@{event.x},{event.y}")
-            self._drag_data["index"] = index
-            self._drag_data["x"] = event.x; self._drag_data["y"] = event.y
+            x, y = self.winfo_pointerxy()
+            widget = self.winfo_containing(x, y)
+            if widget and (widget == self.canvas or widget.master == self.tab_container or getattr(widget.master, 'master', None) == self.tab_container):
+                self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         except: pass
 
-    def on_drag(self, event):
-        if self._drag_data["index"] is None: return
-        try:
-            target_index = self.index(f"@{event.x},{event.y}")
-            if target_index != self._drag_data["index"]:
-                source_index = self._drag_data["index"]
-                current_tab_widget = self.tabs()[source_index]
-                self.insert(target_index, current_tab_widget)
-                self.select(target_index)
-                self._drag_data["index"] = target_index
-        except: pass
+    def add(self, child, text="Tab"):
+        bg_color = TM.get_color("bg_sidebar")
+        fg_color = "#94a3b8" # Pasif yazı rengi (Açık gri)
+        
+        # --- DİKEY SEKME TASARIMI ---
+        btn = tk.Frame(self.tab_container, bg=bg_color, cursor="hand2")
+        btn.pack(side="top", fill="x", pady=2, padx=(5, 5))
+        
+        # Aktif sekmeyi belli edecek sol şerit (İndikatör)
+        indicator = tk.Frame(btn, bg=bg_color, width=4)
+        indicator.pack(side="left", fill="y")
+        
+        lbl = tk.Label(btn, text=text, font=("Segoe UI", 10, "bold"), bg=bg_color, fg=fg_color, cursor="hand2", anchor="w", padx=15, pady=12)
+        lbl.pack(side="left", fill="both", expand=True)
+        
+        tab_data = {"child": child, "text": text, "btn": btn, "lbl": lbl, "ind": indicator}
+        self.tab_frames.append(tab_data)
+        
+        # --- SÜRÜKLE BIRAK (DRAG & DROP) DİKEY OLAYLARI ---
+        def on_press(e, t=tab_data):
+            self._drag_data["tab"] = t
+            self._drag_data["start_y"] = e.y_root
+            self.select(t["child"]) # Tıklandığında hemen seçili yap
+            
+        def on_motion(e):
+            if not self._drag_data["tab"]: return
+            dy = e.y_root - self._drag_data["start_y"]
+            if abs(dy) < 5: return # Titremeyi önlemek için tolerans
+            
+            dragged_tab = self._drag_data["tab"]
+            current_idx = self.tab_frames.index(dragged_tab)
+            
+            # Farenin menü içindeki Y koordinatını bul
+            y_in_container = self.tab_container.winfo_pointery() - self.tab_container.winfo_rooty()
+            
+            target_idx = current_idx
+            for i, t in enumerate(self.tab_frames):
+                btn_y = t["btn"].winfo_y()
+                btn_h = t["btn"].winfo_height()
+                # Fare bu sekmenin üzerindeyse hedef burasıdır
+                if btn_y <= y_in_container <= btn_y + btn_h:
+                    target_idx = i
+                    break
+            
+            # Eğer yer değişimi varsa anında listede güncelle
+            if target_idx != current_idx:
+                self.tab_frames.pop(current_idx)
+                self.tab_frames.insert(target_idx, dragged_tab)
+                
+                # Tüm sekmeleri yeni sıraya göre tekrar alt alta diz
+                for t in self.tab_frames: t["btn"].pack_forget()
+                for t in self.tab_frames: 
+                    t["btn"].pack(side="top", fill="x", pady=2, padx=(5, 5))
 
-    def on_release(self, event):
-        self._drag_data["index"] = None
-        if self.on_reorder:
-            tab_names = [self.tab(i, "text") for i in range(self.index("end"))]
-            self.on_reorder(tab_names)
+        def on_release(e):
+            if self._drag_data["tab"]:
+                self._drag_data["tab"] = None
+                # Sıralama bittiğinde veritabanına kaydet
+                if self.on_reorder:
+                    tab_names = [t["text"] for t in self.tab_frames]
+                    self.on_reorder(tab_names)
+                    
+        # Olayları kutuya ve yazıya bağla
+        for w in (btn, lbl, indicator):
+            w.bind("<ButtonPress-1>", on_press)
+            w.bind("<B1-Motion>", on_motion)
+            w.bind("<ButtonRelease-1>", on_release)
+        
+        child.pack_forget()
+        if len(self.tab_frames) == 1:
+            self.select(child)
+            
+    def select(self, tab_id=None):
+        if tab_id is None:
+            return self.current_tab
+            
+        for tab in self.tab_frames:
+            if tab["child"] == tab_id or tab["text"] == tab_id:
+                if self.current_tab and self.current_tab != tab["child"]:
+                    self.current_tab.pack_forget()
+                    
+                self.current_tab = tab["child"]
+                self.current_tab.pack(in_=self.content_area, fill="both", expand=True)
+                
+                # --- AKTİF SEKME GÖRSELİ (ÖZEL TASARIM) ---
+                for t in self.tab_frames:
+                    if t["child"] == self.current_tab:
+                        t["btn"].configure(bg=TM.get_color("card_bg"))
+                        t["ind"].configure(bg=TM.get_color("btn_primary")) # Aktif Mavi Çizgi
+                        t["lbl"].configure(bg=TM.get_color("card_bg"), fg=TM.get_color("btn_primary"))
+                    else:
+                        t["btn"].configure(bg=TM.get_color("bg_sidebar"))
+                        t["ind"].configure(bg=TM.get_color("bg_sidebar"))
+                        t["lbl"].configure(bg=TM.get_color("bg_sidebar"), fg="#94a3b8")
+                
+                self._ensure_visible(tab["btn"])
+                return tab["child"]
+                
+    def _ensure_visible(self, btn):
+        # Seçili sekme ekran dışında kaldıysa otomatik kaydır
+        self.canvas.update_idletasks()
+        canvas_height = self.canvas.winfo_height()
+        btn_y = btn.winfo_y()
+        btn_h = btn.winfo_height()
+        
+        yview = self.canvas.yview()
+        total_h = self.tab_container.winfo_height()
+        if total_h == 0: return
+        
+        view_start = yview[0] * total_h
+        view_end = yview[1] * total_h
+        
+        if btn_y < view_start:
+            self.canvas.yview_moveto(btn_y / total_h)
+        elif btn_y + btn_h > view_end:
+            self.canvas.yview_moveto((btn_y + btn_h - canvas_height + 40) / total_h)
+
+    def forget(self, tab_id):
+        for i, tab in enumerate(self.tab_frames):
+            if tab["child"] == tab_id or tab["text"] == tab_id:
+                tab["btn"].destroy()
+                if self.current_tab == tab["child"]:
+                    tab["child"].pack_forget()
+                    self.current_tab = None
+                self.tab_frames.pop(i)
+                break
+
+    def tabs(self):
+        return [t["child"] for t in self.tab_frames]
+
+    def tab(self, tab_id, option=None):
+        for t in self.tab_frames:
+            if t["child"] == tab_id:
+                if option == "text":
+                    return t["text"]
+                return t
+        return ""
 
 class TakvimPopup(tk.Toplevel):
     def __init__(self, parent, entry_widget):
@@ -945,7 +1182,8 @@ class NoteBubble(tk.Toplevel):
 
 class DepotCard(tk.Frame):
     def __init__(self, parent, depo_adi, imlec, baglanti, refresh_callback, swap_callback):
-        super().__init__(parent, bg="white", bd=1, relief="solid")
+        # ESKİ siyah çizgi (bd=1, relief="solid") yerine modern, yumuşak çerçeve
+        super().__init__(parent, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=2)
         self.depo_adi = depo_adi
         self.imlec = imlec
         self.baglanti = baglanti
@@ -962,31 +1200,38 @@ class DepotCard(tk.Frame):
         res3 = self.imlec.fetchone()
         self.kalan_borc = res3[0] if res3 and res3[0] else 0.0
 
-        self.header_frame = tk.Frame(self, bg="#f8fafc", padx=20, pady=15, cursor="fleur")
+        # Başlık Çerçevesi
+        self.header_frame = tk.Frame(self, bg="#f8fafc", padx=15, pady=15, cursor="fleur")
         self.header_frame.pack(fill="x")
         self.bind_drag_events(self.header_frame)
         
-        self.lbl_icon = tk.Label(self.header_frame, text="▶", font=("Segoe UI", 16), bg="#f8fafc", fg="#64748b", cursor="hand2")
-        self.lbl_icon.pack(side="left", padx=(0, 15))
+        # --- TASARIM: MAVİ VURGU ÇİZGİSİ ---
+        tk.Frame(self.header_frame, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 15))
+        
+        # Modern ok ikonu
+        self.lbl_icon = tk.Label(self.header_frame, text="❯", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#94a3b8", cursor="hand2")
+        self.lbl_icon.pack(side="left", padx=(0, 10))
         self.lbl_icon.bind("<Button-1>", self.toggle)
         
-        title_lbl = tk.Label(self.header_frame, text=f"{depo_adi}", font=("Segoe UI", 16, "bold"), bg="#f8fafc", fg="#0f172a", cursor="fleur")
+        title_lbl = tk.Label(self.header_frame, text=f"{depo_adi}", font=("Segoe UI", 15, "bold"), bg="#f8fafc", fg="#0f172a", cursor="fleur")
         title_lbl.pack(side="left")
         self.bind_drag_events(title_lbl)
         
         if self.kalan_borc > 0:
-            debt_lbl = tk.Label(self.header_frame, text=f"Borç: {self.kalan_borc:,.0f} ₺", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#ef4444", cursor="fleur")
-            debt_lbl.pack(side="right")
+            debt_lbl = tk.Label(self.header_frame, text=f"Açık Borç: {self.kalan_borc:,.2f} ₺", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#ef4444", cursor="fleur")
+            debt_lbl.pack(side="right", padx=(0, 10))
             self.bind_drag_events(debt_lbl)
 
-        self.content_frame = tk.Frame(self, bg="white", padx=30, pady=20)
+        # İçerik Alanı
+        self.content_frame = tk.Frame(self, bg="white", padx=20, pady=20)
         
-        f_terms = tk.Frame(self.content_frame, bg="#f1f5f9", padx=15, pady=15, relief="flat")
+        # Anlaşma Şartları (Modern Kutu)
+        f_terms = tk.Frame(self.content_frame, bg="#f8fafc", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, padx=15, pady=15)
         f_terms.pack(fill="x", pady=(0, 15))
-        tk.Label(f_terms, text="📝 ANLAŞMA ŞARTI:", font=("Segoe UI", 10, "bold"), bg="#f1f5f9", fg="#64748b").pack(anchor="w")
-        self.lbl_terms = tk.Label(f_terms, text=self.anlasma_metni, font=("Segoe UI", 12), bg="#f1f5f9", fg="#0f172a", wraplength=800, justify="left")
+        tk.Label(f_terms, text="📝 ANLAŞMA ŞARTI:", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(anchor="w")
+        self.lbl_terms = tk.Label(f_terms, text=self.anlasma_metni, font=("Segoe UI", 11), bg="#f8fafc", fg="#0f172a", wraplength=800, justify="left")
         self.lbl_terms.pack(anchor="w", pady=(5, 0))
-        tk.Button(f_terms, text="DÜZENLE", font=("Segoe UI", 9), command=self.edit_terms, bg="#cbd5e1", relief="flat").pack(anchor="e")
+        tk.Button(f_terms, text="✏️ DÜZENLE", font=("Segoe UI", 9, "bold"), command=self.edit_terms, bg="#e2e8f0", fg="#475569", relief="flat", cursor="hand2", padx=10, pady=2).pack(anchor="e", pady=(10,0))
 
         f_year = tk.Frame(self.content_frame, bg="white", pady=5)
         f_year.pack(fill="x")
@@ -999,30 +1244,23 @@ class DepotCard(tk.Frame):
         self.cmb_yil.pack(side="left", padx=10)
         self.cmb_yil.bind("<<ComboboxSelected>>", self.verileri_guncelle)
 
-        tk.Frame(self.content_frame, height=1, bg="#e2e8f0").pack(fill="x", pady=10)
+        tk.Frame(self.content_frame, height=1, bg="#e2e8f0").pack(fill="x", pady=15)
 
-        self.row1_frame = tk.Frame(self.content_frame, bg="white")
-        self.row1_frame.pack(fill="x", pady=4)
-        self.lbl_row1_title = tk.Label(self.row1_frame, text="Yükleniyor...", font=("Segoe UI", 11), bg="white", fg="#475569")
-        self.lbl_row1_title.pack(side="left")
-        self.lbl_row1_val = tk.Label(self.row1_frame, text="0.00 ₺", font=("Segoe UI", 11), bg="white", fg="#3b82f6")
-        self.lbl_row1_val.pack(side="right")
+        # İstatistik Satırları
+        def satir_olustur(parent, font_title, font_val, color_val):
+            f = tk.Frame(parent, bg="white")
+            f.pack(fill="x", pady=4)
+            lt = tk.Label(f, text="", font=font_title, bg="white", fg="#475569")
+            lt.pack(side="left")
+            lv = tk.Label(f, text="", font=font_val, bg="white", fg=color_val)
+            lv.pack(side="right")
+            return lt, lv
 
-        self.row2_frame = tk.Frame(self.content_frame, bg="white")
-        self.row2_frame.pack(fill="x", pady=4)
-        self.lbl_row2_title = tk.Label(self.row2_frame, text="Yükleniyor...", font=("Segoe UI", 11), bg="white", fg="#475569")
-        self.lbl_row2_title.pack(side="left")
-        self.lbl_row2_val = tk.Label(self.row2_frame, text="0.00 ₺", font=("Segoe UI", 11), bg="white", fg="#f59e0b")
-        self.lbl_row2_val.pack(side="right")
+        self.lbl_row1_title, self.lbl_row1_val = satir_olustur(self.content_frame, ("Segoe UI", 11), ("Segoe UI", 11, "bold"), "#3b82f6")
+        self.lbl_row2_title, self.lbl_row2_val = satir_olustur(self.content_frame, ("Segoe UI", 11), ("Segoe UI", 11, "bold"), "#f59e0b")
+        self.lbl_total_title, self.lbl_total_val = satir_olustur(self.content_frame, ("Segoe UI", 11, "bold"), ("Segoe UI", 13, "bold"), "#0f172a")
 
-        self.row3_frame = tk.Frame(self.content_frame, bg="white")
-        self.row3_frame.pack(fill="x", pady=4)
-        self.lbl_total_title = tk.Label(self.row3_frame, text="GENEL TOPLAM:", font=("Segoe UI", 11, "bold"), bg="white", fg="#0f172a")
-        self.lbl_total_title.pack(side="left")
-        self.lbl_total_val = tk.Label(self.row3_frame, text="0.00 ₺", font=("Segoe UI", 11, "bold"), bg="white", fg="#0f172a")
-        self.lbl_total_val.pack(side="right")
-
-        tk.Frame(self.content_frame, height=2, bg="#e2e8f0").pack(fill="x", pady=20)
+        tk.Frame(self.content_frame, height=1, bg="#e2e8f0").pack(fill="x", pady=20)
         
         f_debt = tk.Frame(self.content_frame, bg="white")
         f_debt.pack(fill="x")
@@ -1085,10 +1323,10 @@ class DepotCard(tk.Frame):
     def toggle(self, event=None):
         if self.is_expanded:
             self.content_frame.forget()
-            self.lbl_icon.config(text="▶")
+            self.lbl_icon.config(text="❯")
         else:
             self.content_frame.pack(fill="x")
-            self.lbl_icon.config(text="▼")
+            self.lbl_icon.config(text="˅")
         self.is_expanded = not self.is_expanded
 
     def edit_terms(self):
@@ -1146,7 +1384,7 @@ class DepotCard(tk.Frame):
             try:
                 self.imlec.execute("INSERT OR REPLACE INTO depo_ayarlari (fatura_adi, anlasma_sarti) VALUES (?, ?)", 
                                    (self.depo_adi, yeni_metin))
-                self.baglanti_skt.commit()
+                self.baglanti.commit()
                 
                 self.anlasma_metni = yeni_metin
                 self.lbl_terms.config(text=yeni_metin)
@@ -1365,12 +1603,29 @@ class EczaneAsistani:
             try: self.otomatik_kontrol_dongusu()
             except: pass
             
-            # YENİ: Ağ bekçisini başlat
-            try: self.ag_ve_senkronizasyon_bekcisi()
+            # YENİ: Global Barkod ve Çapraz Satış Dinleyicisini Başlat
+            try: self.global_barkod_dinleyici_baslat()
             except: pass
 
         # Veri doldurma işlemini iskelet çizildikten 100 milisaniye sonraya bırakıyoruz
         self.pencere.after(100, verileri_ve_ozeti_yukle)
+
+        # GİZLİ ADMİN PANELİ KISAYOLU (Ctrl + Alt + Shift + P)
+        self.pencere.bind("<Control-Alt-Shift-P>", self._admin_sifre_sor)
+
+    def popup_scroll_kalkan(self, widget):
+        """Pop-up içindeki kaydırmanın arkaya (ana sayfaya) sızmasını kesin olarak engeller."""
+        def _scroll_yap(event):
+            if event.num == 5 or event.delta < 0:
+                widget.yview_scroll(1, "units")
+            elif event.num == 4 or event.delta > 0:
+                widget.yview_scroll(-1, "units")
+            return "break"  # BÜTÜN SIR BURADA! (Sinyali keser, arkaya iletmez)
+
+        # bind_all DEĞİL, sadece o anki pop-up widget'ına bağlıyoruz
+        widget.bind("<MouseWheel>", _scroll_yap)
+        widget.bind("<Button-4>", _scroll_yap)
+        widget.bind("<Button-5>", _scroll_yap)
 
     # =========================================================================
     # MODERN EKSİK / SİPARİŞ SEPETİ (OTO-KOPYALA YAKALAYICI EKLENDİ)
@@ -1431,13 +1686,17 @@ class EczaneAsistani:
         btn_close.pack(side="right", padx=10)
         btn_close.bind("<Button-1>", lambda e: kapat())
 
+        # Küçültme (Minimize) Butonu
+        btn_min = tk.Label(header, text="➖", font=("Segoe UI", 12, "bold"), bg=c.get_color("header_bg"), fg="white", cursor="hand2")
+        btn_min.pack(side="right", padx=5)
+
         # =====================================================================
         # YENİ ÖZELLİK: OTO-KOPYALA YAKALAYICI (PANODAN OTOMATİK ÇEKME)
         # =====================================================================
         self.oto_yakala_aktif = False
         self.son_pano_verisi = ""
         
-        lbl_oto = tk.Label(header, text="🧲 KAPALI", font=("Segoe UI", 8, "bold"), bg=c.get_color("header_bg"), fg="#94a3b8", cursor="hand2")
+        lbl_oto = tk.Label(header, text="🧲", font=("Segoe UI", 8, "bold"), bg=c.get_color("header_bg"), fg="#94a3b8", cursor="hand2")
         lbl_oto.pack(side="right", padx=(0, 5))
         
         def oto_dinleyici():
@@ -1480,7 +1739,7 @@ class EczaneAsistani:
         def toggle_oto(e=None):
             self.oto_yakala_aktif = not self.oto_yakala_aktif
             if self.oto_yakala_aktif:
-                lbl_oto.config(fg="#10b981", text="🧲 AÇIK")
+                lbl_oto.config(fg="#10b981", text="🧲")
                 try: 
                     # Açıldığı andaki panoyu hafızaya al ki eskiyi eklemesin
                     self.son_pano_verisi = self.pencere.clipboard_get().strip()
@@ -1489,7 +1748,7 @@ class EczaneAsistani:
                 oto_dinleyici() # Dinlemeyi başlat
                 self.goster_bildirim("Oto-Ekle Aktif", "Herhangi bir yerden metin kopyaladığınızda otomatik sepete eklenecek.")
             else:
-                lbl_oto.config(fg="#94a3b8", text="🧲 KAPALI")
+                lbl_oto.config(fg="#94a3b8", text="🧲")
         
         lbl_oto.bind("<Button-1>", toggle_oto)
         # =====================================================================
@@ -1511,15 +1770,36 @@ class EczaneAsistani:
         except: pass
         self.eksik_sayfa = 0
 
+        # --- GÖVDE KONTEYNERİ (KÜÇÜLT/BÜYÜT İÇİN EKLENDİ) ---
+        body_frame = tk.Frame(self.eksik_penceresi, bg=c.get_color("bg_main"))
+        body_frame.pack(fill="both", expand=True)
+
+        def toggle_collapse_eksik(e=None):
+            if getattr(self.eksik_penceresi, "is_collapsed", False):
+                body_frame.pack(fill="both", expand=True)
+                self.eksik_penceresi.geometry("360x640")
+                self.eksik_penceresi.is_collapsed = False
+                btn_min.config(text="➖")
+            else:
+                body_frame.pack_forget()
+                self.eksik_penceresi.geometry("360x48") # Yükseklik 48'e çıkarıldı, yazılar tam sığacak
+                self.eksik_penceresi.is_collapsed = True
+                btn_min.config(text="🗖")
+
+        # Hem eksi (-) butonuna hem de başlığa çift tıklama özelliği veriyoruz
+        btn_min.bind("<Button-1>", toggle_collapse_eksik)
+        lbl_title.bind("<Double-Button-1>", toggle_collapse_eksik) 
+        header.bind("<Double-Button-1>", toggle_collapse_eksik)
+
         # --- TABLO BAŞLIKLARI ---
-        f_titles = tk.Frame(self.eksik_penceresi, bg=c.get_color("bg_main"), pady=5)
+        f_titles = tk.Frame(body_frame, bg=c.get_color("bg_main"), pady=5)
         f_titles.pack(fill="x")
         tk.Label(f_titles, text="No", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left", padx=(10, 5))
         tk.Label(f_titles, text="İlaç / Ürün Adı", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left", padx=5)
         tk.Label(f_titles, text="Miktar", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="right", padx=35) 
 
         # --- ALT KONTROLLER (Önce Pack Ediyoruz ki Taşmasın) ---
-        f_bot = tk.Frame(self.eksik_penceresi, bg=c.get_color("bg_main"), pady=10, padx=10)
+        f_bot = tk.Frame(body_frame, bg=c.get_color("bg_main"), pady=10, padx=10)
         f_bot.pack(side="bottom", fill="x")
 
         # Sayfalama Butonlarını Tanımlama
@@ -1536,7 +1816,7 @@ class EczaneAsistani:
         btn_next.pack(side="right")
 
         # --- İÇERİK ALANI ---
-        content = tk.Frame(self.eksik_penceresi, bg=c.get_color("card_bg"), padx=5, pady=5)
+        content = tk.Frame(body_frame, bg=c.get_color("card_bg"), padx=5, pady=5)
         content.pack(side="top", fill="both", expand=True)
 
         self.eksik_satirlari = []
@@ -1677,30 +1957,357 @@ class EczaneAsistani:
                 render_page()
                 self.eksik_kaydet()
 
-        ModernButton(f_bot, text="📋 SİPARİŞ LİSTESİNİ KOPYALA", command=kopyala_ve_temizle, bg_color=c.get_color("btn_primary"), width=300, height=38).pack(anchor="center", pady=(5,0))
+        tk.Button(f_bot, text="📋 SİPARİŞ LİSTESİNİ KOPYALA", command=kopyala_ve_temizle, bg=c.get_color("btn_primary"), fg="white", font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", width=40, pady=8).pack(anchor="center", pady=(5,0))
 
         render_page()
 
-    def eksik_kaydet_delayed(self):
-        if hasattr(self, '_eksik_timer'):
-            self.pencere.after_cancel(self._eksik_timer)
-        self._eksik_timer = self.pencere.after(500, self.eksik_kaydet)
-
     def eksik_kaydet(self):
+        """Eksik sipariş sepetini veritabanına kaydeder."""
         if hasattr(self, 'eksik_listesi'):
-            temp = list(self.eksik_listesi)
-            
-            # En alttaki tamamen boş bırakılan satırları temizle
-            while temp and not temp[-1].get("ad", "").strip() and not temp[-1].get("adet", "").strip():
-                temp.pop()
-                
-            # Veritabanı için İlaç ve Adet arasına "|" koy
-            metin = "\n".join([f'{item.get("ad", "")}|{item.get("adet", "")}' for item in temp])
+            temp_liste = list(self.eksik_listesi)
+            while temp_liste and not temp_liste[-1].get("ad", "").strip() and not temp_liste[-1].get("adet", "").strip():
+                temp_liste.pop()
+
+            satirlar = []
+            for item in temp_liste:
+                ad = item.get("ad", "").strip()
+                adet = item.get("adet", "").strip()
+                satirlar.append(f"{ad}|{adet}")
+
+            metin = "\n".join(satirlar)
             try:
                 self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('eksik_sepeti', ?)", (metin,))
                 self.baglanti_skt.commit()
             except Exception as e:
-                print("Sepet kaydetme hatası:", e)  
+                print("Eksik sepeti kaydetme hatası:", e)
+
+    def eksik_kaydet_delayed(self):
+        """Yazı yazarken programı dondurmamak için kaydetme işlemini yarım saniye geciktirir."""
+        if hasattr(self, '_eksik_timer'):
+            self.pencere.after_cancel(self._eksik_timer)
+        self._eksik_timer = self.pencere.after(500, self.eksik_kaydet)
+
+    def toggle_recete_eksikleri(self):
+        c = TM  
+        db_key = "recete_eksikleri"
+        
+        # Açıksa kaydet ve kapat
+        if hasattr(self, 'recete_eksik_win') and self.recete_eksik_win.winfo_exists():
+            self.recete_eksik_kaydet()
+            self.re_oto_yakala_aktif = False
+            self.recete_eksik_win.destroy()
+            return
+
+        win = tk.Toplevel(self.pencere)
+        self.recete_eksik_win = win
+        win.overrideredirect(True) 
+        win.attributes("-topmost", True) 
+        
+        # Pencere boyutları
+        win.geometry("550x720")
+        win.configure(bg=c.get_color("card_bg"), highlightthickness=2, highlightbackground=c.get_color("border"))
+        
+        # Ekranda sağ üste konumlandır
+        x = self.pencere.winfo_rootx() + self.pencere.winfo_width() - 570
+        y = self.pencere.winfo_rooty() + 60
+        win.geometry(f"+{x}+{y}")
+
+        # --- SÜRÜKLE BIRAK MANTIĞI ---
+        def start_move(event):
+            win._drag_start_x = event.x
+            win._drag_start_y = event.y
+            return "break"
+            
+        def do_move(event):
+            nx = win.winfo_x() - win._drag_start_x + event.x
+            ny = win.winfo_y() - win._drag_start_y + event.y
+            win.geometry(f"+{nx}+{ny}")
+            return "break"
+
+        # --- ÜST BAŞLIK (HEADER) ---
+        header_bg = "#8b5cf6" # Pastel Mor
+        header = tk.Frame(win, bg=header_bg, cursor="fleur", pady=10)
+        header.pack(fill="x")
+        header.bind("<Button-1>", start_move)
+        header.bind("<B1-Motion>", do_move)
+
+        lbl_title = tk.Label(header, text="🔖 REÇETE EKSİKLERİ (Tevzi)", font=("Segoe UI", 11, "bold"), bg=header_bg, fg="white", cursor="fleur")
+        lbl_title.pack(side="left", padx=15)
+        lbl_title.bind("<Button-1>", start_move)
+        lbl_title.bind("<B1-Motion>", do_move)
+
+        def kapat():
+            self.recete_eksik_kaydet()
+            self.aktif_miknatis_re.set("KAPALI") 
+            win.destroy()
+
+        btn_close = tk.Label(header, text="✖", font=("Segoe UI", 12, "bold"), bg=header_bg, fg="white", cursor="hand2")
+        btn_close.pack(side="right", padx=15)
+        btn_close.bind("<Button-1>", lambda e: kapat())
+
+        # KÜÇÜLTME (MINIMIZE) BUTONU
+        btn_min = tk.Label(header, text="➖", font=("Segoe UI", 12, "bold"), bg=header_bg, fg="white", cursor="hand2")
+        btn_min.pack(side="right", padx=5)
+
+        # =========================================================
+        # KÜÇÜLT/BÜYÜT (COLLAPSE) İŞLEVİ VE ANA GÖVDE
+        # =========================================================
+        body_frame = tk.Frame(win, bg=c.get_color("bg_main"))
+        body_frame.pack(fill="both", expand=True)
+
+        def toggle_collapse(e=None):
+            if getattr(win, "is_collapsed", False):
+                body_frame.pack(fill="both", expand=True)
+                win.geometry("550x720")
+                win.is_collapsed = False
+                btn_min.config(text="➖")
+            else:
+                body_frame.pack_forget()
+                win.geometry("550x45") # Sadece başlık kalacak kadar daraltır
+                win.is_collapsed = True
+                btn_min.config(text="🗖")
+
+        btn_min.bind("<Button-1>", toggle_collapse)
+        lbl_title.bind("<Double-Button-1>", toggle_collapse)
+        header.bind("<Double-Button-1>", toggle_collapse)
+
+        # =========================================================
+        # 🧲 SEÇMELİ MIKNATIS ALTYAPISI
+        # =========================================================
+        self.aktif_miknatis_re = tk.StringVar(value="KAPALI")
+        self.re_son_pano_verisi = ""
+
+        def miknatis_buton_guncelle():
+            hedef = self.aktif_miknatis_re.get()
+            btn_mik_hasta.config(bg="#10b981" if hedef == "HASTA" else "#cbd5e1", text="🧲 AÇIK" if hedef == "HASTA" else "🧲")
+            btn_mik_ilac.config(bg="#10b981" if hedef == "ILAC" else "#cbd5e1", text="🧲 AÇIK" if hedef == "ILAC" else "🧲")
+            btn_mik_tel.config(bg="#10b981" if hedef == "TEL" else "#cbd5e1", text="🧲 AÇIK" if hedef == "TEL" else "🧲")
+
+        def miknatis_set(hedef):
+            if self.aktif_miknatis_re.get() == hedef:
+                self.aktif_miknatis_re.set("KAPALI")
+            else:
+                self.aktif_miknatis_re.set(hedef)
+            miknatis_buton_guncelle()
+
+        def miknatis_dinleyici():
+            if not hasattr(self, 'recete_eksik_win') or not self.recete_eksik_win.winfo_exists(): return
+            
+            hedef = self.aktif_miknatis_re.get()
+            if hedef != "KAPALI":
+                try:
+                    pano = self.pencere.clipboard_get().strip()
+                    if pano and pano != self.re_son_pano_verisi:
+                        self.re_son_pano_verisi = pano
+                        
+                        if hedef == "HASTA":
+                            ent_hasta.delete(0, tk.END)
+                            ent_hasta.insert(0, pano)
+                            self.aktif_miknatis_re.set("KAPALI")
+                            miknatis_buton_guncelle()
+                            ent_ilac.focus_set() # İsmi alınca İlaca atla
+                            
+                        elif hedef == "ILAC":
+                            temiz_ilac = " - ".join([s.strip() for s in pano.splitlines() if s.strip()])
+                            ent_ilac.delete(0, tk.END)
+                            ent_ilac.insert(0, temiz_ilac)
+                            self.aktif_miknatis_re.set("KAPALI")
+                            miknatis_buton_guncelle()
+                            ent_tel.focus_set() # İlacı alınca Telefona atla
+                            
+                        elif hedef == "TEL":
+                            ent_tel.delete(0, tk.END)
+                            ent_tel.insert(0, pano)
+                            self.aktif_miknatis_re.set("KAPALI")
+                            miknatis_buton_guncelle()
+                            
+                        self.recete_eksik_win.lift()
+                except:
+                    pass
+            self.recete_eksik_win.after(800, miknatis_dinleyici)
+
+        miknatis_dinleyici()
+
+        # --- VERİLERİ YÜKLE ---
+        if not hasattr(self, 'recete_eksik_datalari'):
+            self.recete_eksik_datalari = []
+            
+        self.recete_eksik_datalari.clear()
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar=?", (db_key,))
+            res = self.imlec.fetchone()
+            if res and res[0]:
+                for satir in res[0].split('\n'):
+                    if not satir.strip(): continue
+                    parts = satir.split("|")
+                    hasta = parts[0].strip() if len(parts) > 0 else ""
+                    tel = parts[1].strip() if len(parts) > 1 else ""
+                    ilac = parts[2].strip() if len(parts) > 2 else ""
+                    tarih = parts[3].strip() if len(parts) > 3 else ""
+                    self.recete_eksik_datalari.append({"hasta": hasta, "tel": tel, "ilac": ilac, "tarih": tarih})
+        except: pass
+
+        # --- GİRİŞ FORMU ---
+        f_form = tk.Frame(body_frame, bg="white", padx=15, pady=15)
+        f_form.pack(fill="x")
+
+        lbl_s = {"bg": "white", "fg": "#64748b", "font": ("Segoe UI", 9, "bold")}
+        ent_s = {"font": ("Segoe UI", 10, "bold"), "bg": "#f8fafc", "relief": "solid", "bd": 1}
+
+        # 1. HASTA ADI
+        f_h = tk.Frame(f_form, bg="white")
+        f_h.pack(fill="x", pady=(2, 10))
+        tk.Label(f_h, text="Hasta Adı Soyadı:", **lbl_s).pack(side="left")
+        btn_mik_hasta = tk.Button(f_h, text="🧲", font=("Segoe UI", 8, "bold"), fg="white", bg="#cbd5e1", relief="flat", cursor="hand2", command=lambda: miknatis_set("HASTA"))
+        btn_mik_hasta.pack(side="right")
+        ent_hasta = tk.Entry(f_form, fg="#0f172a", **ent_s)
+        ent_hasta.pack(fill="x", ipady=4)
+
+        # 2. İLAÇ 
+        f_i = tk.Frame(f_form, bg="white")
+        f_i.pack(fill="x", pady=(10, 2))
+        tk.Label(f_i, text="Eksik Kalan İlaçlar:", **lbl_s).pack(side="left")
+        btn_mik_ilac = tk.Button(f_i, text="🧲", font=("Segoe UI", 8, "bold"), fg="white", bg="#cbd5e1", relief="flat", cursor="hand2", command=lambda: miknatis_set("ILAC"))
+        btn_mik_ilac.pack(side="right")
+        ent_ilac = tk.Entry(f_form, fg="#b45309", bg="#fffbeb", font=("Segoe UI", 11, "bold"), relief="solid", bd=1)
+        ent_ilac.pack(fill="x", ipady=5)
+
+        # 3. TELEFON (İsteğe Bağlı)
+        f_t = tk.Frame(f_form, bg="white")
+        f_t.pack(fill="x", pady=(10, 2))
+        tk.Label(f_t, text="Telefon (İsteğe Bağlı):", **lbl_s).pack(side="left")
+        btn_mik_tel = tk.Button(f_t, text="🧲", font=("Segoe UI", 8, "bold"), fg="white", bg="#cbd5e1", relief="flat", cursor="hand2", command=lambda: miknatis_set("TEL"))
+        btn_mik_tel.pack(side="right")
+        ent_tel = tk.Entry(f_form, fg="#2563eb", **ent_s)
+        ent_tel.pack(fill="x", ipady=4)
+
+        def eksi_ekle(e=None):
+            h = ent_hasta.get().strip()
+            i = ent_ilac.get().strip()
+            t = ent_tel.get().strip()
+            
+            if not h or not i:
+                messagebox.showwarning("Eksik", "Lütfen Hasta Adı ve İlaç alanlarını doldurun.", parent=win)
+                return
+                
+            bugun = date.today().strftime("%d.%m.%Y")
+            self.recete_eksik_datalari.insert(0, {"hasta": h, "tel": t, "ilac": i, "tarih": bugun})
+            
+            ent_hasta.delete(0, tk.END)
+            ent_ilac.delete(0, tk.END)
+            ent_tel.delete(0, tk.END)
+            
+            ent_hasta.focus_set()
+            self.recete_eksik_kaydet()
+            listeyi_guncelle()
+
+        tk.Button(f_form, text="➕ LİSTEYE EKLE (Enter)", command=eksi_ekle, font=("Segoe UI", 10, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=5).pack(fill="x", pady=(15,0))
+        
+        # Enter akışı güncellendi
+        ent_hasta.bind("<Return>", lambda e: ent_ilac.focus_set())
+        ent_ilac.bind("<Return>", lambda e: ent_tel.focus_set())
+        ent_tel.bind("<Return>", eksi_ekle)
+
+        # --- LİSTE ALANI (TREEVIEW) ---
+        f_liste = tk.Frame(body_frame, bg="white", padx=10, pady=5)
+        f_liste.pack(fill="both", expand=True)
+        
+        f_liste_baslik = tk.Frame(f_liste, bg="white")
+        f_liste_baslik.pack(fill="x", pady=(5, 5))
+        
+        tk.Label(f_liste_baslik, text="Bekleyen Hastalar", font=("Segoe UI", 10, "bold"), bg="white", fg="#1e293b").pack(side="left")
+
+        # Tabloyu sığdırmak için yatay ve dikey kaydırma
+        f_tree_kapsayici = tk.Frame(f_liste)
+        f_tree_kapsayici.pack(fill="both", expand=True)
+
+        cols = ("SIL", "TARIH", "HASTA", "ILAC", "TELEFON")
+        tree = ttk.Treeview(f_tree_kapsayici, columns=cols, show="headings", height=10)
+        
+        sc_y = ttk.Scrollbar(f_tree_kapsayici, orient="vertical", command=tree.yview)
+        sc_y.pack(side="right", fill="y")
+        
+        sc_x = ttk.Scrollbar(f_tree_kapsayici, orient="horizontal", command=tree.xview)
+        sc_x.pack(side="bottom", fill="x")
+        
+        tree.configure(yscrollcommand=sc_y.set, xscrollcommand=sc_x.set)
+        tree.pack(side="left", fill="both", expand=True)
+
+        # Sütun Ayarları
+        tree.heading("SIL", text="Sil")
+        tree.column("SIL", width=40, anchor="center", stretch=False)
+        tree.heading("TARIH", text="Tarih")
+        tree.column("TARIH", width=75, anchor="center", stretch=False)
+        tree.heading("HASTA", text="Hasta Adı")
+        tree.column("HASTA", width=120)
+        tree.heading("ILAC", text="Beklenen İlaçlar")
+        tree.column("ILAC", width=250) 
+        tree.heading("TELEFON", text="Telefon")
+        tree.column("TELEFON", width=100, anchor="center") 
+
+        # Satır İçi Silme İşlemi (Tek Tek Silme)
+        def satir_tikla(event):
+            region = tree.identify("region", event.x, event.y)
+            if region == "cell":
+                col = tree.identify_column(event.x)
+                if col == "#1": # SIL sütununa tıklandıysa
+                    iid = tree.identify_row(event.y)
+                    if iid:
+                        idx = int(iid)
+                        hasta_adi = self.recete_eksik_datalari[idx]['hasta']
+                        if messagebox.askyesno("Kayıt Sil", f"'{hasta_adi}' adlı hastanın kaydını listeden silmek istiyor musunuz?", parent=win):
+                            del self.recete_eksik_datalari[idx]
+                            self.recete_eksik_kaydet()
+                            listeyi_guncelle()
+        
+        tree.bind("<Button-1>", satir_tikla)
+
+        def listeyi_guncelle():
+            tree.delete(*tree.get_children())
+            for idx, item in enumerate(self.recete_eksik_datalari):
+                # ✖ simgesi eklenerek listeleniyor
+                tree.insert("", "end", iid=str(idx), values=("✖", item["tarih"], item["hasta"], item["ilac"], item["tel"]))
+
+        listeyi_guncelle()
+
+        # --- ALT İŞLEM BUTONLARI ---
+        f_bot = tk.Frame(body_frame, bg="white", padx=15, pady=15)
+        f_bot.pack(side="bottom", fill="x")
+
+        def whatsapp_mesaji_kopyala():
+            sel = tree.selection()
+            if not sel:
+                messagebox.showwarning("Seçim Yok", "Lütfen mesaj göndermek için tablodan bir hastanın üzerine tıklayıp seçin.", parent=win)
+                return
+                
+            idx = int(sel[0])
+            veri = self.recete_eksik_datalari[idx]
+            
+            mesaj = f"Merhaba {veri['hasta']},\nEczanemize bıraktığınız '{veri['ilac']}' adlı ilacınız/ilaçlarınız temin edilmiştir. Müsait olduğunuzda eczanemizden teslim alabilirsiniz.\n\nSağlıklı günler dileriz. 🌸"
+            
+            self.pencere.clipboard_clear()
+            self.pencere.clipboard_append(mesaj)
+            
+            tel_bilgisi = f"\n\nKayıtlı Telefon: {veri['tel']}" if veri['tel'] else ""
+            messagebox.showinfo("Kopyalandı", f"Mesaj başarıyla panoya kopyalandı! WhatsApp Web üzerinden hastaya gönderebilirsiniz.{tel_bilgisi}", parent=win)
+
+        btn_style = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "pady": 10}
+        
+        tk.Button(f_bot, text="📱 WHATSAPP MESAJI OLUŞTUR", command=whatsapp_mesaji_kopyala, bg="#10b981", fg="white", activebackground="#059669", activeforeground="white", **btn_style).pack(fill="x", expand=True)
+
+    def recete_eksik_kaydet(self):
+        """Reçete eksikleri listesini veritabanına kaydeder."""
+        if hasattr(self, 'recete_eksik_datalari'):
+            satirlar = []
+            for d in self.recete_eksik_datalari:
+                satirlar.append(f"{d['hasta']}|{d['tel']}|{d['ilac']}|{d['tarih']}")
+                
+            metin = "\n".join(satirlar)
+            try:
+                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('recete_eksikleri', ?)", (metin,))
+                self.baglanti_skt.commit()
+            except Exception as e:
+                print("Reçete eksiği kaydetme hatası:", e)
 
     # =========================================================================
     # VERESİYE VE EMANET SEPETİ MOTORU (KAYMA SORUNU ÇÖZÜLDÜ, X BUTONU SABİTLENDİ, KOPYALA EKLENDİ)
@@ -1764,6 +2371,9 @@ class EczaneAsistani:
         btn_close.pack(side="right", padx=10)
         btn_close.bind("<Button-1>", lambda e: kapat())
 
+        btn_min = tk.Label(header, text="➖", font=("Segoe UI", 12, "bold"), bg=header_bg, fg="white", cursor="hand2")
+        btn_min.pack(side="right", padx=5)
+
         if not hasattr(self, 'ekstra_sepet_datalari'):
             self.ekstra_sepet_datalari = {}
         
@@ -1789,7 +2399,27 @@ class EczaneAsistani:
 
         setattr(self, f"sepet_sayfa_{tur.lower()}", 0)
 
-        f_titles = tk.Frame(win, bg=c.get_color("bg_main"), pady=5)
+        # --- GÖVDE KONTEYNERİ (KÜÇÜLT/BÜYÜT İÇİN EKLENDİ) ---
+        body_frame = tk.Frame(win, bg=c.get_color("bg_main"))
+        body_frame.pack(fill="both", expand=True)
+
+        def toggle_collapse_ekstra(e=None):
+            if getattr(win, "is_collapsed", False):
+                body_frame.pack(fill="both", expand=True)
+                win.geometry(f"{win_width}x640")
+                win.is_collapsed = False
+                btn_min.config(text="➖")
+            else:
+                body_frame.pack_forget()
+                win.geometry(f"{win_width}x48") # Yükseklik 48'e çıkarıldı
+                win.is_collapsed = True
+                btn_min.config(text="🗖")
+
+        btn_min.bind("<Button-1>", toggle_collapse_ekstra)
+        lbl_title.bind("<Double-Button-1>", toggle_collapse_ekstra)
+        header.bind("<Double-Button-1>", toggle_collapse_ekstra)
+
+        f_titles = tk.Frame(body_frame, bg=c.get_color("bg_main"), pady=5)
         f_titles.pack(fill="x")
         
         tk.Label(f_titles, text="No", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left", padx=(10, 5))
@@ -1804,7 +2434,7 @@ class EczaneAsistani:
             tk.Label(f_titles, text="Tutar", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="right", padx=(5, 15))
             tk.Label(f_titles, text="Müşteri / Açıklama", font=("Segoe UI", 9, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left", padx=5)
 
-        f_bot = tk.Frame(win, bg=c.get_color("bg_main"), pady=10, padx=10)
+        f_bot = tk.Frame(body_frame, bg=c.get_color("bg_main"), pady=10, padx=10)
         f_bot.pack(side="bottom", fill="x")
 
         f_page = tk.Frame(f_bot, bg=c.get_color("bg_main"))
@@ -1816,7 +2446,7 @@ class EczaneAsistani:
         btn_next = tk.Button(f_page, text="SONRAKİ ▶", bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), relief="solid", bd=1, cursor="hand2", padx=10, pady=2)
         btn_next.pack(side="right")
 
-        content = tk.Frame(win, bg=c.get_color("card_bg"), padx=5, pady=5)
+        content = tk.Frame(body_frame, bg=c.get_color("card_bg"), padx=5, pady=5)
         content.pack(side="top", fill="both", expand=True)
 
         satirlar = []
@@ -2021,347 +2651,20 @@ class EczaneAsistani:
             except Exception as e:
                 print(f"{tur} sepet kaydetme hatası:", e)              
 
-    import warnings
-    warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
-
-    def aylik_dokum_yukle(self, depo_adi):
-        if not PANDAS_VAR:
-            messagebox.showerror("Hata", "pandas kütüphanesi eksik.")
-            return
-
-        file_path = filedialog.askopenfilename(
-            title=f"{depo_adi} - Aylık Fatura Dökümü Seç (Excel/CSV)",
-            filetypes=[("Excel/CSV Dosyaları", "*.xlsx *.xls *.csv")]
-        )
-        if not file_path: return
-
-        try:
-            df = self.evrensel_dosya_oku(file_path)
-            if df.empty: return
-
-            def temizle_float(val):
-                if pd.isna(val): return 0.0
-                val = str(val).strip().upper().replace('TL', '').replace('₺', '').replace(' ', '')
-                if not val or val == 'NAN': return 0.0
-                if '.' in val and ',' in val:
-                    if val.rfind(',') > val.rfind('.'):
-                        val = val.replace('.', '').replace(',', '.')
-                    else:
-                        val = val.replace(',', '')
-                elif ',' in val:
-                    val = val.replace(',', '.')
-                try: return float(val)
-                except: return 0.0
-
-            def sutun_bul(arananlar):
-                for col in df.columns:
-                    norm_col = str(col).upper()
-                    mapping = {'İ': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C', ' ': ''}
-                    for k, v in mapping.items():
-                        norm_col = norm_col.replace(k, v)
-                    norm_col = norm_col.strip()
-                    for a in arananlar:
-                        if a in norm_col:
-                            return col
-                return None
-
-            c_haric  = sutun_bul(['VERGILERHARICTUTAR', 'VERGILERHARIC', 'HARICTUTAR', 'MATRAH'])
-            c_dahil  = sutun_bul(['VERGILERDAHILTUTAR', 'VERGILERDAHIL', 'DAHILTUTAR'])
-            c_toplam = sutun_bul(['FATURATOPLAMI', 'FATURATOPLAM', 'TOPLAM', 'TUTAR'])
-            c_tarih  = sutun_bul(['FATURATARIHI', 'TARIH', 'ISLEMTARIHI'])
-
-            # Fatura dönemini tespit et
-            fatura_donemi = date.today().strftime("%Y-%m")
-            if c_tarih and not df.empty:
-                try:
-                    tarihler = pd.to_datetime(df[c_tarih], dayfirst=True, errors='coerce').dropna()
-                    if not tarihler.empty:
-                        mod_val = tarihler.dt.strftime('%Y-%m').mode()
-                        if len(mod_val) > 0:
-                            fatura_donemi = str(mod_val.iloc[0])
-                except: pass
-
-            if not isinstance(fatura_donemi, str) or '-' not in str(fatura_donemi):
-                fatura_donemi = date.today().strftime("%Y-%m")
-
-            # KDV dilimi sözlüğü
-            kdv_sinif_toplam = {
-                1:  {'matrah': 0.0, 'kdv': 0.0, 'sayi': 0},
-                10: {'matrah': 0.0, 'kdv': 0.0, 'sayi': 0},
-                20: {'matrah': 0.0, 'kdv': 0.0, 'sayi': 0}
-            }
-            genel_toplam = 0.0
-
-            if c_haric and c_dahil:
-                for _, row in df.iterrows():
-                    haric = temizle_float(row[c_haric])
-                    dahil = temizle_float(row[c_dahil])
-                    kdv_t = dahil - haric
-
-                    if haric > 0:
-                        kdv_oran = (kdv_t / haric) * 100
-                    else:
-                        kdv_oran = 0.0
-
-                    if kdv_oran == 0:
-                        sinif = 1
-                    elif kdv_oran < 2.0:
-                        sinif = 1
-                    elif kdv_oran < 15.0:
-                        sinif = 10
-                    else:
-                        sinif = 20
-
-                    kdv_sinif_toplam[sinif]['matrah'] += haric
-                    kdv_sinif_toplam[sinif]['kdv']    += kdv_t
-                    kdv_sinif_toplam[sinif]['sayi']   += 1
-                    genel_toplam += dahil
-
-            elif c_toplam:
-                genel_toplam = df[c_toplam].apply(temizle_float).sum()
-
-            if genel_toplam == 0 and all(v['matrah'] == 0 for v in kdv_sinif_toplam.values()):
-                messagebox.showwarning("Uyarı", "Dosyada okunabilir KDV sütunları bulunamadı.\nLütfen formatı kontrol edin.")
-                return
-
-            self._kdv_ozet_popup(depo_adi, kdv_sinif_toplam, genel_toplam, fatura_donemi)
-
-        except Exception as e:
-            messagebox.showerror("Hata", f"Dosya işlenirken hata oluştu: {e}")
-
-    def _kdv_ozet_popup(self, depo_adi, kdv_sinif_toplam, genel_toplam, fatura_donemi):
-        top = tk.Toplevel(self.pencere)
-        top.title(f"{depo_adi} - Fatura KDV Özeti")
-        top.configure(bg="white")
-        top.transient(self.pencere)
-        top.grab_set()
-
-        # Ekran boyutuna göre pencere boyutu ayarla
-        ekran_y = top.winfo_screenheight()
-        pencere_h = min(750, ekran_y - 100)
-        pencere_w = 800
-        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - (pencere_w // 2)
-        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - (pencere_h // 2)
-        top.geometry(f"{pencere_w}x{pencere_h}+{x}+{y}")
-        top.resizable(True, True)
-
-        # ── SCROLL ALTYAPISI ──────────────────────────────────────────────────
-        canvas = tk.Canvas(top, bg="white", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        scrollbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
-
-        # Scroll edilecek ana çerçeve
-        ana = tk.Frame(canvas, bg="white")
-        ana_id = canvas.create_window((0, 0), window=ana, anchor="nw")
-
-        def on_configure(e):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def on_canvas_configure(e):
-            canvas.itemconfig(ana_id, width=e.width)
-
-        ana.bind("<Configure>", on_configure)
-        canvas.bind("<Configure>", on_canvas_configure)
-
-        # Mouse scroll
-        def on_mousewheel(e):
-            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
-        top.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
-
-        # ── İÇERİK ────────────────────────────────────────────────────────────
-        renk_map = {1: "#10b981", 10: "#3b82f6", 20: "#f59e0b"}
-        isim_map = {1: "%1 KDV", 10: "%10 KDV", 20: "%20 KDV"}
-
-        tk.Label(ana, text="📊 Aylık Fatura KDV Dökümü",
-                font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=20)
-
-        # ── ÖZET KART ─────────────────────────────────────────────────────────
-        f_ozet = tk.Frame(ana, bg="#f8fafc", bd=1, relief="solid", padx=20, pady=15)
-        f_ozet.pack(fill="x", padx=30, pady=(0, 10))
-
-        def satir_ekle(parent, sol, sag, renk="#0f172a", bold=False):
-            f = tk.Frame(parent, bg="#f8fafc")
-            f.pack(fill="x", pady=2)
-            font_w = "bold" if bold else "normal"
-            tk.Label(f, text=sol, font=("Segoe UI", 10, font_w),
-                    bg="#f8fafc", fg="#475569").pack(side="left")
-            tk.Label(f, text=sag, font=("Segoe UI", 10, "bold"),
-                    bg="#f8fafc", fg=renk).pack(side="right")
-
-        genel_kdv    = 0.0
-        genel_matrah = 0.0
-        for oran in [1, 10, 20]:
-            v = kdv_sinif_toplam[oran]
-            if v['matrah'] > 0 or v['kdv'] > 0:
-                satir_ekle(f_ozet,
-                        f"{isim_map[oran]} Matrahı ({v['sayi']} fatura):",
-                        f"{v['matrah']:,.2f} ₺", renk_map[oran])
-                satir_ekle(f_ozet,
-                        f"{isim_map[oran]} Tutarı:",
-                        f"{v['kdv']:,.2f} ₺", renk_map[oran])
-                satir_ekle(f_ozet,
-                        f"{isim_map[oran]} Dahil Toplam:",
-                        f"{v['matrah'] + v['kdv']:,.2f} ₺",
-                        renk_map[oran], bold=True)
-                tk.Frame(f_ozet, height=1, bg="#e2e8f0").pack(fill="x", pady=5)
-                genel_kdv    += v['kdv']
-                genel_matrah += v['matrah']
-
-        satir_ekle(f_ozet, "GENEL MATRAH:",
-                f"{genel_matrah:,.2f} ₺", "#0f172a", bold=True)
-        satir_ekle(f_ozet, "TOPLAM KDV:",
-                f"{genel_kdv:,.2f} ₺", "#ef4444", bold=True)
-        satir_ekle(f_ozet, "GENEL TOPLAM (KDV Dahil):",
-                f"{genel_toplam:,.2f} ₺", "#ef4444", bold=True)
-
-        # ── AKORDİYON ─────────────────────────────────────────────────────────
-        tk.Label(ana, text="KDV Dilimi Detayları (başlığa tıklayın):",
-                font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(
-                anchor="w", padx=30, pady=(5, 3))
-
-        f_akordion = tk.Frame(ana, bg="white")
-        f_akordion.pack(fill="x", padx=30, pady=(0, 5))
-
-        def akordion_olustur(oran):
-            v = kdv_sinif_toplam[oran]
-            if v['matrah'] == 0 and v['kdv'] == 0:
-                return
-
-            renk = renk_map[oran]
-            acik = tk.BooleanVar(value=False)
-
-            f_baslik = tk.Frame(f_akordion, bg=renk, cursor="hand2")
-            f_baslik.pack(fill="x", pady=2)
-
-            lbl_ok = tk.Label(f_baslik, text="▶",
-                            font=("Segoe UI", 10, "bold"),
-                            bg=renk, fg="white", cursor="hand2", width=3)
-            lbl_ok.pack(side="left", padx=(8, 4), pady=8)
-
-            tk.Label(f_baslik,
-                    text=f"{isim_map[oran]}  —  "
-                        f"Matrah: {v['matrah']:,.2f} ₺  |  "
-                        f"KDV: {v['kdv']:,.2f} ₺  |  "
-                        f"Toplam: {v['matrah'] + v['kdv']:,.2f} ₺",
-                    font=("Segoe UI", 10, "bold"),
-                    bg=renk, fg="white", cursor="hand2").pack(side="left", pady=8)
-
-            ic_bg = "#f0fdf4" if oran == 1 else "#eff6ff" if oran == 10 else "#fffbeb"
-            f_ic = tk.Frame(f_akordion, bg=ic_bg, padx=18, pady=10,
-                            highlightbackground=renk, highlightthickness=1)
-
-            def ic_satir(sol, sag, renk_val="#0f172a"):
-                ff = tk.Frame(f_ic, bg=ic_bg)
-                ff.pack(fill="x", pady=3)
-                tk.Label(ff, text=sol, font=("Segoe UI", 10),
-                        bg=ic_bg, fg="#475569").pack(side="left")
-                tk.Label(ff, text=sag, font=("Segoe UI", 10, "bold"),
-                        bg=ic_bg, fg=renk_val).pack(side="right")
-
-            ic_satir("Fatura Adedi:", f"{v['sayi']} adet")
-            ic_satir("KDV Matrahı (Vergiler Hariç):",
-                    f"{v['matrah']:,.2f} ₺", renk)
-            ic_satir(f"KDV Tutarı ({isim_map[oran]}):",
-                    f"{v['kdv']:,.2f} ₺", "#ef4444")
-            ic_satir("KDV Dahil Tutar:",
-                    f"{v['matrah'] + v['kdv']:,.2f} ₺", renk)
-
-            def toggle(ic=f_ic, ok=lbl_ok, var=acik):
-                if var.get():
-                    ic.pack_forget()
-                    ok.config(text="▶")
-                    var.set(False)
-                else:
-                    ic.pack(fill="x", pady=(0, 3))
-                    ok.config(text="▼")
-                    var.set(True)
-
-            for w in [f_baslik, lbl_ok] + list(f_baslik.winfo_children()):
-                w.bind("<Button-1>", lambda e, t=toggle: t())
-
-        for oran in [1, 10, 20]:
-            akordion_olustur(oran)
-
-        # ── KAYIT FORMU ───────────────────────────────────────────────────────
-        f_form = tk.Frame(ana, bg="white", padx=30)
-        f_form.pack(fill="x", pady=(10, 0))
-
-        tk.Label(f_form, text="Alım Dönemi (YIL-AY):",
-                font=("Segoe UI", 9, "bold"), bg="white", fg="#10b981").pack(
-                anchor="w", pady=(5, 0))
-        ent_alim = tk.Entry(f_form, font=("Segoe UI", 11, "bold"),
-                            relief="solid", bd=1, bg="#f1f5f9", fg="#10b981")
-        ent_alim.pack(fill="x", pady=4, ipady=4)
-        ent_alim.insert(0, str(fatura_donemi))
-
-        tk.Label(f_form, text="Ödeme (Vade) Dönemi (YIL-AY):",
-                font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(
-                anchor="w", pady=(5, 0))
-        ent_vade = tk.Entry(f_form, font=("Segoe UI", 11),
-                            relief="solid", bd=1, bg="#f1f5f9")
-        ent_vade.pack(fill="x", pady=4, ipady=4)
-        try:
-            yil, ay = map(int, str(fatura_donemi).split('-'))
-            vade_dt = date(yil, ay, 1) + timedelta(days=90)
-            ent_vade.insert(0, vade_dt.strftime("%Y-%m"))
-        except:
-            ent_vade.insert(0, (date.today() + timedelta(days=90)).strftime("%Y-%m"))
-
-        def kaydet():
-            alim = ent_alim.get().strip()
-            if len(alim) == 7: alim += "-01"
-            vade = ent_vade.get().strip()
-            if len(vade) == 7: vade += "-01"
-
-            eklenen = 0
-            ozet_satirlari = []
-            for oran in [1, 10, 20]:
-                v = kdv_sinif_toplam[oran]
-                kdv_dahil = v['matrah'] + v['kdv']
-                if kdv_dahil > 0:
-                    not_metni = (
-                        f"[KDV_DETAY]"
-                        f"{isim_map[oran]} Matrah:{v['matrah']:.2f}|"
-                        f"{isim_map[oran]} KDV:{v['kdv']:.2f}|"
-                        f"{isim_map[oran]} Toplam:{kdv_dahil:.2f}"
-                    )
-                    self.imlec_finans.execute(
-                        "INSERT INTO odemeler "
-                        "(fatura_adi, vade_tarihi, tutar, aciklama, durum, alim_tarihi, satir_notu) "
-                        "VALUES (?, ?, ?, ?, 'ODENMEDİ', ?, ?)",
-                        (depo_adi, vade, kdv_dahil,
-                        f"[EXCEL DÖKÜM {isim_map[oran]}]", alim, not_metni)
-                    )
-                    eklenen += 1
-                    ozet_satirlari.append(
-                        f"• {isim_map[oran]} Toplam: {kdv_dahil:,.2f} ₺"
-                        f"  (KDV: {v['kdv']:,.2f} ₺)"
-                    )
-
-            self.baglanti_finans.commit()
-            messagebox.showinfo(
-                "Başarılı",
-                f"Dönem: {fatura_donemi}\n"
-                f"{eklenen} adet KDV dilimi sisteme işlendi.\n\n"
-                + "\n".join(ozet_satirlari),
-                parent=top
-            )
-            top.destroy()
-            self.sekmeleri_guncelle(hedef_sekme_adi=depo_adi)
-
-        ModernButton(ana, text="ONAYLA VE SİSTEME KAYDET",
-                    command=kaydet, bg_color="#10b981", width=280, height=45).pack(pady=15)
-
     # --- VERİTABANI KURULUM FONKSİYONLARI ---
     def veritabani_kur_skt(self):
         self.imlec.execute("""CREATE TABLE IF NOT EXISTS ilaclar (id INTEGER PRIMARY KEY AUTOINCREMENT, barkod TEXT, ad TEXT, parti_no TEXT, seri_no TEXT, adet INTEGER, skt TEXT, raf_yeri TEXT, kayit_tarihi TEXT, yukleme_id INTEGER)""")
         self.imlec.execute("""CREATE TABLE IF NOT EXISTS ilac_kartlari (gtin TEXT PRIMARY KEY, ad TEXT, guncelleme_tarihi TEXT)""")
         self.imlec.execute("CREATE TABLE IF NOT EXISTS ayarlar (anahtar TEXT PRIMARY KEY, deger TEXT)")
+        
+        # INDEXLER (ARAMA HIZLANDIRICILAR - HİZALAMASI DÜZELTİLDİ)
+        self.imlec.execute("CREATE INDEX IF NOT EXISTS idx_barkod ON ilaclar (barkod)")
+        self.imlec.execute("CREATE INDEX IF NOT EXISTS idx_skt ON ilaclar (skt)")
+        self.imlec.execute("CREATE INDEX IF NOT EXISTS idx_raf ON ilaclar (raf_yeri)")
+        
         self.imlec.execute("CREATE TABLE IF NOT EXISTS kayitli_listeler (id INTEGER PRIMARY KEY AUTOINCREMENT, liste_adi TEXT, icerik TEXT, tarih TEXT)")
+        self.imlec.execute("""CREATE TABLE IF NOT EXISTS bilgi_bankasi 
+                   (id INTEGER PRIMARY KEY AUTOINCREMENT, kategori TEXT, baslik TEXT, icerik TEXT, tarih TEXT)""")
         
         defaults = {
             'gonderen_mail': '', 'uygulama_sifresi': '', 'alici_mail': '', 
@@ -2379,6 +2682,7 @@ class EczaneAsistani:
             self.imlec_finans.execute("""CREATE TABLE IF NOT EXISTS ozel_sekmeler (id INTEGER PRIMARY KEY AUTOINCREMENT, baslik TEXT, icerik TEXT)""")
             self.imlec_finans.execute("""CREATE TABLE IF NOT EXISTS kredi_kartlari (isim TEXT PRIMARY KEY, kesim_gunu INTEGER, sira INTEGER)""")
             self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS sabit_giderler (id INTEGER PRIMARY KEY AUTOINCREMENT, kalem_adi TEXT, varsayilan_tutar REAL)")
+            self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS sabit_gelirler (id INTEGER PRIMARY KEY AUTOINCREMENT, kalem_adi TEXT, varsayilan_tutar REAL)")
             self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS program_ayarlari (ayar_adi TEXT PRIMARY KEY, deger TEXT)")
             self.imlec_finans.execute("INSERT OR IGNORE INTO program_ayarlari VALUES ('oto_odeme_depo', '0')")
             self.imlec_finans.execute("INSERT OR IGNORE INTO program_ayarlari VALUES ('oto_odeme_kart', '0')")
@@ -2389,6 +2693,8 @@ class EczaneAsistani:
                 )
             """)
             self.imlec_finans.execute("""CREATE TABLE IF NOT EXISTS kurumlar (isim TEXT PRIMARY KEY)""")
+            self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS depo_b2b_ayarlari (depo_adi TEXT PRIMARY KEY, k_adi TEXT, sifre TEXT, ozel_kod TEXT)")
+            self.baglanti_finans.commit()
             self.baglanti_finans.commit()
         except Exception as e:
             log_error(f"Finans DB Kurulum Hatası: {e}")
@@ -2401,128 +2707,121 @@ class EczaneAsistani:
         try: self.imlec.execute("SELECT yukleme_id FROM ilaclar LIMIT 1")
         except: self.imlec.execute("ALTER TABLE ilaclar ADD COLUMN yukleme_id INTEGER"); self.baglanti_skt.commit()
 
-    def modern_baslik_cubugu_ayarla(self, is_dark):
-        """Windows 10/11 API kullanarak başlık çubuğunu Karanlık veya Aydınlık temaya uyarlar."""
+    def modern_baslik_cubugu_ayarla(self, is_dark=False):
+        """Windows 10/11 API kullanarak başlık çubuğunu her zaman aydınlık temaya uyarlar."""
         try:
             import ctypes
             self.pencere.update_idletasks()
             hwnd = ctypes.windll.user32.GetParent(self.pencere.winfo_id())
-            value = ctypes.c_int(1 if is_dark else 0)
-            # Windows 11 için Karanlık mod API'si
+            value = ctypes.c_int(0) # 0 = Her zaman Aydınlık (Light) Mod
+            # Windows 11 ve Windows 10 için
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
-            # Windows 10 için Karanlık mod API'si
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 19, ctypes.byref(value), ctypes.sizeof(value))
         except:
             pass
+
+    # NOT: 'tema_degistir_click' FONKSİYONU BURADAN TAMAMEN SİLİNDİ!
     
     def ana_uygulamaya_gec(self, baslangic_sekmesi=0):
-        for w in self.ana_container.winfo_children(): w.destroy()
+        """Uygulamanın ana arayüzünü modernize eder."""
+        # --- KRİTİK DÜZELTME: Eski katman hafızasını tamamen sıfırla ---
+        if hasattr(self, 'sayfa_katmanlari'):
+            self.sayfa_katmanlari = {} # Sözlüğü boşalt
+        if hasattr(self, 'sayfa_yenileyiciler'):
+            self.sayfa_yenileyiciler = {}
+            
+        # Ana taşıyıcıyı temizle
+        for w in self.ana_container.winfo_children(): 
+            try: w.destroy()
+            except: pass
+            
         c = TM
 
-        # --- SAYFA GEÇMİŞİ (GERİ TUŞU İÇİN) ---
+        # --- SAYFA GEÇMİŞİ ALTYAPISI ---
         if not hasattr(self, 'sayfa_gecmisi'):
             self.sayfa_gecmisi = []
 
-        # =====================================================================
-        # WINDOWS ÇERÇEVESİNİ GERİ GETİR VE MODERNLEŞTİR
-        # =====================================================================
-        self.pencere.overrideredirect(False) # Orijinal Windows çerçevesini aktif et
-        self.pencere.title("Eczacı Defteri") # Windows başlık çubuğu metni
-        
-        # Orijinal başlık çubuğunun rengini temamıza göre ayarla
+        # --- WINDOWS ÇERÇEVE AYARLARI ---
+        self.pencere.overrideredirect(False)
+        self.pencere.title("Eczacı Defteri")
         self.modern_baslik_cubugu_ayarla(c.is_dark)
 
         # =====================================================================
-        # UYGULAMA İÇİ NAVİGASYON ÇUBUĞU (Sadece Menüler İçin)
+        # MODERN ÜST NAVİGASYON ÇUBUĞU (HEADER)
         # =====================================================================
-        self.top_bar = tk.Frame(self.ana_container, bg=c.get_color("header_bg"), height=45)
+        self.top_bar = tk.Frame(self.ana_container, bg=c.get_color("header_bg"), height=65)
         self.top_bar.pack(side="top", fill="x")
         self.top_bar.pack_propagate(False)
 
-        nav_style = {"font": ("Segoe UI", 10, "bold"), "bg": c.get_color("header_bg"), "fg": "white", "relief": "flat", "bd": 0, "cursor": "hand2", "activebackground": c.get_color("btn_primary"), "activeforeground": "white"}
+        # Altına modern ince bir ayraç çizgisi
+        tk.Frame(self.ana_container, bg=c.get_color("border"), height=1).pack(fill="x")
+
+        # --- STİL SABİTLERİ ---
+        btn_font = ("Segoe UI", 10, "bold")
+        icon_font = ("Segoe UI", 12)
+        h_bg = c.get_color("header_bg")
         
-        # --- GERİ BUTONU ---
-        self.btn_geri = tk.Button(self.top_bar, text=" ⬅ GERİ ", command=self.onceki_sayfaya_don, **nav_style)
+        # --- YENİ NESİL BUTON OLUŞTURUCU (SOFT UI) ---
+        def create_modern_btn(parent, text, bg_color, command, is_icon=False):
+            btn = tk.Button(parent, text=text, command=command, font=icon_font if is_icon else btn_font,
+                            bg=bg_color, fg="white", relief="flat", bd=0, cursor="hand2", 
+                            padx=15 if not is_icon else 10, pady=8)
+            btn.pack(side="left" if not is_icon else "right", padx=4, fill="y" if not is_icon else None, pady=12)
+            
+            # Hover efekti
+            def on_enter(e): btn.config(bg=self.color_lighten(bg_color, 20))
+            def on_leave(e): btn.config(bg=bg_color)
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+            return btn
 
-        # --- LOGO YÜKLEME VE İKON AYARLAMA (HIZLANDIRILDI) ---
-        # Eğer logo daha önce yüklendiyse tekrar hesaplayıp programı dondurma!
-        if not hasattr(self, 'logo_dashboard'):
-            try:
-                import os
-                import sys
-                from PIL import Image, ImageTk
-                
-                # Dosya klasörünü bul
-                if getattr(sys, 'frozen', False):
-                    base_dir = os.path.dirname(sys.executable)
-                else:
-                    base_dir = os.path.dirname(os.path.abspath(__file__))
-                    
-                logo_yolu = os.path.join(base_dir, "logo_hd_transparan.png")
-                orijinal_logo = Image.open(logo_yolu)
-                
-                # SADECE Görev Çubuğu ve Ana Sayfa(Dashboard) İkonlarını Yükle
-                self.icon_photo = ImageTk.PhotoImage(orijinal_logo)
-                self.pencere.iconphoto(False, self.icon_photo)
+        # --- SOL KISIM ---
+        f_left = tk.Frame(self.top_bar, bg=h_bg)
+        f_left.pack(side="left", padx=15, fill="y")
 
-                self.logo_dashboard = ImageTk.PhotoImage(orijinal_logo.resize((130, 130), Image.Resampling.LANCZOS))
-                
-            except Exception as e:
-                print(f"Logo yüklenemedi detayı: {e}")
+        self.btn_geri = create_modern_btn(f_left, " ⬅  GERİ ", "#475569", self.onceki_sayfaya_don)
+        tk.Frame(f_left, bg=c.get_color("border"), width=1).pack(side="left", fill="y", padx=10, pady=15)
 
-        # "Geri" butonunun hizasını koruyabilmesi için görünmez/boş bir referans etiketi bırakıyoruz.
-        self.lbl_title = tk.Label(self.top_bar, text="", bg=c.get_color("header_bg"))
-        self.lbl_title.pack(side="left")
-
-        # --- YENİ: SOL KISIM (Ana Sayfa ve Sepetler) ---
-        f_left_menus = tk.Frame(self.top_bar, bg=c.get_color("header_bg"))
-        f_left_menus.pack(side="left", padx=10, fill="y")
-
-        tk.Button(f_left_menus, text="🏠 ANA SAYFA", command=lambda: self.sekme_degistir(0), **nav_style).pack(side="left", padx=5, fill="y")
-        self.btn_eksik = tk.Button(f_left_menus, text="📝 EKSİKLER", command=self.toggle_eksik_sepeti, **nav_style)
-        self.btn_eksik.pack(side="left", padx=5, fill="y")
-        self.btn_veresiye = tk.Button(f_left_menus, text="📒 VERESİYE", command=lambda: self.toggle_ekstra_sepet("VERESİYE"), **nav_style)
-        self.btn_veresiye.pack(side="left", padx=5, fill="y")
-        self.btn_emanet = tk.Button(f_left_menus, text="📦 EMANET", command=lambda: self.toggle_ekstra_sepet("EMANET"), **nav_style)
-        self.btn_emanet.pack(side="left", padx=5, fill="y")
-
-        # --- YENİ: SAĞ KISIM (Çıkış, Zil, Sohbet, Tema) ---
-        f_win_controls = tk.Frame(self.top_bar, bg=c.get_color("header_bg"))
-        f_win_controls.pack(side="right")
+        self.btn_ana = create_modern_btn(f_left, "🏠 ANA SAYFA", "#3b82f6", lambda: self.sekme_degistir(0))
+        self.btn_eksik = create_modern_btn(f_left, "📝 EKSİKLER", "#f59e0b", self.toggle_eksik_sepeti)
+        self.btn_recete_eksigi = create_modern_btn(f_left, "🔖 REÇETE EKSİĞİ", "#8b5cf6", self.toggle_recete_eksikleri)
+        self.btn_veresiye = create_modern_btn(f_left, "💳 VERESİYE", "#ef4444", lambda: self.toggle_ekstra_sepet("VERESİYE"))
+        self.btn_emanet = create_modern_btn(f_left, "📦 EMANET", "#10b981", lambda: self.toggle_ekstra_sepet("EMANET"))
         
-        self.btn_cikis = tk.Button(f_win_controls, text="🚪 ÇIKIŞ YAP", command=self.kullanici_degistir, **nav_style)
-        self.btn_cikis.pack(side="right", padx=15, fill="y")
 
-        self.btn_zil = tk.Button(f_win_controls, text="🔔", command=self.bildirim_panelini_ac, **nav_style)
-        self.btn_zil.pack(side="right", padx=5, fill="y")
+        # --- SAĞ KISIM ---
+        f_right = tk.Frame(self.top_bar, bg=h_bg)
+        f_right.pack(side="right", padx=15, fill="y")
 
-        self.btn_chat = tk.Button(f_win_controls, text="💬", command=self.chat_panelini_ac, **nav_style)
-        self.btn_chat.pack(side="right", padx=5, fill="y")
+        self.btn_cikis = create_modern_btn(f_right, "🚪 ÇIKIŞ", "#ef4444", self.kullanici_degistir)
+        self.btn_cikis.pack_configure(side="right")
 
-        # TEMA BUTONU SOHBETİN YANINA EKLENDİ
-        self.btn_tema = tk.Button(f_win_controls, text="🌙 / ☀️", command=self.tema_degistir_click, **nav_style)
-        self.btn_tema.pack(side="right", padx=10, fill="y")
+        tk.Frame(f_right, bg=c.get_color("border"), width=1).pack(side="right", fill="y", padx=10, pady=18)
 
-        # Ekran yüklendikten hemen sonra zildeki sayıyı güncelle
+        if hasattr(self, 'uzak_masaustu_paneli'):
+            self.btn_rdp = create_modern_btn(f_right, "🖥️", h_bg, self.uzak_masaustu_paneli, True)
+            self.btn_rdp.config(fg="#a855f7")
+        
+        self.btn_zil = create_modern_btn(f_right, "🔔", h_bg, self.bildirim_panelini_ac, True)
+        self.btn_zil.config(fg="#fbbf24")
+        
+        self.btn_chat = create_modern_btn(f_right, "💬", h_bg, self.chat_panelini_ac, True)
+        self.btn_chat.config(fg="#60a5fa")
+
         self.pencere.after(100, self.zil_guncelle)
 
         # --- İÇERİK ALANI ---
         self.content_area = tk.Frame(self.ana_container, bg=c.get_color("bg_main"))
         self.content_area.pack(side="top", fill="both", expand=True)
 
-        # --- GÜVENLİ ROL VE YETKİ YÜKLEME ---
-        self.aktif_rol = str(self.aktif_rol).strip() 
-        self.personel_yetkileri = {"finans_gorsun": False, "para_gorsun": False, "ayarlar_gorsun": False}
-        
-        try:
-            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='personel_yetkileri'")
-            res_yetki = self.imlec.fetchone()
-            if res_yetki and res_yetki[0]:
-                self.personel_yetkileri = eval(res_yetki[0])
-        except: 
-            pass
-
         self.sekme_degistir(baslangic_sekmesi)
+
+    def color_lighten(self, hex_color, amount):
+        """Yardımcı fonksiyon: Hex rengini verilen miktar kadar açar."""
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        new_rgb = tuple(min(255, c + amount) for c in rgb)
+        return "#%02x%02x%02x" % new_rgb
 
     # =========================================================================
     # KULLANICI DEĞİŞTİR (OTURUMU KAPAT) MODÜLÜ
@@ -2559,59 +2858,101 @@ class EczaneAsistani:
 
 
     def sekme_degistir(self, index, gecmis_kaydet=True):
-        """İlgili modülü ekrana basar ve geçmişi günceller."""
+        """İlgili modülü ekrana basar, geçmişi günceller ve scroll kilidini bağlar."""
+        import tkinter as tk
+        from tkinter import messagebox
         
-        # --- GÜVENLİK DUVARI: FİNANS SAYFALARINI KORU ---
+        # --- YENİ EKLENEN: GERİ TUŞU HAFIZASI ---
+        if gecmis_kaydet and hasattr(self, 'aktif_sekme') and self.aktif_sekme != index:
+            self.sayfa_gecmisi.append(self.aktif_sekme)
+        
+        # --- 1. GÜVENLİK KONTROLLERİ ---
         finans_sayfalari = [6, 7, 8, 9, 10, 11, 15, 16]
         if index in finans_sayfalari:
-            if self.aktif_rol != "Yönetici" and not self.personel_yetkileri.get("finans_gorsun", False):
+            if getattr(self, "aktif_rol", "") != "Yönetici" and not self.personel_yetkileri.get("finans_gorsun", False):
                 messagebox.showerror("Yetki Hatası", "Bu sayfayı görüntülemek için yetkiniz bulunmuyor.")
-                return # Sayfayı değiştirmeden işlemi iptal et
-        
-        # Eğer Ana Sayfaya dönüyorsak geçmişi sıfırlayalım (Daha sağlıklı bir gezinme için)
-        if index == 0:
-            self.sayfa_gecmisi = []
-
-        # Eğer yeni bir sekmeye gidiliyorsa ve aynı sekmeye peş peşe basılmadıysa geçmişe kaydet
-        elif gecmis_kaydet and hasattr(self, 'aktif_sekme'):
-            if self.aktif_sekme != index: 
-                if not hasattr(self, 'sayfa_gecmisi'): self.sayfa_gecmisi = []
-                self.sayfa_gecmisi.append(self.aktif_sekme)
+                return 
 
         self.aktif_sekme = index
-        for w in self.content_area.winfo_children(): w.destroy()
         
-        # Geri butonunu Göster/Gizle mantığı
-        if hasattr(self, 'btn_geri') and hasattr(self, 'lbl_title'):
-            # Geçmişte sayfa varsa ve şu an Ana Sayfada (0) değilsek Geri tuşunu göster
-            if hasattr(self, 'sayfa_gecmisi') and len(self.sayfa_gecmisi) > 0 and index != 0:
-                self.btn_geri.pack(side="left", padx=(10, 0), fill="y", before=self.lbl_title)
-            else:
-                # Aksi halde gizle
-                self.btn_geri.pack_forget()
+        # --- 2. KATMAN HAFIZASINI KONTROL ET VE GEREKİRSE SIFIRLA ---
+        if not hasattr(self, "sayfa_katmanlari") or not self.content_area.winfo_exists():
+            self.sayfa_katmanlari = {}
+            self.sayfa_yenileyiciler = {}
+            # Grid ayarlarını yap (Üst üste binme için)
+            self.content_area.grid_rowconfigure(0, weight=1)
+            self.content_area.grid_columnconfigure(0, weight=1)
 
-        # İlgili sayfayı yükle
+        # --- 3. KATMAN YOKSA VEYA SİLİNMİŞSE YENİDEN OLUŞTUR ---
+        if index not in self.sayfa_katmanlari or not self.sayfa_katmanlari[index].winfo_exists():
+            yeni_katman = tk.Frame(self.content_area, bg=TM.get_color("bg_main"))
+            yeni_katman.grid(row=0, column=0, sticky="nsew") 
+            
+            # Çizim hedefini geçici olarak bu yeni katmana yönlendiriyoruz
+            orijinal_alan = self.content_area
+            self.content_area = yeni_katman
+            self.aktif_yenileyici = None 
+            
+            try:
+                # Sayfaları Çiz (Modüller)
+                if index == 0: self.arayuz_anasayfa()
+                elif index == 1: self.arayuz_stok_takip()
+                elif index == 2: self.arayuz_ilac_kartlari()
+                elif index == 3: self.arayuz_toplu_karekod()
+                elif index == 4: self.arayuz_karekod_olusturucu()
+                elif index == 5: self.arayuz_sayim_modu()
+                elif index == 6: self.sayfa_depo_odemeleri()
+                elif index == 7: self.sayfa_kredi_karti()
+                elif index == 8: self.sayfa_kurum_odemeleri()
+                elif index == 9: self.sayfa_gelir()
+                elif index == 10: self.sayfa_gider()
+                elif index == 11: self.sayfa_kasa_defteri()
+                elif index == 12: self.arayuz_ayarlar()
+                elif index == 13: self.arayuz_geribildirim()
+                elif index == 14: self.arayuz_kullanim_kilavuzu()
+                elif index == 15: self.arayuz_kredi_hesaplama()
+                elif index == 16: self.arayuz_mevcut_krediler()
+                elif index == 17: self.arayuz_grafikler()
+                elif index == 18: self.arayuz_satis_analizi() 
+                elif index == 19: self.arayuz_bilgi_bankasi()
+                elif index == 21: self.arayuz_pratik_araclar()
+                
+            except Exception as e:
+                messagebox.showerror("Sayfa Çizim Hatası", f"Sayfa yüklenirken bir hata oluştu:\n{e}")
+
+            # Sayfanın yenileyici fonksiyonu varsa kaydet
+            if getattr(self, "aktif_yenileyici", None):
+                self.sayfa_yenileyiciler[index] = self.aktif_yenileyici
+
+            # Çizim bitince hedefi eski haline getir ve katmanı arşive ekle
+            self.content_area = orijinal_alan
+            self.sayfa_katmanlari[index] = yeni_katman
+
+        # --- 4. GÜVENLİ ŞEKİLDE EN ÜSTE GETİR VE SCROLL BAĞLA ---
         try:
-            if index == 0: self.arayuz_anasayfa()
-            elif index == 1: self.arayuz_stok_takip()
-            elif index == 2: self.arayuz_ilac_kartlari()
-            elif index == 3: self.arayuz_toplu_karekod()
-            elif index == 4: self.arayuz_karekod_olusturucu()
-            elif index == 5: self.arayuz_sayim_modu()
-            elif index == 6: self.sayfa_depo_odemeleri()
-            elif index == 7: self.sayfa_kredi_karti()
-            elif index == 8: self.sayfa_kurum_odemeleri()
-            elif index == 9: self.sayfa_gelir()
-            elif index == 10: self.sayfa_gider()
-            elif index == 11: self.sayfa_kasa_defteri()
-            elif index == 12: self.arayuz_ayarlar()
-            elif index == 13: self.arayuz_geribildirim()
-            elif index == 14: self.arayuz_kullanim_kilavuzu()
-            elif index == 15: self.arayuz_kredi_hesaplama()
-            elif index == 16: self.arayuz_mevcut_krediler()
-            elif index == 17: self.arayuz_grafikler()
+            target_frame = self.sayfa_katmanlari[index]
+            if target_frame.winfo_exists():
+                target_frame.tkraise() # Katmanı öne çıkar
+                
+                # Verileri Yenile (Eğer kayıtlı yenileyici varsa)
+                if index in self.sayfa_yenileyiciler:
+                    self.sayfa_yenileyiciler[index]()
+
+                # --- SCROLL KİLİDİ VE BAĞLANTISI ---
+                # Ana sayfa (0) ise kaydırmayı aktifleştir
+                if index == 0:
+                    if hasattr(self, 'canvas_anasayfa') and hasattr(self, 'f_anasayfa_liste'):
+                        self.scroll_bagla(self.canvas_anasayfa, self.f_anasayfa_liste)
+                
+                # Bilgi Bankası (19) ise kaydırmayı aktifleştir
+                elif index == 19:
+                    if hasattr(self, 'canvas') and hasattr(self, 'f_bilgi_liste'): # Bilgi bankası canvas adı
+                        self.scroll_bagla(self.canvas, self.f_bilgi_liste)
+
         except Exception as e:
-            print(f"Sayfa yüklenirken hata oluştu: {e}")
+            print(f"Raise hatası: {e}")
+            if index in self.sayfa_katmanlari: 
+                del self.sayfa_katmanlari[index]
 
     def tema_degistir_click(self):
         TM.toggle()
@@ -2627,6 +2968,8 @@ class EczaneAsistani:
 
     def otomatik_odeme_motoru(self):
         bugun = date.today().strftime("%Y-%m-%d")
+        
+        # 1. DEPO
         self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi='oto_odeme_depo'")
         res_depo = self.imlec_finans.fetchone()
         depo_aktif = True if res_depo and res_depo[0] == '1' else False
@@ -2637,9 +2980,11 @@ class EczaneAsistani:
                 WHERE vade_tarihi < ? 
                 AND durum='ODENMEDİ'
                 AND (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%'))
+                AND aciklama NOT LIKE 'KREDI:%'
             """
             self.imlec_finans.execute(sorgu, (bugun,))
             
+        # 2. KART
         self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi='oto_odeme_kart'")
         res_kart = self.imlec_finans.fetchone()
         kart_aktif = True if res_kart and res_kart[0] == '1' else False
@@ -2650,6 +2995,20 @@ class EczaneAsistani:
                 WHERE vade_tarihi < ? 
                 AND durum='ODENMEDİ'
                 AND satir_notu LIKE 'KART:%'
+            """
+            self.imlec_finans.execute(sorgu, (bugun,))
+
+        # 3. KREDİ (YENİ EKLENDİ)
+        self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi='oto_odeme_kredi'")
+        res_kredi = self.imlec_finans.fetchone()
+        kredi_aktif = True if res_kredi and res_kredi[0] == '1' else False
+        
+        if kredi_aktif:
+            sorgu = """
+                UPDATE odemeler SET durum='ODENDİ' 
+                WHERE vade_tarihi < ? 
+                AND durum='ODENMEDİ'
+                AND aciklama LIKE 'KREDI:%'
             """
             self.imlec_finans.execute(sorgu, (bugun,))
             
@@ -2709,21 +3068,48 @@ class EczaneAsistani:
         tree.heading(col, command=lambda: self.sort_treeview(tree, col, not reverse))
 
     # =============================================================================
-    # 1. DEPO ÖDEMELERİ (TAMAMEN GÜNCELLENMİŞ VE HATASIZ VERSİYON)
+    # KREDİ KARTI EKSTRE HESAPLAMA YARDIMCILARI (YENİ EKLENEN)
     # =============================================================================
+    def metni_sayiya_cevir(self, metin):
+        if not metin or str(metin).strip() == "":
+            return 0.0
+        try:
+            temiz_metin = str(metin).replace('₺', '').replace('TL', '').replace(' ', '').strip()
+            if ',' in temiz_metin and '.' in temiz_metin:
+                temiz_metin = temiz_metin.replace('.', '') 
+                temiz_metin = temiz_metin.replace(',', '.')
+            elif ',' in temiz_metin:
+                temiz_metin = temiz_metin.replace(',', '.')
+            return float(temiz_metin)
+        except ValueError:
+            return 0.0
+
+    def gecerli_tutar_belirle(self, manuel_ekstre_metni, sistem_gideri_metni):
+        manuel_tutar = self.metni_sayiya_cevir(manuel_ekstre_metni)
+        sistem_tutari = self.metni_sayiya_cevir(sistem_gideri_metni)
+
+        if manuel_tutar > 0:
+            return manuel_tutar
+        else:
+            return sistem_tutari
+
     def sayfa_depo_odemeleri(self):
         c = TM
         for w in self.content_area.winfo_children(): w.destroy()
         
         header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
         header.pack(fill="x", pady=(0, 20))
-        tk.Label(header, text="Depo Ödeme Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(header, text="🚚 Depo Ödeme Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
         
         frm_btns = tk.Frame(header, bg=c.get_color("bg_main"))
         frm_btns.pack(side="right")
         
-        ModernButton(frm_btns, text="+ DEPO KARTI EKLE", command=self.yeni_sekme_popup, width=200, height=40, bg_color=c.get_color("btn_primary")).pack(side="left", padx=10)
-        ModernButton(frm_btns, text="🔄 YENİLE", command=lambda: self.sekmeleri_guncelle(), width=130, height=40, bg_color="#64748b").pack(side="left", padx=10)
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 20, "pady": 8}
+        
+        tk.Button(frm_btns, text="➕ YENİ DEPO KARTI EKLE", command=self.yeni_sekme_popup, 
+                  bg="#dbeafe", fg="#1d4ed8", activebackground="#bfdbfe", activeforeground="#1e40af", **btn_style_ana).pack(side="left", padx=10)
+        tk.Button(frm_btns, text="🔄 YENİLE", command=lambda: self.sekmeleri_guncelle(), 
+                  bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", activeforeground="#334155", **btn_style_ana).pack(side="left", padx=5)
         
         self.notebook = DraggableNotebook(self.content_area, on_reorder=self.depo_sirasi_kaydet)
         self.notebook.pack(fill="both", expand=True, pady=10)
@@ -2805,8 +3191,12 @@ class EczaneAsistani:
         scrollbar.pack(side="right", fill="y")
         self.mouse_scroll_ekle(canvas, scrollable_frame)
 
+        # =====================================================================
+        # 1. EKRANDA GÖSTERİLECEK GEÇERLİ DEPOLARI BELİRLE
+        # =====================================================================
+        sirali_depolar = []
+        gecerli_depo_isimleri = []
         try:
-            # (Manuel Gelir ve Giderler Hariç Tutuldu)
             sorgu = """
                 SELECT DISTINCT fatura_adi FROM odemeler 
                 WHERE (aciklama IS NULL OR aciklama != 'Kredi Kartı') 
@@ -2815,9 +3205,7 @@ class EczaneAsistani:
                 SELECT DISTINCT baslik FROM ozel_sekmeler
             """
             self.imlec_finans.execute(sorgu)
-            
             ham_depolar = [r[0] for r in self.imlec_finans.fetchall() if r[0]]
-            sirali_depolar = []
             
             for d in ham_depolar:
                 if str(d).endswith(" KK"): continue 
@@ -2831,16 +3219,96 @@ class EczaneAsistani:
                     self.baglanti_finans.commit()
                 
                 sirali_depolar.append((sira, d))
-            
+                gecerli_depo_isimleri.append(d)
+                
             sirali_depolar.sort(key=lambda x: x[0])
-            
-            if not sirali_depolar: 
-                tk.Label(scrollable_frame, text="Henüz kayıtlı depo yok.", font=("Segoe UI", 12), bg=TM.get_color("bg_main"), fg="#64748b").pack(pady=20)
-            
-            for sira, depo in sirali_depolar:
-                DepotCard(scrollable_frame, depo, self.imlec_finans, self.baglanti_finans, self.sekmeleri_guncelle, self.kartlari_yer_degistir).pack(fill="x", pady=8, padx=5)
         except Exception as e:
-            print(f"Özet ekranı yüklenirken hata: {e}")
+            print(f"Depo listesi çekilirken hata: {e}")
+
+        # =====================================================================
+        # 2. TÜM DEPOLAR TEPESİ AYLIK/YILLIK ÖZET KARTI
+        # =====================================================================
+        f_tepe = tk.Frame(scrollable_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=2)
+        f_tepe.pack(fill="x", pady=(5, 20), padx=5)
+
+        # Başlık Şeridi
+        f_tepe_baslik = tk.Frame(f_tepe, bg="#f8fafc", padx=15, pady=12)
+        f_tepe_baslik.pack(fill="x")
+        tk.Frame(f_tepe_baslik, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 10))
+        mevcut_yil = datetime.now().year
+        tk.Label(f_tepe_baslik, text=f"📊 TÜM DEPOLAR YILLIK ALIM ÖZETİ ({mevcut_yil})", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#1e293b").pack(side="left")
+
+        aylik_toplamlar = {f"{i:02d}": 0.0 for i in range(1, 13)}
+        genel_alim_toplami = 0.0
+        genel_acik_borc = 0.0
+
+        if gecerli_depo_isimleri:
+            try:
+                placeholders = ','.join(['?'] * len(gecerli_depo_isimleri))
+                
+                # SADECE GEÇERLİ DEPOLARIN AÇIK BORCUNU HESAPLA
+                self.imlec_finans.execute(f"SELECT SUM(tutar) FROM odemeler WHERE durum='ODENMEDİ' AND fatura_adi IN ({placeholders})", gecerli_depo_isimleri)
+                res_borc = self.imlec_finans.fetchone()
+                genel_acik_borc = res_borc[0] if res_borc and res_borc[0] else 0.0
+                
+                # AYLIK ALIMLARI (ALIM TARİHİNE GÖRE) HESAPLA
+                params = [str(mevcut_yil)] + gecerli_depo_isimleri
+                self.imlec_finans.execute(f"SELECT strftime('%m', alim_tarihi), SUM(tutar) FROM odemeler WHERE strftime('%Y', alim_tarihi)=? AND fatura_adi IN ({placeholders}) GROUP BY strftime('%m', alim_tarihi)", params)
+                for ay, tutar in self.imlec_finans.fetchall():
+                    if ay and tutar:
+                        aylik_toplamlar[ay] = tutar
+                        genel_alim_toplami += tutar
+                        
+            except Exception as e:
+                print("Tepe özet hesaplama hatası:", e)
+
+        # İçerik Alanı (Aylar Grid'i)
+        f_icerik = tk.Frame(f_tepe, bg="white", padx=15, pady=15)
+        f_icerik.pack(fill="x")
+
+        aylar_isim = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+        f_aylar_grid = tk.Frame(f_icerik, bg="white")
+        f_aylar_grid.pack(fill="x", pady=(0, 15))
+
+        for i in range(6): f_aylar_grid.grid_columnconfigure(i, weight=1)
+
+        for i in range(12):
+            ay_kodu = f"{i+1:02d}"
+            tutar = aylik_toplamlar[ay_kodu]
+            r, c = i // 6, i % 6
+
+            border_col = "#bfdbfe" if tutar > 0 else "#e2e8f0"
+            bg_col = "#eff6ff" if tutar > 0 else "#f8fafc"
+            
+            kutu = tk.Frame(f_aylar_grid, bg=bg_col, bd=1, relief="solid", highlightbackground=border_col, highlightthickness=1, padx=5, pady=8)
+            kutu.grid(row=r, column=c, sticky="nsew", padx=4, pady=4)
+
+            tk.Label(kutu, text=aylar_isim[i], font=("Segoe UI", 9, "bold"), bg=bg_col, fg="#64748b").pack()
+            renk = "#1e3a8a" if tutar > 0 else "#94a3b8"
+            tk.Label(kutu, text=f"{tutar:,.0f} ₺" if tutar>0 else "-", font=("Segoe UI", 11, "bold"), bg=bg_col, fg=renk).pack()
+
+        # Alt Toplamlar
+        f_toplamlar = tk.Frame(f_icerik, bg="white")
+        f_toplamlar.pack(fill="x")
+
+        f_sol_toplam = tk.Frame(f_toplamlar, bg="#f0fdf4", bd=1, relief="solid", highlightbackground="#bbf7d0", highlightthickness=1, padx=15, pady=10)
+        f_sol_toplam.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        tk.Label(f_sol_toplam, text=f"BU YIL ALINAN TOPLAM MAL ({mevcut_yil})", font=("Segoe UI", 10, "bold"), bg="#f0fdf4", fg="#166534").pack(anchor="w")
+        tk.Label(f_sol_toplam, text=f"{genel_alim_toplami:,.2f} ₺", font=("Segoe UI", 18, "bold"), bg="#f0fdf4", fg="#15803d").pack(anchor="w")
+
+        f_sag_borc = tk.Frame(f_toplamlar, bg="#fef2f2", bd=1, relief="solid", highlightbackground="#fecaca", highlightthickness=1, padx=15, pady=10)
+        f_sag_borc.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        tk.Label(f_sag_borc, text="TÜM DEPOLARA TOPLAM AÇIK BORÇ", font=("Segoe UI", 10, "bold"), bg="#fef2f2", fg="#991b1b").pack(anchor="w")
+        tk.Label(f_sag_borc, text=f"{genel_acik_borc:,.2f} ₺", font=("Segoe UI", 18, "bold"), bg="#fef2f2", fg="#dc2626").pack(anchor="w")
+        
+        # =====================================================================
+        # 3. KARTLARI EKRANA BASTIR
+        # =====================================================================
+        if not sirali_depolar: 
+            tk.Label(scrollable_frame, text="Henüz kayıtlı depo yok.", font=("Segoe UI", 12), bg=TM.get_color("bg_main"), fg="#64748b").pack(pady=20)
+        
+        for sira, depo in sirali_depolar:
+            DepotCard(scrollable_frame, depo, self.imlec_finans, self.baglanti_finans, self.sekmeleri_guncelle, self.kartlari_yer_degistir).pack(fill="x", pady=8, padx=5)
 
     def kartlari_yer_degistir(self, kaynak_depo, hedef_depo):
         def get_sira(depo):
@@ -2866,44 +3334,75 @@ class EczaneAsistani:
 
     def depo_sekmesi_olustur(self, depo_adi):
         c = TM
-        tab = tk.Frame(self.notebook, bg=c.get_color("card_bg"))
+        tab = tk.Frame(self.notebook, bg="white", padx=15, pady=15)
         self.notebook.add(tab, text=depo_adi)
         
-        # --- YENİ EKLENEN BAŞLIK VE DÜZENLE BUTONU ---
-        header_strip = tk.Frame(tab, bg=c.get_color("card_bg"))
-        header_strip.pack(fill="x", pady=(10, 0), padx=10)
+        # --- 1. MODERN BAŞLIK VE ÖZET ALANI ---
+        header_strip = tk.Frame(tab, bg="white")
+        header_strip.pack(fill="x", pady=(0, 15))
         
-        left_box = tk.Frame(header_strip, bg=c.get_color("card_bg"))
+        left_box = tk.Frame(header_strip, bg="white")
         left_box.pack(side="left")
         
-        tk.Label(left_box, text=f"🏢 {depo_adi}", font=("Segoe UI", 16, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(left_box, text=f"🏢 {depo_adi}", font=("Segoe UI", 18, "bold"), bg="white", fg="#1e293b").pack(side="left")
         
-        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 10, "pady": 2}
-        tk.Button(left_box, text="✏️ DÜZENLE", bg="#f1f5f9", fg="#64748b", **btn_style, command=lambda d=depo_adi: self.depo_duzenle_popup(d)).pack(side="left", padx=(15, 5))
-        # ---------------------------------------------
+        btn_style_baslik = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 12, "pady": 4}
+        tk.Button(left_box, text="✏️ DÜZENLE", bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style_baslik, command=lambda d=depo_adi: self.depo_duzenle_popup(d)).pack(side="left", padx=(15, 5))
+        
+        # Açık Borç (Kredi Kartı sekmesindeki gibi şık bir kutu içinde)
+        right_box = tk.Frame(header_strip, bg="#f8fafc", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, padx=15, pady=8)
+        right_box.pack(side="right")
+        
+        tk.Label(right_box, text="Toplam Açık Borç:", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(0, 10))
+        lbl_borc = tk.Label(right_box, text="0.00 ₺", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#ef4444")
+        lbl_borc.pack(side="left")
 
-        # ÜST BUTONLAR
-        bar = tk.Frame(tab, bg=c.get_color("card_bg"), pady=5, padx=10)
-        bar.pack(fill="x")
+        # --- 2. YENİ EVRAK/FATURA GİRİŞ BÖLÜMÜ (Hızlı İşlem Kartı Tasarımı) ---
+        f_giris_card = tk.Frame(tab, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_giris_card.pack(fill="x", pady=(0, 20))
         
-        # TABLO YAPISI
-        paned = tk.PanedWindow(tab, orient="vertical", bg=c.get_color("card_bg"), sashwidth=6)
-        paned.pack(fill="both", expand=True, padx=5, pady=5)
+        f_giris_header = tk.Frame(f_giris_card, bg="#f8fafc", padx=15, pady=8)
+        f_giris_header.pack(fill="x")
+        tk.Label(f_giris_header, text="⚡ Yeni Fatura / Evrak Girişi", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#3b82f6").pack(side="left")
         
-        frm_table = tk.Frame(paned, bg=c.get_color("card_bg"))
-        paned.add(frm_table, height=500)
+        f_giris_btns = tk.Frame(f_giris_card, bg="white", padx=15, pady=15)
+        f_giris_btns.pack(fill="x")
+
+        # Pastel Buton Stilleri
+        btn_style_pastel = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 15, "pady": 6}
+
+        tk.Button(f_giris_btns, text="➕ MANUEL EKLE", command=lambda: ozel_manuel_ekle(depo_adi), bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style_pastel).pack(side="left", padx=(0, 10))
         
-        frm_row_ops = tk.Frame(frm_table, bg=c.get_color("card_bg"), pady=5)
-        frm_row_ops.pack(side="bottom", fill="x")
+
+        # --- 3. ANA TABLO KARTI (Kredi Kartı Sekmesi Tasarımı) ---
+        frm_table_container = tk.Frame(tab, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        frm_table_container.pack(fill="both", expand=True)
+
+        list_header = tk.Frame(frm_table_container, bg="white")
+        list_header.pack(fill="x", padx=15, pady=(10, 5))
+        tk.Label(list_header, text="📄 Fatura ve Ödeme Listesi", font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b").pack(side="left")
+
+        btn_action_frame = tk.Frame(list_header, bg="white")
+        btn_action_frame.pack(side="right")
+
+        # Sağ Üstteki Tablo İçi İşlem Butonları (Sıfır Kenarlık, Pastel Renkler, Üzerine Gelince Renk Değiştirme)
+        btn_style_kucuk = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 10, "pady": 4}
         
-        # SÜTUNLAR (show="tree headings" yapılarak akordiyon okları aktif edildi)
+        tk.Button(btn_action_frame, text="⛔ DEPOYU SİL", command=lambda: self.sekmeyi_komple_sil(depo_adi), bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style_kucuk).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="❌ ÖDENMEDİ YAP", command=lambda: tiklileri_isle("ODENMEDİ"), bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style_kucuk).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="✅ ÖDENDİ YAP", command=lambda: tiklileri_isle("ODENDİ"), bg="#dcfce7", fg="#166534", activebackground="#bbf7d0", activeforeground="#14532d", **btn_style_kucuk).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="🗑️ SEÇİLENİ SİL", command=lambda: tiklileri_sil(tree), bg="#fee2e2", fg="#991b1b", activebackground="#fca5a5", activeforeground="#7f1d1d", **btn_style_kucuk).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="✏️ SEÇİLENİ DÜZENLE", command=lambda: secili_duzenle_depo_buton(), bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style_kucuk).pack(side="right", padx=5)
+
+        frm_table = tk.Frame(frm_table_container, bg="white")
+        frm_table.pack(fill="both", expand=True, padx=2, pady=(0,2))
+
+        # --- 4. SÜTUNLAR VE TREEVIEW (AĞAÇ) ---
         cols = ("ID", "TIK", "TUR", "ALIM", "ODEME", "TUTAR", "NOT")
         tree = ttk.Treeview(frm_table, columns=cols, show="tree headings")
         
-        # Akordiyon (Aç/Kapat) Oku için en baştaki varsayılan sütun ayarı
         tree.heading("#0", text="▼")
         tree.column("#0", width=40, stretch=False, anchor="center")
-
         tree.heading("ID", text="ID"); tree.column("ID", width=0, stretch=False)
         
         self.all_checked_state = False 
@@ -2911,7 +3410,6 @@ class EczaneAsistani:
             self.all_checked_state = not self.all_checked_state
             sembol = "☑" if self.all_checked_state else "☐"
             tree.heading("TIK", text=f"✔ {sembol}")
-            # Sadece ana satırları seçer (alt kırılımları seçmez)
             for child in tree.get_children(""):
                 vals = list(tree.item(child)['values'])
                 vals[1] = sembol
@@ -2922,7 +3420,7 @@ class EczaneAsistani:
         tree.heading("ALIM", text="ALIM DÖNEMİ", command=lambda: self.sort_treeview(tree, "ALIM", False)); tree.column("ALIM", width=140, anchor="center")
         tree.heading("ODEME", text="ÖDEME DÖNEMİ", command=lambda: self.sort_treeview(tree, "ODEME", False)); tree.column("ODEME", width=140, anchor="center")
         tree.heading("TUTAR", text="TUTAR", command=lambda: self.sort_treeview(tree, "TUTAR", False)); tree.column("TUTAR", width=160, anchor="e")
-        tree.heading("NOT", text="NOT", command=lambda: self.sort_treeview(tree, "NOT", False)); tree.column("NOT", width=150, anchor="w")
+        tree.heading("NOT", text="NOT", command=lambda: self.sort_treeview(tree, "NOT", False)); tree.column("NOT", width=250, anchor="w")
         
         sc = ttk.Scrollbar(frm_table, orient="vertical", command=tree.yview)
         tree.configure(yscroll=sc.set)
@@ -2932,10 +3430,8 @@ class EczaneAsistani:
         tree.tag_configure("odendi", background="#f1f5f9", foreground="#94a3b8")
         tree.tag_configure("odenmedi", background="#fee2e2", foreground="#000000")
         tree.tag_configure("alt_kırılım", background="#f8fafc", foreground="#475569", font=("Segoe UI", 9, "italic"))
-        
-        lbl_borc = tk.Label(frm_table, text="", font=("Segoe UI", 14, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("btn_danger"), anchor="e")
-        lbl_borc.pack(side="bottom", fill="x", pady=5)
 
+        # --- YARDIMCI FONKSİYONLAR ---
         def tabloyu_doldur():
             for i in tree.get_children(""): tree.delete(i)
             
@@ -2943,7 +3439,7 @@ class EczaneAsistani:
                 SELECT id, alim_tarihi, vade_tarihi, tutar, durum, satir_notu, aciklama 
                 FROM odemeler 
                 WHERE fatura_adi=? 
-                AND (aciklama IS NULL OR aciklama NOT LIKE '%Kredi Kartı%')
+                AND (aciklama IS NULL OR aciklama NOT LIKE '%Kredi Kart%')
                 AND (satir_notu IS NULL OR (satir_notu NOT LIKE '%KART%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
                 ORDER BY vade_tarihi ASC
             """
@@ -2985,12 +3481,9 @@ class EczaneAsistani:
 
                 tag = "odendi" if durum == "ODENDİ" else "odenmedi"
                 
-                # --- AKORDİYON KDV MANTIĞI ---
                 if not_icerik and str(not_icerik).startswith("[KDV_DETAY]"):
                     not_sembolu = "KDV Kirilimlari"
-                    # Parent Node (Ana Satır)
                     parent_id = tree.insert("", "end", text="📂", values=(oid, "☐", odeme_turu, alim_str, vade_str, f"{tutar:,.2f} ₺", not_sembolu), tags=(tag,))
-                    
                     try:
                         kdv_parts = str(not_icerik).replace("[KDV_DETAY]", "").strip().split("|")
                         for p in kdv_parts:
@@ -2998,14 +3491,127 @@ class EczaneAsistani:
                             k_isim, k_tutar_str = p.split(":")
                             k_tut = float(k_tutar_str)
                             if k_tut > 0:
-                                # Child Node (Alt Kırılım - Akordiyon içi)
                                 tree.insert(parent_id, "end", text="↳", values=(f"child_{oid}_{k_isim}", "", "", "", "", f"{k_tut:,.2f} ₺", k_isim.strip()), tags=("alt_kırılım",))
                     except: pass
                 else:
                     not_sembolu = "⚠️" if not_icerik and str(not_icerik).strip() not in ["", "None", "MANUEL_GIDER"] else "➕"
                     tree.insert("", "end", text="📄", values=(oid, "☐", odeme_turu, alim_str, vade_str, f"{tutar:,.2f} ₺", not_sembolu), tags=(tag,))
             
-            lbl_borc.config(text=f"AÇIK BORÇ: {toplam_borc:,.2f} ₺")
+            lbl_borc.config(text=f"{toplam_borc:,.2f} ₺")
+
+        def ozel_manuel_ekle(d_adi):
+            def veritabanina_ekle_temiz(d_adi_param, alim, odeme, tutar, not_icerik, odeme_turu):
+                aciklama_kayit = f"[{odeme_turu}]"
+                satir_notu_kayit = not_icerik if not_icerik else ""
+                self.imlec_finans.execute("INSERT INTO odemeler (fatura_adi, vade_tarihi, tutar, aciklama, alim_tarihi, satir_notu, durum) VALUES (?, ?, ?, ?, ?, ?, 'ODENMEDİ')", 
+                                   (d_adi_param, odeme, tutar, aciklama_kayit, alim, satir_notu_kayit))
+                self.baglanti_finans.commit()
+                tabloyu_doldur()
+            ManualAddWindow(self.pencere, d_adi, veritabanina_ekle_temiz)
+
+        def secili_duzenle_depo_buton():
+            secili_idler = [tree.item(i)['values'][0] for i in tree.get_children("") if tree.item(i)['values'][1] == "☑"]
+
+            if not secili_idler:
+                messagebox.showwarning("Uyarı", "Lütfen düzenlemek için sol taraftaki kutucuğu (☑) işaretleyin.")
+                return
+            if len(secili_idler) > 1:
+                messagebox.showwarning("Uyarı", "Aynı anda sadece 1 kaydı düzenleyebilirsiniz.")
+                return
+
+            oid = secili_idler[0]
+            self.imlec_finans.execute("SELECT alim_tarihi, vade_tarihi, tutar, aciklama, satir_notu FROM odemeler WHERE id=?", (oid,))
+            kayit = self.imlec_finans.fetchone()
+            if not kayit: return
+            
+            alim_tar, vade_tar, tut, odeme_sekli, n_icerik = kayit
+            
+            if n_icerik and str(n_icerik).startswith("[KDV_DETAY]"):
+                messagebox.showwarning("Uyarı", "Bu kayıt Excel aktarımıyla oluşturulmuş bir KDV alt kırılımıdır, düzenlenemez.")
+                return
+
+            win = tk.Toplevel(self.pencere)
+            win.title(f"{depo_adi} - Kayıt Düzenle")
+            win.geometry("450x650") 
+            win.configure(bg="white")
+            win.transient(self.pencere)
+            win.grab_set()
+
+            x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+            y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 325
+            win.geometry(f"+{x}+{y}")
+
+            container = tk.Frame(win, bg="white", padx=25, pady=25)
+            container.pack(fill="both", expand=True)
+
+            tk.Label(container, text=f"✏️ {depo_adi}\nKaydı Düzenle", font=("Segoe UI", 15, "bold"), bg="white", fg="#334155").pack(pady=(0, 20))
+
+            tk.Label(container, text="Alım Dönemi (YIL-AY):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_alim = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_alim.pack(fill="x", ipady=5, pady=(0, 15))
+            if alim_tar: ent_alim.insert(0, str(alim_tar)[:7])
+
+            tk.Label(container, text="Ödeme Dönemi (Vade):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_vade = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_vade.pack(fill="x", ipady=5, pady=(0, 15))
+            if vade_tar: ent_vade.insert(0, str(vade_tar)[:7])
+
+            tk.Label(container, text="Tutar (TL):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_tutar = tk.Entry(container, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#fffbeb", fg="#b45309")
+            ent_tutar.pack(fill="x", ipady=5, pady=(0, 15))
+            ent_tutar.insert(0, f"{tut:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            tk.Label(container, text="Ödeme Şekli:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            cmb_tur = ttk.Combobox(container, values=["SENET-HAVALE/EFT", "ÇEK", "SENET-KK", "Kredi Kartı", "Excel Import"], state="normal", font=("Segoe UI", 11))
+            cmb_tur.pack(fill="x", ipady=5, pady=(0, 15))
+            temiz_tur = str(odeme_sekli).replace("[", "").replace("]", "") if odeme_sekli else "SENET-HAVALE/EFT"
+            cmb_tur.set(temiz_tur) 
+
+            tk.Label(container, text="Not / Açıklama:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_not = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_not.pack(fill="x", ipady=5, pady=(0, 20))
+            if n_icerik: ent_not.insert(0, str(n_icerik))
+
+            def guncelle():
+                try:
+                    y_alim = ent_alim.get().strip()
+                    if len(y_alim) == 7: y_alim += "-01"
+                    y_vade = ent_vade.get().strip()
+                    if len(y_vade) == 7: y_vade += "-01"
+                    y_tutar = self.metni_sayiya_cevir(ent_tutar.get())
+                    y_not = ent_not.get()
+                    y_tur = f"[{cmb_tur.get()}]" if cmb_tur.get() not in ["Kredi Kartı", "Excel Import"] else cmb_tur.get()
+
+                    self.imlec_finans.execute("UPDATE odemeler SET alim_tarihi=?, vade_tarihi=?, tutar=?, aciklama=?, satir_notu=? WHERE id=?", 
+                                            (y_alim, y_vade, y_tutar, y_tur, y_not, oid))
+                    self.baglanti_finans.commit()
+                    win.destroy()
+                    tabloyu_doldur()
+                    messagebox.showinfo("Başarılı", "Kayıt başarıyla güncellendi.", parent=self.pencere)
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e), parent=win)
+
+            tk.Button(container, text="GÜNCELLE", command=guncelle, font=("Segoe UI", 11, "bold"), bg="#10b981", fg="white", pady=10, relief="flat").pack(side="bottom", fill="x")
+
+        def tiklileri_isle(hedef_durum):
+            islem = False
+            for child in tree.get_children(""):
+                vals = tree.item(child)['values']
+                if vals and vals[1] == "☑": 
+                    self.imlec_finans.execute("UPDATE odemeler SET durum=? WHERE id=?", (hedef_durum, vals[0]))
+                    islem = True
+            if islem: 
+                self.baglanti_finans.commit()
+                tabloyu_doldur()
+            else: messagebox.showinfo("Uyarı", "Seçim yapın.")
+
+        def tiklileri_sil(tree_ref):
+            ids = [tree_ref.item(c)['values'][0] for c in tree_ref.get_children("") if tree_ref.item(c)['values'] and tree_ref.item(c)['values'][1] == "☑"]
+            if not ids: messagebox.showinfo("Uyarı", "Seçili yok."); return
+            if messagebox.askyesno("Sil", f"{len(ids)} kaydı silmek istiyor musun?"):
+                for oid in ids: self.imlec_finans.execute("DELETE FROM odemeler WHERE id=?", (oid,))
+                self.baglanti_finans.commit()
+                tabloyu_doldur()
 
         def on_tree_click(event):
             region = tree.identify("region", event.x, event.y)
@@ -3014,7 +3620,6 @@ class EczaneAsistani:
             row_id = tree.identify_row(event.y)
             if not row_id: return
             
-            # Alt satırlara (child) tıklandıysa hiçbir şey yapma (hata vermesini önler)
             if str(row_id).startswith("child_"): return
 
             item = tree.item(row_id)
@@ -3030,7 +3635,6 @@ class EczaneAsistani:
                 res = self.imlec_finans.execute("SELECT satir_notu FROM odemeler WHERE id=?", (oid,)).fetchone()
                 mevcut_not = res[0] if res and res[0] not in ["MANUEL_GIDER", None] else ""
                 
-                # KDV detaylarının notunu bozmamak için engelliyoruz
                 if str(mevcut_not).startswith("[KDV_DETAY]"):
                     messagebox.showinfo("Bilgi", "Bu satır otomatik aylık KDV icmalidir. Notu değiştirilemez.\nDetayları görmek için yanındaki oka tıklayın.")
                     return
@@ -3043,8 +3647,9 @@ class EczaneAsistani:
                 x_root = tree.winfo_pointerx()
                 y_root = tree.winfo_pointery()
                 NoteBubble(self.pencere, x_root, y_root, mevcut_not, save_note_callback)
-        
+
         tree.bind("<ButtonRelease-1>", on_tree_click)
+        tabloyu_doldur()
 
         def tiklileri_isle(hedef_durum):
             islem = False
@@ -3058,145 +3663,170 @@ class EczaneAsistani:
                 tabloyu_doldur()
             else: messagebox.showinfo("Uyarı", "Seçim yapın.")
 
-        def tiklileri_sil(tree):
-            ids = [tree.item(c)['values'][0] for c in tree.get_children("") if tree.item(c)['values'] and tree.item(c)['values'][1] == "☑"]
+        def tiklileri_sil(tree_ref):
+            ids = [tree_ref.item(c)['values'][0] for c in tree_ref.get_children("") if tree_ref.item(c)['values'] and tree_ref.item(c)['values'][1] == "☑"]
             if not ids: messagebox.showinfo("Uyarı", "Seçili yok."); return
             if messagebox.askyesno("Sil", f"{len(ids)} kaydı silmek istiyor musun?"):
                 for oid in ids: self.imlec_finans.execute("DELETE FROM odemeler WHERE id=?", (oid,))
                 self.baglanti_finans.commit()
                 tabloyu_doldur()
 
-        def ozel_manuel_ekle(depo_adi):
-            def veritabanina_ekle_temiz(d_adi, alim, odeme, tutar, not_icerik, odeme_turu):
+        # DÜZENLEME FONKSİYONUNU BURAYA KESİNLİKLE DOĞRU HİZADA YAPIŞTIRIYORUZ
+        def secili_duzenle_depo_buton():
+            secili_idler = [tree.item(i)['values'][0] for i in tree.get_children("") if tree.item(i)['values'][1] == "☑"]
+
+            if not secili_idler:
+                messagebox.showwarning("Uyarı", "Lütfen düzenlemek için sol taraftaki kutucuğu (☑) işaretleyin.")
+                return
+            if len(secili_idler) > 1:
+                messagebox.showwarning("Uyarı", "Aynı anda sadece 1 kaydı düzenleyebilirsiniz.")
+                return
+
+            oid = secili_idler[0]
+            
+            self.imlec_finans.execute("SELECT alim_tarihi, vade_tarihi, tutar, aciklama, satir_notu FROM odemeler WHERE id=?", (oid,))
+            kayit = self.imlec_finans.fetchone()
+            if not kayit: return
+            
+            alim_tar, vade_tar, tut, odeme_sekli, n_icerik = kayit
+            
+            if n_icerik and str(n_icerik).startswith("[KDV_DETAY]"):
+                messagebox.showwarning("Uyarı", "Bu kayıt Excel aktarımıyla oluşturulmuş bir KDV alt kırılımıdır, düzenlenemez.")
+                return
+
+            win = tk.Toplevel(self.pencere)
+            win.title(f"{depo_adi} - Kayıt Düzenle")
+            win.geometry("450x650") 
+            win.configure(bg="white")
+            win.transient(self.pencere)
+            win.grab_set()
+
+            x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+            y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 325
+            win.geometry(f"+{x}+{y}")
+
+            container = tk.Frame(win, bg="white", padx=25, pady=25)
+            container.pack(fill="both", expand=True)
+
+            tk.Label(container, text=f"✏️ {depo_adi}\nKaydı Düzenle", font=("Segoe UI", 15, "bold"), bg="white", fg="#334155").pack(pady=(0, 20))
+
+            tk.Label(container, text="Alım Dönemi (YIL-AY):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_alim = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_alim.pack(fill="x", ipady=5, pady=(0, 15))
+            if alim_tar: ent_alim.insert(0, str(alim_tar)[:7])
+
+            tk.Label(container, text="Ödeme Dönemi (Vade):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_vade = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_vade.pack(fill="x", ipady=5, pady=(0, 15))
+            if vade_tar: ent_vade.insert(0, str(vade_tar)[:7])
+
+            tk.Label(container, text="Tutar (TL):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_tutar = tk.Entry(container, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#fffbeb", fg="#b45309")
+            ent_tutar.pack(fill="x", ipady=5, pady=(0, 15))
+            ent_tutar.insert(0, f"{tut:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+            tk.Label(container, text="Ödeme Şekli:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            cmb_tur = ttk.Combobox(container, values=["SENET-HAVALE/EFT", "ÇEK", "SENET-KK", "Kredi Kartı", "Excel Import"], state="normal", font=("Segoe UI", 11))
+            cmb_tur.pack(fill="x", ipady=5, pady=(0, 15))
+            temiz_tur = str(odeme_sekli).replace("[", "").replace("]", "") if odeme_sekli else "SENET-HAVALE/EFT"
+            cmb_tur.set(temiz_tur) 
+
+            tk.Label(container, text="Not / Açıklama:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_not = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_not.pack(fill="x", ipady=5, pady=(0, 20))
+            if n_icerik: ent_not.insert(0, str(n_icerik))
+
+            def guncelle():
+                try:
+                    y_alim = ent_alim.get().strip()
+                    if len(y_alim) == 7: y_alim += "-01"
+                    y_vade = ent_vade.get().strip()
+                    if len(y_vade) == 7: y_vade += "-01"
+                    y_tutar = float(ent_tutar.get().replace(".", "").replace(",", "."))
+                    y_not = ent_not.get()
+                    y_tur = f"[{cmb_tur.get()}]" if cmb_tur.get() not in ["Kredi Kartı", "Excel Import"] else cmb_tur.get()
+
+                    self.imlec_finans.execute("UPDATE odemeler SET alim_tarihi=?, vade_tarihi=?, tutar=?, aciklama=?, satir_notu=? WHERE id=?", 
+                                            (y_alim, y_vade, y_tutar, y_tur, y_not, oid))
+                    self.baglanti_finans.commit()
+                    win.destroy()
+                    tabloyu_doldur()
+                    messagebox.showinfo("Başarılı", "Kayıt başarıyla güncellendi.", parent=self.pencere)
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e), parent=win)
+
+            tk.Button(container, text="GÜNCELLE", command=guncelle, font=("Segoe UI", 11, "bold"), bg="#10b981", fg="white", pady=10, relief="flat").pack(side="bottom", fill="x")
+
+        def ozel_manuel_ekle(d_adi):
+            def veritabanina_ekle_temiz(d_adi_param, alim, odeme, tutar, not_icerik, odeme_turu):
                 aciklama_kayit = f"[{odeme_turu}]"
                 satir_notu_kayit = not_icerik if not_icerik else ""
                 
                 self.imlec_finans.execute("INSERT INTO odemeler (fatura_adi, vade_tarihi, tutar, aciklama, alim_tarihi, satir_notu, durum) VALUES (?, ?, ?, ?, ?, ?, 'ODENMEDİ')", 
-                                   (d_adi, odeme, tutar, aciklama_kayit, alim, satir_notu_kayit))
+                                   (d_adi_param, odeme, tutar, aciklama_kayit, alim, satir_notu_kayit))
                 self.baglanti_finans.commit()
                 tabloyu_doldur()
 
-            ManualAddWindow(self.pencere, depo_adi, veritabanina_ekle_temiz)
-
-        # Butonlar
-        ModernButton(bar, text="➕ MANUEL EKLE", command=lambda: ozel_manuel_ekle(depo_adi), width=250, height=35, bg_color="#10b981").pack(side="left", padx=5)
-        ModernButton(bar, text="📗 TEKLİ FATURA YÜKLE", command=lambda: self.taba_excel_yukle(depo_adi), width=250, height=35, bg_color="#3b82f6").pack(side="left", padx=5)
+            ManualAddWindow(self.pencere, d_adi, veritabanina_ekle_temiz)
         
-        # YENİ BUTONUMUZ: AYLIK KDV DÖKÜMÜ 
-        ModernButton(bar, text="📊 AYLIK DÖKÜM YÜKLE", command=lambda: self.aylik_dokum_yukle(depo_adi), width=250, height=35, bg_color="#8b5cf6").pack(side="left", padx=5)
-        
-        ModernButton(bar, text="⛔ DEPOYU SİL", command=lambda: self.sekmeyi_komple_sil(depo_adi), width=200, height=35, bg_color="#7f1d1d").pack(side="right", padx=5)
-        ModernButton(bar, text="🗑️ SEÇİLENLERİ SİL", command=lambda: tiklileri_sil(tree), width=200, height=35, bg_color="#ef4444").pack(side="right", padx=5)
-        
-        ModernButton(frm_row_ops, text="✅ ÖDENDİ İŞARETLE", command=lambda: tiklileri_isle("ODENDİ"), width=250, height=40, bg_color=c.get_color("btn_success")).pack(side="left", padx=5)
-        ModernButton(frm_row_ops, text="❌ ÖDENMEDİ İŞARETLE", command=lambda: tiklileri_isle("ODENMEDİ"), width=250, height=40, bg_color=c.get_color("btn_danger")).pack(side="left", padx=5)
-        
+        # İlk açılışta tabloyu doldur
         tabloyu_doldur()
-
-    def taba_excel_yukle(self, hedef_depo_adi):
-        if not PANDAS_VAR: messagebox.showerror("Hata", "pandas ve openpyxl kütüphaneleri eksik."); return
-        file_path = filedialog.askopenfilename(title=f"{hedef_depo_adi} İçin Excel Seç", filetypes=[("Excel Dosyaları", "*.xlsx *.xls")])
-        if not file_path: return
-        try:
-            wb = openpyxl.load_workbook(file_path, data_only=True)
-            eklenen = 0
-            for sheet_name in wb.sheetnames:
-                ws = wb[sheet_name]
-                col_alim, col_tutar, col_odeme = None, None, None
-                header_row = -1
-                
-                for r_idx, row in enumerate(ws.iter_rows(max_row=50, values_only=True), 1):
-                    row_str = [str(v).upper().strip() if v else "" for v in row]
-                    if "TUTAR" in row_str and ("ALIM TARİHİ" in row_str or "ALIM TARIHI" in row_str):
-                        header_row = r_idx
-                        for c_idx, val in enumerate(row_str):
-                            if "ALIM TARİHİ" in val or "ALIM TARIHI" in val: col_alim = c_idx + 1
-                            elif "ÖDEME TARİHİ" in val or "ODEME TARIHI" in val or "VADE" in val: col_odeme = c_idx + 1
-                            elif "TUTAR" in val: col_tutar = c_idx + 1
-                        break
-                
-                if header_row != -1 and col_tutar and col_alim:
-                    for r_idx, row in enumerate(ws.iter_rows(min_row=header_row+1), header_row+1):
-                        try:
-                            cell_tutar = row[col_tutar-1]
-                            cell_alim = row[col_alim-1]
-                            cell_odeme = row[col_odeme-1] if col_odeme else None
-                            
-                            val_tutar = cell_tutar.value
-                            if val_tutar is None: continue
-                            
-                            tutar_str = str(val_tutar).replace("TL", "").strip()
-                            tutar = float(tutar_str.replace(",", ".")) if isinstance(val_tutar, str) else float(val_tutar)
-                            
-                            alim_val = self.tarih_duzelt(cell_alim.value)
-                            odeme_val = self.tarih_duzelt(cell_odeme.value) if cell_odeme else None
-                            
-                            if not odeme_val and alim_val:
-                                try:
-                                    dt_alim = datetime.strptime(alim_val, "%Y-%m-%d")
-                                    import datetime as dt_mod
-                                    dt_odeme = dt_alim + dt_mod.timedelta(days=90)
-                                    odeme_val = dt_odeme.strftime("%Y-%m-%d")
-                                except: pass
-
-                            if not odeme_val: continue
-                            
-                            durum = "ODENMEDİ"
-                            if cell_tutar.fill and cell_tutar.fill.patternType == 'solid':
-                                color = cell_tutar.fill.start_color
-                                if color.type == 'rgb':
-                                    hex_code = str(color.rgb)
-                                    if "FF0000" in hex_code or "FFC7CE" in hex_code: durum = "ODENMEDİ"
-                                    elif "00FF00" in hex_code or "C6EFCE" in hex_code or "92D050" in hex_code: durum = "ODENDİ"
-                            
-                            self.imlec_finans.execute("INSERT INTO odemeler (fatura_adi, vade_tarihi, tutar, aciklama, durum, alim_tarihi) VALUES (?, ?, ?, ?, ?, ?)", 
-                                               (hedef_depo_adi, odeme_val, tutar, "Excel Import", durum, alim_val))
-                            eklenen += 1
-                        except: continue
-                        
-            self.baglanti_finans.commit()
-            self.sekmeleri_guncelle(hedef_sekme_adi=hedef_depo_adi)
-            
-            if eklenen > 0:
-                messagebox.showinfo("Başarılı", f"{eklenen} adet kayıt başarıyla eklendi.")
-            else:
-                messagebox.showwarning("Uyarı", "Excel dosyasında uygun formatta veri bulunamadı.\nLütfen sütun başlıklarının (Alım Tarihi, Ödeme Tarihi, Tutar) doğru olduğundan emin olun.")
-                
-        except Exception as e:
-            messagebox.showerror("Hata", str(e))
 
     def yeni_sekme_popup(self):
         popup = tk.Toplevel(self.pencere)
-        popup.title("Depo Kartı Ekle")
-        popup.geometry("360x600")
+        popup.title("Depo / Firma Ekle")
+        popup.geometry("380x600")
         popup.configure(bg="#f8fafc")
         popup.transient(self.pencere) 
         popup.grab_set() 
         popup.focus_force()
         
-        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 180
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 190
         y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 300
         popup.geometry(f"+{x}+{y}")
 
-        tk.Label(popup, text="Hızlı Ekleme Listesi", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#334155").pack(pady=(20, 10))
+        tk.Label(popup, text="🏢 Hızlı Firma / Depo Seçimi", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#1e293b").pack(pady=(20, 5))
+        tk.Label(popup, text="(Seçtiğiniz isim listeye eklenecektir)", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(pady=(0, 15))
+
+        # Scroll Altyapısı
+        container = tk.Frame(popup, bg="#f8fafc")
+        container.pack(side="top", fill="both", expand=True, padx=5)
+        canvas = tk.Canvas(container, bg="#f8fafc", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg="#f8fafc")
+        
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        window_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.bind('<Configure>', lambda event: canvas.itemconfig(window_id, width=event.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        self.mouse_scroll_ekle(canvas, scroll_frame)
 
         hazir_depolar = [
             "SELÇUK ECZA DEPOSU", "ISKOOP", "BEK", "NEVZAT ECZA DEPOSU",
-            "CENCORA (ALLIANCE)", "SANCAK ECZA DEPOSU", "AS ECZA DEPOSU"
+            "CENCORA (ALLIANCE)", "SANCAK ECZA DEPOSU", "AS ECZA DEPOSU",
+            "HEDEF ECZA DEPOSU", "BAŞKENT ECZA DEPOSU", "FARMAZON", "ECZA1", 
+            "GALENOS", "LOKMAN HEKİM"
         ]
 
+        def ekle_ve_kapat(isim):
+            self._ozel_depo_ekle_islem(isim, popup)
+
         for depo in hazir_depolar:
-            btn = tk.Button(popup, text=depo, font=("Segoe UI", 11), bg="white", fg="#0f172a",
-                            relief="solid", bd=1, cursor="hand2", pady=8,
-                            activebackground="#e0f2fe",
-                            command=lambda d=depo: self._ozel_depo_ekle_islem(d, popup))
-            btn.pack(fill="x", padx=30, pady=4)
+            btn = tk.Button(scroll_frame, text=depo, font=("Segoe UI", 10, "bold"), bg="white", fg="#0f172a",
+                            relief="flat", bd=0, cursor="hand2", pady=10, 
+                            activebackground="#e0f2fe", activeforeground="#0369a1",
+                            command=lambda d=depo: ekle_ve_kapat(d))
+            btn.pack(fill="x", padx=15, pady=4)
 
-        tk.Frame(popup, height=2, bg="#cbd5e1").pack(fill="x", padx=30, pady=15)
+        tk.Frame(popup, height=2, bg="#e2e8f0").pack(fill="x", padx=30, pady=10)
 
+        # Diğer (Manuel Ekleme) Butonu
         btn_diger = tk.Button(popup, text="✍️ DİĞER (Manuel Yaz)", font=("Segoe UI", 11, "bold"), 
                               bg="#3b82f6", fg="white", 
-                              relief="flat", cursor="hand2", pady=10,
+                              relief="flat", bd=0, cursor="hand2", pady=12,
                               activebackground="#2563eb", activeforeground="white",
                               command=lambda: self._manuel_depo_penceresi(popup))
         btn_diger.pack(fill="x", padx=30, pady=(0, 20))
@@ -3219,8 +3849,8 @@ class EczaneAsistani:
 
         tk.Label(win, text="Yeni Depo / Firma Adı", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=(25, 10))
         
-        ent_isim = tk.Entry(win, font=("Segoe UI", 12), relief="solid", bd=1, bg="#f8fafc")
-        ent_isim.pack(fill="x", padx=40, pady=10, ipady=5)
+        ent_isim = tk.Entry(win, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
+        ent_isim.pack(fill="x", padx=40, pady=10, ipady=8)
         ent_isim.focus_set()
 
         def onayla():
@@ -3235,13 +3865,8 @@ class EczaneAsistani:
         btn_frame = tk.Frame(win, bg="white")
         btn_frame.pack(fill="x", padx=40, pady=20)
         
-        tk.Button(btn_frame, text="İPTAL", font=("Segoe UI", 10, "bold"), bg="#f1f5f9", fg="#64748b", 
-                  relief="flat", cursor="hand2", width=12, pady=8,
-                  command=win.destroy).pack(side="left")
-                  
-        tk.Button(btn_frame, text="KAYDET", font=("Segoe UI", 10, "bold"), bg="#10b981", fg="white", 
-                  relief="flat", cursor="hand2", width=12, pady=8,
-                  command=onayla).pack(side="right")
+        tk.Button(btn_frame, text="İPTAL", font=("Segoe UI", 10, "bold"), bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", relief="flat", bd=0, cursor="hand2", width=12, pady=10, command=win.destroy).pack(side="left")
+        tk.Button(btn_frame, text="KAYDET", font=("Segoe UI", 10, "bold"), bg="#10b981", fg="white", activebackground="#059669", activeforeground="white", relief="flat", bd=0, cursor="hand2", width=12, pady=10, command=onayla).pack(side="right")
 
     def _ozel_depo_ekle_islem(self, isim, pencere_objesi):
         try:
@@ -3335,7 +3960,7 @@ class EczaneAsistani:
         tk.Label(header, text="Kredi Kartı & Taksit Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
         frm_btns = tk.Frame(header, bg=c.get_color("bg_main")); frm_btns.pack(side="right")
         ModernButton(frm_btns, text="+ YENİ KART TANIMLA", command=self.yeni_kart_ekle_popup, width=200, height=40, bg_color=c.get_color("btn_primary")).pack(side="left", padx=10)
-        ModernButton(frm_btns, text="🔄 YENİLE", command=self.kredi_karti_arayuzunu_guncelle, width=130, height=40, bg_color="#64748b").pack(side="left", padx=10)
+        ModernButton(frm_btns, text="🔄 YENİLE", command=self.aktif_kredi_kartini_yenile, width=130, height=40, bg_color="#64748b").pack(side="left", padx=10)
         self.notebook_kart = DraggableNotebook(self.content_area, on_reorder=self.kart_sirasi_kaydet)
         self.notebook_kart.pack(fill="both", expand=True, pady=10)
         self.kredi_karti_arayuzunu_guncelle()
@@ -3348,20 +3973,64 @@ class EczaneAsistani:
         # HATA BURADAYDI, DÜZELTİLDİ:
         self.baglanti_finans.commit()
 
+    def aktif_kredi_kartini_yenile(self):
+        # Tüm kartları silip baştan çizmek yerine SADECE ekranda açık olan kartın verilerini günceller (Sıfır Kasma)
+        aktif_tab_frame = self.notebook_kart.select()
+        if not aktif_tab_frame: return
+        
+        # Donma hissini engellemek için fareyi "Yükleniyor" ikonuna çevir
+        self.pencere.config(cursor="watch")
+        self.pencere.update()
+        
+        try:
+            # Eğer sekmenin kendi hızlı yenileme motoru varsa onu çalıştır
+            if hasattr(aktif_tab_frame, 'yenile_motoru'):
+                aktif_tab_frame.yenile_motoru()
+            else:
+                # Genel Özet sekmesindeyse veya motor yoksa normal yenileme yap
+                hedef_sekme_adi = self.notebook_kart.tab(aktif_tab_frame, "text")
+                self.kredi_karti_arayuzunu_guncelle(hedef_sekme_adi)
+        finally:
+            self.pencere.config(cursor="")    
+
     def kredi_karti_arayuzunu_guncelle(self, hedef_sekme=None):
-        for tab in self.notebook_kart.tabs(): self.notebook_kart.forget(tab)
-        tab_ozet = tk.Frame(self.notebook_kart, bg=TM.get_color("bg_main"))
-        self.notebook_kart.add(tab_ozet, text="GENEL ÖZET")
-        self.kredi_karti_ozet_sayfasi(tab_ozet)
-        self.imlec_finans.execute("SELECT isim FROM kredi_kartlari ORDER BY COALESCE(sira, 999), isim")
-        kartlar = [r[0] for r in self.imlec_finans.fetchall()]
-        for kart in kartlar:
-            try: self.kredi_karti_sekmesi_olustur(kart)
-            except Exception as e: print(f"Kart hatası ({kart}): {e}")
-        if hedef_sekme:
+        # 1. Hangi sekmede olduğumuzu (aktif sekmeyi) hafızaya alalım
+        if hedef_sekme is None:
+            try:
+                aktif_id = self.notebook_kart.select()
+                hedef_sekme = self.notebook_kart.tab(aktif_id, "text")
+            except:
+                hedef_sekme = "GENEL ÖZET"
+                
+        # 2. Yenileme sırasında yaşanacak donmayı gizlemek için fareyi "Yükleniyor" yap
+        self.pencere.config(cursor="watch")
+        self.pencere.update()
+        
+        try:
+            for tab in self.notebook_kart.tabs(): 
+                self.notebook_kart.forget(tab)
+                
+            tab_ozet = tk.Frame(self.notebook_kart, bg=TM.get_color("bg_main"))
+            self.notebook_kart.add(tab_ozet, text="GENEL ÖZET")
+            self.kredi_karti_ozet_sayfasi(tab_ozet)
+            
+            self.imlec_finans.execute("SELECT isim FROM kredi_kartlari ORDER BY COALESCE(sira, 999), isim")
+            kartlar = [r[0] for r in self.imlec_finans.fetchall()]
+            
+            for kart in kartlar:
+                try: 
+                    self.kredi_karti_sekmesi_olustur(kart)
+                except Exception as e: 
+                    print(f"Kart hatası ({kart}): {e}")
+                    
+            # 3. Yükleme bitince hafızadaki sekmeye geri dön!
             for tab_id in self.notebook_kart.tabs():
                 if self.notebook_kart.tab(tab_id, "text") == hedef_sekme:
-                    self.notebook_kart.select(tab_id); break
+                    self.notebook_kart.select(tab_id)
+                    break
+        finally:
+            # İşlem bitince fareyi normale çevir
+            self.pencere.config(cursor="")
 
     def ozel_kk_depo_secici(self, callback_func):
         popup = tk.Toplevel(self.pencere); popup.title("Firma / Depo Seç"); popup.geometry("380x600"); popup.configure(bg="#f8fafc")
@@ -3422,41 +4091,86 @@ class EczaneAsistani:
         aylar_listesi = ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
         tk.Label(scrollable_frame, text="📅 AYLIK KART ÖDEME PLANI", font=("Segoe UI", 16, "bold"), bg=TM.get_color("bg_main"), fg="#334155").pack(pady=(10, 20), anchor="w", padx=10)
         kayit_var = False
+
+        kayit_var = False
         for i in range(12):
             hedef_yil = bugun.year + (bugun.month + i - 1) // 12
             hedef_ay = (bugun.month + i - 1) % 12 + 1
             gruplanmis_veri, ay_genel_toplam = self._kart_verilerini_grupla(hedef_yil, hedef_ay)
             if not gruplanmis_veri: continue
             kayit_var = True
-            ay_kutu = tk.Frame(scrollable_frame, bg="white", bd=1, relief="solid"); ay_kutu.pack(fill="x", pady=5, padx=10)
-            ay_header = tk.Frame(ay_kutu, bg="#e2e8f0", padx=10, pady=12, cursor="hand2"); ay_header.pack(fill="x")
-            lbl_icon_ay = tk.Label(ay_header, text="▶", font=("Segoe UI", 12), bg="#e2e8f0", fg="#475569"); lbl_icon_ay.pack(side="left", padx=(0, 10))
-            tk.Label(ay_header, text=f"{aylar_listesi[hedef_ay-1]} {hedef_yil}", font=("Segoe UI", 12, "bold"), bg="#e2e8f0", fg="#1e293b").pack(side="left")
-            tk.Label(ay_header, text=f"Toplam: {ay_genel_toplam:,.2f} ₺", font=("Segoe UI", 12, "bold"), bg="#e2e8f0", fg="#ef4444").pack(side="right")
-            ay_content = tk.Frame(ay_kutu, bg="white", padx=10, pady=5)
+            
+            # --- 1. AY KARTI ANA ÇERÇEVESİ ---
+            ay_kutu = tk.Frame(scrollable_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=2)
+            ay_kutu.pack(fill="x", pady=10, padx=15)
+            
+            # --- 2. AY BAŞLIĞI (HEADER) ---
+            ay_header = tk.Frame(ay_kutu, bg="#f8fafc", padx=15, pady=15, cursor="hand2")
+            ay_header.pack(fill="x")
+            
+            # Mavi vurgu çizgisi
+            tk.Frame(ay_header, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 15))
+            
+            lbl_icon_ay = tk.Label(ay_header, text="❯", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#94a3b8")
+            lbl_icon_ay.pack(side="left", padx=(0, 10))
+            
+            tk.Label(ay_header, text=f"{aylar_listesi[hedef_ay-1]} {hedef_yil}", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#0f172a").pack(side="left")
+            
+            f_sag_toplam = tk.Frame(ay_header, bg="#f8fafc")
+            f_sag_toplam.pack(side="right")
+            tk.Label(f_sag_toplam, text="Toplam Ödeme:", font=("Segoe UI", 10), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(0, 5))
+            tk.Label(f_sag_toplam, text=f"{ay_genel_toplam:,.2f} ₺", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#ef4444").pack(side="left")
+            
+            ay_content = tk.Frame(ay_kutu, bg="white", padx=15, pady=5)
+            
             def toggle_ay(frame=ay_content, icon=lbl_icon_ay):
-                if frame.winfo_viewable(): frame.forget(); icon.config(text="▶")
-                else: frame.pack(fill="x"); icon.config(text="▼")
-            for w in [ay_header, lbl_icon_ay] + ay_header.winfo_children(): w.bind("<Button-1>", lambda e, f=toggle_ay: f())
+                if frame.winfo_viewable(): frame.forget(); icon.config(text="❯")
+                else: frame.pack(fill="x", pady=(5,10)); icon.config(text="˅")
+                
+            for w in [ay_header, lbl_icon_ay, f_sag_toplam] + ay_header.winfo_children() + f_sag_toplam.winfo_children(): 
+                w.bind("<Button-1>", lambda e, f=toggle_ay: f())
+                
             for kart_adi, data in gruplanmis_veri.items():
-                kart_toplam = data['toplam']; satirlar = data['liste']
-                kart_frame = tk.Frame(ay_content, bg="white", bd=0, relief="flat"); kart_frame.pack(fill="x", pady=2)
-                kart_header = tk.Frame(kart_frame, bg="#f8fafc", padx=10, pady=8, cursor="hand2", highlightthickness=1, highlightbackground="#cbd5e1"); kart_header.pack(fill="x")
-                lbl_icon_kart = tk.Label(kart_header, text="▷", font=("Segoe UI", 10), bg="#f8fafc", fg="#64748b"); lbl_icon_kart.pack(side="left", padx=(5, 10))
-                tk.Label(kart_header, text=f"💳 {kart_adi}", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#334155").pack(side="left")
-                tk.Label(kart_header, text=f"{kart_toplam:,.2f} ₺", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#059669").pack(side="right")
+                kart_toplam = data['toplam']
+                satirlar = data['liste']
+                
+                kart_frame = tk.Frame(ay_content, bg="white", bd=0)
+                kart_frame.pack(fill="x", pady=4)
+                
+                kart_header = tk.Frame(kart_frame, bg="white", padx=10, pady=10, cursor="hand2")
+                kart_header.pack(fill="x")
+                
+                tk.Frame(kart_frame, bg="#f1f5f9", height=1).pack(fill="x")
+                
+                lbl_icon_kart = tk.Label(kart_header, text="›", font=("Segoe UI", 14), bg="white", fg="#94a3b8")
+                lbl_icon_kart.pack(side="left", padx=(5, 10))
+                
+                tk.Label(kart_header, text=f"💳 {kart_adi}", font=("Segoe UI", 11, "bold"), bg="white", fg="#334155").pack(side="left")
+                tk.Label(kart_header, text=f"{kart_toplam:,.2f} ₺", font=("Segoe UI", 12, "bold"), bg="white", fg="#10b981").pack(side="right")
+                
                 kart_detay = tk.Frame(kart_frame, bg="white")
-                cols = ("GUN", "FIRMA", "TUTAR", "ACIKLAMA"); tree = ttk.Treeview(kart_detay, columns=cols, show="headings", height=len(satirlar))
-                tree.heading("GUN", text="Gün"); tree.column("GUN", width=50, anchor="center")
-                tree.heading("FIRMA", text="Firma / Depo"); tree.column("FIRMA", width=200)
-                tree.heading("TUTAR", text="Tutar"); tree.column("TUTAR", width=100, anchor="e")
-                tree.heading("ACIKLAMA", text="Taksit Detayı"); tree.column("ACIKLAMA", width=200)
-                tree.pack(fill="x")
-                for row in satirlar: tree.insert("", "end", values=(row[0], row[1], f"{row[2]:,.2f} ₺", row[3]))
+                cols = ("GUN", "FIRMA", "TUTAR", "ACIKLAMA")
+                tree = ttk.Treeview(kart_detay, columns=cols, show="headings", height=len(satirlar))
+                tree.heading("GUN", text="Gün")
+                tree.column("GUN", width=50, anchor="center")
+                tree.heading("FIRMA", text="Firma / Depo")
+                tree.column("FIRMA", width=200)
+                tree.heading("TUTAR", text="Tutar")
+                tree.column("TUTAR", width=100, anchor="e")
+                tree.heading("ACIKLAMA", text="Taksit Detayı")
+                tree.column("ACIKLAMA", width=200)
+                tree.pack(fill="x", pady=(5, 5))
+                
+                for row in satirlar: 
+                    tree.insert("", "end", values=(row[0], row[1], f"{row[2]:,.2f} ₺", row[3]))
+                    
                 def toggle_kart(frame=kart_detay, icon=lbl_icon_kart):
-                    if frame.winfo_viewable(): frame.forget(); icon.config(text="▷")
-                    else: frame.pack(fill="x", pady=(0, 10)); icon.config(text="▽")
-                for w in [kart_header, lbl_icon_kart] + kart_header.winfo_children(): w.bind("<Button-1>", lambda e, f=toggle_kart: f())
+                    if frame.winfo_viewable(): frame.forget(); icon.config(text="›")
+                    else: frame.pack(fill="x"); icon.config(text="⌄")
+                    
+                for w in [kart_header, lbl_icon_kart] + kart_header.winfo_children(): 
+                    w.bind("<Button-1>", lambda e, f=toggle_kart: f())
+
         if not kayit_var: tk.Label(scrollable_frame, text="Gelecek 12 ayda planlanmış ödeme bulunamadı.", font=("Segoe UI", 12), bg=TM.get_color("bg_main")).pack(pady=20)
 
     def _kart_verilerini_grupla(self, yil, ay):
@@ -3472,44 +4186,83 @@ class EczaneAsistani:
         self.imlec_finans.execute(sorgu, (ay_str,))
         ham_veri = self.imlec_finans.fetchall()
         gruplanmis = {}; genel_toplam = 0.0
+        
+        # 1. SİSTEMDEKİ (TAKSİTLİ) GİDERLERİ TOPLA
         for row in ham_veri:
             gun, firma, tutar, notu = row
-            genel_toplam += tutar
             kart_adi = "Diğer Kartlar"
-            if notu and "KART:" in notu:
-                try:
-                    temp = notu.split("KART:")[1].strip()
-                    if "(" in temp: kart_adi = temp.split("(")[0].strip()
-                    else: kart_adi = temp
-                except: pass
-            if kart_adi not in gruplanmis: gruplanmis[kart_adi] = {'toplam': 0.0, 'liste': []}
-            gruplanmis[kart_adi]['toplam'] += tutar
+            if notu and "KART:" in str(notu):
+                temp = str(notu).split("KART:")[1].strip()
+                # --- PARANTEZ HATASI DÜZELTİLDİ ---
+                if "(" in temp and ")" in temp:
+                    last_open = temp.rfind("(") # En sondaki parantezi bul
+                    if "/" in temp[last_open:]: # İçinde taksit işareti (/) varsa sil
+                        kart_adi = temp[:last_open].strip()
+                    else:
+                        kart_adi = temp
+                else:
+                    kart_adi = temp
+                # ----------------------------------
+                
+            if kart_adi not in gruplanmis: 
+                gruplanmis[kart_adi] = {'sistem_hesabi': 0.0, 'toplam': 0.0, 'liste': []}
+                
+            gruplanmis[kart_adi]['sistem_hesabi'] += tutar
             gruplanmis[kart_adi]['liste'].append(row)
+
+        # 2. MANUEL GİRİLEN "BU AYKİ EKSTRE" DEĞERLERİNİ VERİTABANINDAN ÇEK
+        self.imlec_finans.execute("SELECT ayar_adi, deger FROM program_ayarlari WHERE ayar_adi LIKE ?", (f"ekstre_toplam_%_{ay_str}",))
+        manuel_ekstreler = {}
+        for ayar_adi, deger in self.imlec_finans.fetchall():
+            k_adi = ayar_adi.replace("ekstre_toplam_", "").replace(f"_{ay_str}", "")
+            manuel_ekstreler[k_adi] = deger
+
+        # 3. KARAR ANI: EKSTRE Mİ YOKSA SİSTEM Mİ?
+        for kart_adi, data in gruplanmis.items():
+            sistem_tutari = data['sistem_hesabi']
+            kullanici_ekstresi = manuel_ekstreler.get(kart_adi, "0")
+            
+            kesin_tutar = self.gecerli_tutar_belirle(kullanici_ekstresi, sistem_tutari)
+            
+            gruplanmis[kart_adi]['toplam'] = kesin_tutar
+            genel_toplam += kesin_tutar
+
+        # Sistemde taksiti bitmiş ama kullanıcı bu aya manuel ekstre girmişse:
+        for kart_adi, ekstre_degeri in manuel_ekstreler.items():
+            if kart_adi not in gruplanmis:
+                kesin_tutar = self.gecerli_tutar_belirle(ekstre_degeri, 0)
+                if kesin_tutar > 0:
+                    gruplanmis[kart_adi] = {'sistem_hesabi': 0.0, 'toplam': kesin_tutar, 'liste': []}
+                    genel_toplam += kesin_tutar
+
         return gruplanmis, genel_toplam
 
     def kredi_karti_sekmesi_olustur(self, kart_adi):
         c = TM
-        tab = tk.Frame(self.notebook_kart, bg="white", padx=10, pady=10)
+        tab = tk.Frame(self.notebook_kart, bg="white", padx=15, pady=15)
         self.notebook_kart.add(tab, text=kart_adi)
         
-        header_strip = tk.Frame(tab, bg="white"); header_strip.pack(fill="x", pady=(0, 10))
+        # --- ÜST BİLGİ VE EKSTRE ALANI ---
+        header_strip = tk.Frame(tab, bg="white")
+        header_strip.pack(fill="x", pady=(0, 15))
         
-        left_box = tk.Frame(header_strip, bg="white"); left_box.pack(side="left")
-        tk.Label(left_box, text=f"💳 {kart_adi}", font=("Segoe UI", 16, "bold"), bg="white", fg="#334155").pack(side="left")
+        left_box = tk.Frame(header_strip, bg="white")
+        left_box.pack(side="left")
+        tk.Label(left_box, text=f"💳 {kart_adi}", font=("Segoe UI", 18, "bold"), bg="white", fg="#1e293b").pack(side="left")
         
-        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 10, "pady": 2}
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 12, "pady": 4}
         tk.Button(left_box, text="✏️ DÜZENLE", bg="#f1f5f9", fg="#64748b", **btn_style, command=lambda: self.karti_yeniden_adlandir(kart_adi)).pack(side="left", padx=(15, 5))
         
-        # --- YENİ MANUEL EKSTRE GİRİŞİ VE ŞAHSİ HARCAMA ALANI ---
-        right_box = tk.Frame(header_strip, bg="white")
-        right_box.pack(side="right", padx=(0, 10))
+        # Ekstre ve Şahsi Harcama Alanı (Daha derli toplu ve şık)
+        right_box = tk.Frame(header_strip, bg="#f8fafc", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, padx=15, pady=8)
+        right_box.pack(side="right")
         
-        f_ekstre = tk.Frame(right_box, bg="white")
-        f_ekstre.pack(anchor="e", pady=(0, 2))
-        tk.Label(f_ekstre, text="Bu Ayki Ekstre (TL):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(side="left")
+        f_ekstre = tk.Frame(right_box, bg="#f8fafc")
+        f_ekstre.pack(side="top", anchor="e", pady=(0, 5))
+        tk.Label(f_ekstre, text="Bu Ayki Ekstre (TL):", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(side="left")
         
-        ent_bu_ay_ekstre = tk.Entry(f_ekstre, font=("Segoe UI", 11, "bold"), bg="#fff1f2", fg="#ef4444", width=12, justify="right", relief="solid", bd=1)
-        ent_bu_ay_ekstre.pack(side="left", padx=(5, 5))
+        ent_bu_ay_ekstre = tk.Entry(f_ekstre, font=("Segoe UI", 11, "bold"), bg="#ffffff", fg="#ef4444", width=12, justify="right", relief="solid", bd=1)
+        ent_bu_ay_ekstre.pack(side="left", padx=(5, 10), ipady=2)
         ent_bu_ay_ekstre.bind("<KeyRelease>", mask_para_birimi)
         
         def ekstre_kaydet():
@@ -3520,106 +4273,191 @@ class EczaneAsistani:
             
             self.imlec_finans.execute("INSERT OR REPLACE INTO program_ayarlari (ayar_adi, deger) VALUES (?, ?)", (f"ekstre_toplam_{kart_adi}_{bu_ay}", str(ekstre_val)))
             self.baglanti_finans.commit()
-            akordiyonlari_yukle() # Rakamları anında yenile
+            akordiyonlari_yukle() 
             messagebox.showinfo("Başarılı", "Ekstre tutarı güncellendi ve şahsi harcamalar hesaplandı.")
 
-        ModernButton(f_ekstre, text="💾 KAYDET", command=ekstre_kaydet, width=80, height=24, bg_color="#3b82f6", font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Button(f_ekstre, text="KAYDET", command=ekstre_kaydet, bg="#3b82f6", fg="white", font=("Segoe UI", 8, "bold"), relief="flat", cursor="hand2", padx=10).pack(side="left")
 
-        f_depo = tk.Frame(right_box, bg="white")
-        f_depo.pack(anchor="e", pady=(0, 2))
-        tk.Label(f_depo, text="Sistemdeki Eczane Gideri:", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(side="left")
-        lbl_bu_ay_depo = tk.Label(f_depo, text="0.00 ₺", font=("Segoe UI", 11, "bold"), bg="white", fg="#10b981")
-        lbl_bu_ay_depo.pack(side="left", padx=(5, 0))
+        f_alt_bilgi = tk.Frame(right_box, bg="#f8fafc")
+        f_alt_bilgi.pack(side="top", anchor="e")
         
-        f_sahsi = tk.Frame(right_box, bg="white")
-        f_sahsi.pack(anchor="e")
-        tk.Label(f_sahsi, text="Eczane Dışı (Şahsi) Harcama:", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(side="left")
-        lbl_sahsi_harcama = tk.Label(f_sahsi, text="0.00 ₺", font=("Segoe UI", 11, "bold"), bg="white", fg="#f59e0b")
+        tk.Label(f_alt_bilgi, text="Sistemdeki Gider:", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(side="left")
+        lbl_bu_ay_depo = tk.Label(f_alt_bilgi, text="0.00 ₺", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#10b981")
+        lbl_bu_ay_depo.pack(side="left", padx=(5, 15))
+        
+        tk.Label(f_alt_bilgi, text="Şahsi Harcama:", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(side="left")
+        lbl_sahsi_harcama = tk.Label(f_alt_bilgi, text="0.00 ₺", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#f59e0b")
         lbl_sahsi_harcama.pack(side="left", padx=(5, 0))
-        # -----------------------------------------------------------------
         
-        f_input = tk.LabelFrame(tab, text="Hızlı Ekle", bg="white", font=("Segoe UI", 9, "bold"), padx=5, pady=5)
-        f_input.pack(fill="x", pady=(0, 10))
-        grid_frame = tk.Frame(f_input, bg="white"); grid_frame.pack(fill="x")
-        lbl_font = ("Segoe UI", 8, "bold")
+        # --- HIZLI EKLE FORMU (Eski LabelFrame yerine modern şık kart) ---
+        f_input = tk.Frame(tab, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_input.pack(fill="x", pady=(0, 20))
+        
+        # Form Başlığı
+        f_input_header = tk.Frame(f_input, bg="#f8fafc", padx=15, pady=8)
+        f_input_header.pack(fill="x")
+        tk.Label(f_input_header, text="⚡ Hızlı İşlem Ekle", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#3b82f6").pack(side="left")
+        
+        grid_frame = tk.Frame(f_input, bg="white", padx=15, pady=10)
+        grid_frame.pack(fill="x")
+        
+        lbl_font = ("Segoe UI", 9)
         tk.Label(grid_frame, text="Firma/Depo:", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=0, padx=5, sticky="w")
         
-        # --- YENİ EKLENEN SİL BUTONU VE COMBOBOX KAPSAYICISI ---
         f_depo_secim = tk.Frame(grid_frame, bg="white")
         f_depo_secim.grid(row=1, column=0, padx=5, pady=2, sticky="w")
         
-        # Veritabanından listeyi çekerken [GİZLENDİ] olanları hariç tutuyoruz
-        self.imlec_finans.execute("SELECT DISTINCT fatura_adi FROM odemeler WHERE fatura_adi NOT LIKE '%[GİZLENDİ]' UNION SELECT DISTINCT baslik FROM ozel_sekmeler WHERE baslik NOT LIKE '%[GİZLENDİ]'")
-        
-        kk_listesi = sorted([r[0] for r in self.imlec_finans.fetchall() if r[0] and not str(r[0]).endswith("[GİZLENDİ]")])
+        self.imlec_finans.execute("SELECT fatura_adi FROM depo_ayarlari WHERE fatura_adi NOT LIKE '%[GİZLENDİ]'")
+        kk_listesi = sorted(list(set([str(r[0]).replace(" KK", "") for r in self.imlec_finans.fetchall() if r[0] and r[0] != "GENEL ÖZET"])))
         if "DİĞER..." in kk_listesi: kk_listesi.remove("DİĞER...")
         kk_listesi.insert(0, "DİĞER...")
         
-        cmb_depo = ttk.Combobox(f_depo_secim, values=kk_listesi, state="readonly", width=19)
+        cmb_depo = ttk.Combobox(f_depo_secim, values=kk_listesi, state="readonly", width=19, font=("Segoe UI", 10))
         cmb_depo.pack(side="left")
         
         def hizli_ekle_listeden_cikar():
             secilen = cmb_depo.get()
             if not secilen or secilen == "DİĞER...": return
-            
-            if messagebox.askyesno("Listeden Kaldır", f"'{secilen}' kaydını bu hızlı menüden kaldırmak istiyor musunuz?\n\n(Not: Bu isme ait ödenmemiş taksitleriniz veya geçmiş kayıtlarınız silinmez, sadece bu menü temizlenir.)"):
+            if messagebox.askyesno("Listeden Kaldır", f"'{secilen}' kaydını bu menüden kaldırmak istiyor musunuz?\n(İşlemleriniz silinmez, sadece gizlenir.)"):
                 try:
-                    # Ozel sekmelerden tamamen sil
-                    self.imlec_finans.execute("DELETE FROM ozel_sekmeler WHERE baslik=?", (secilen,))
-                    # Ödemelerdeki adını gizli olarak etiketle ki listede bir daha çıkmasın
-                    self.imlec_finans.execute("UPDATE odemeler SET fatura_adi = ? WHERE fatura_adi=?", (f"{secilen} [GİZLENDİ]", secilen))
+                    self.imlec_finans.execute("UPDATE depo_ayarlari SET fatura_adi = ? WHERE fatura_adi=?", (f"{secilen} [GİZLENDİ]", secilen))
                     self.baglanti_finans.commit()
-                    
-                    # Combobox'ı anında güncelle
                     mevcut_degerler = list(cmb_depo["values"])
                     if secilen in mevcut_degerler:
                         mevcut_degerler.remove(secilen)
                         cmb_depo["values"] = mevcut_degerler
-                    
                     cmb_depo.set("DİĞER...")
-                    akordiyonlari_yukle() # Tabloyu da anında yenile
-                    
-                    messagebox.showinfo("Başarılı", "Kayıt hızlı ekleme listesinden başarıyla kaldırıldı.")
+                    akordiyonlari_yukle()
                 except Exception as e:
                     messagebox.showerror("Hata", str(e))
 
-        btn_depo_sil = tk.Button(f_depo_secim, text="🗑️", fg="red", bg="white", font=("Segoe UI", 8), relief="flat", cursor="hand2", command=hizli_ekle_listeden_cikar)
+        btn_depo_sil = tk.Button(f_depo_secim, text="🗑️", fg="#ef4444", bg="white", font=("Segoe UI", 8), relief="flat", cursor="hand2", command=hizli_ekle_listeden_cikar)
         btn_depo_sil.pack(side="left", padx=(2, 0))
-        # --------------------------------------------------------
         
         def depo_secim_event(event):
             if cmb_depo.get() == "DİĞER...":
-                def secim_tamam(gelen):
-                    mevcut = list(cmb_depo['values'])
-                    if gelen not in mevcut: mevcut.append(gelen); cmb_depo['values'] = sorted(mevcut)
-                    cmb_depo.set(gelen)
+                def secim_tamam(gelen): cmb_depo.set(gelen)
                 self.ozel_kk_depo_secici(secim_tamam)
+                
         cmb_depo.bind("<<ComboboxSelected>>", depo_secim_event)
         
         tk.Label(grid_frame, text="Tutar (TL):", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=1, padx=5, sticky="w")
-        ent_tutar = tk.Entry(grid_frame, relief="solid", bd=1, width=10); ent_tutar.grid(row=1, column=1, padx=5, pady=2); ent_tutar.bind("<KeyRelease>", mask_para_birimi)
+        ent_tutar = tk.Entry(grid_frame, relief="solid", bd=1, width=12, font=("Segoe UI", 11, "bold"), fg="#1e3a8a", bg="#eff6ff")
+        ent_tutar.grid(row=1, column=1, padx=5, pady=2, ipady=2)
+        ent_tutar.bind("<KeyRelease>", mask_para_birimi)
         
         tk.Label(grid_frame, text="Taksit:", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=2, padx=5, sticky="w")
-        cmb_taksit = ttk.Combobox(grid_frame, values=["1", "2", "3", "4", "5", "6", "9", "12"], state="readonly", width=4); cmb_taksit.grid(row=1, column=2, padx=5, pady=2); cmb_taksit.current(0)
+        cmb_taksit = ttk.Combobox(grid_frame, values=[str(i) for i in range(1, 37)], state="readonly", width=4, font=("Segoe UI", 10))
+        cmb_taksit.grid(row=1, column=2, padx=5, pady=2)
+        cmb_taksit.current(0)
         
         def create_date_wrapper(parent, r, c):
-            wrapper = tk.Frame(parent, bg="white", bd=1, relief="solid"); wrapper.grid(row=r, column=c, padx=5, pady=2, sticky="ew")
-            entry = tk.Entry(wrapper, relief="flat", width=9); entry.pack(side="left", fill="both", expand=True); entry.bind("<KeyRelease>", mask_tarih_otomatik); tarih_secici_bagla(wrapper, entry)
+            wrapper = tk.Frame(parent, bg="white", bd=1, relief="solid")
+            wrapper.grid(row=r, column=c, padx=5, pady=2, sticky="ew")
+            entry = tk.Entry(wrapper, relief="flat", width=10, font=("Segoe UI", 10))
+            entry.pack(side="left", fill="both", expand=True, ipady=2, padx=2)
+            entry.bind("<KeyRelease>", mask_tarih_otomatik)
+            tarih_secici_bagla(wrapper, entry)
             return entry
             
         tk.Label(grid_frame, text="İşlem Tar:", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=3, padx=5, sticky="w")
-        ent_islem = create_date_wrapper(grid_frame, 1, 3); ent_islem.insert(0, date.today().strftime("%Y-%m-%d"))
+        ent_islem = create_date_wrapper(grid_frame, 1, 3)
+        ent_islem.insert(0, date.today().strftime("%Y-%m-%d"))
         
         tk.Label(grid_frame, text="Hesap Kesim:", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=4, padx=5, sticky="w")
         ent_kesim = create_date_wrapper(grid_frame, 1, 4)
         
         tk.Label(grid_frame, text="Son Ödeme:", bg="white", fg="#64748b", font=lbl_font).grid(row=0, column=5, padx=5, sticky="w")
         ent_vade = create_date_wrapper(grid_frame, 1, 5)
+        
         try:
-            dt_islem = date.today(); dt_vade = dt_islem + timedelta(days=30); dt_kesim = dt_vade - timedelta(days=10)
-            ent_vade.insert(0, dt_vade.strftime("%Y-%m-%d")); ent_kesim.insert(0, dt_kesim.strftime("%Y-%m-%d"))
+            dt_islem = date.today()
+            dt_vade = dt_islem + timedelta(days=30)
+            dt_kesim = dt_vade - timedelta(days=10)
+            ent_vade.insert(0, dt_vade.strftime("%Y-%m-%d"))
+            ent_kesim.insert(0, dt_kesim.strftime("%Y-%m-%d"))
         except: pass
 
+        # --- KREDİ KARTI DÜZENLEME MOTORU ---
+        def secili_duzenle_buton():
+            secili_idler = []
+            for tv in lokal_treeviews:
+                for item in tv.get_children(""):
+                    if tv.item(item)['values'][1] == "☑":
+                        secili_idler.append(tv.item(item)['values'][0])
+            
+            if not secili_idler:
+                messagebox.showwarning("Uyarı", "Lütfen düzenlemek için tablodan bir kayıt seçin (☑).")
+                return
+            if len(secili_idler) > 1:
+                messagebox.showwarning("Uyarı", "Aynı anda sadece 1 kaydı düzenleyebilirsiniz. Lütfen diğer seçimleri kaldırın.")
+                return
+
+            oid = secili_idler[0]
+            
+            self.imlec_finans.execute("SELECT vade_tarihi, tutar, fatura_adi, aciklama FROM odemeler WHERE id=?", (oid,))
+            kayit = self.imlec_finans.fetchone()
+            if not kayit: return
+            
+            vade_tar, tut, firma_adi, ack = kayit
+            
+            win = tk.Toplevel(self.pencere)
+            win.title(f"{kart_adi} - Taksit Düzenle")
+            win.geometry("450x550") 
+            win.configure(bg="white")
+            win.transient(self.pencere)
+            win.grab_set()
+
+            x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+            y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 275
+            win.geometry(f"+{x}+{y}")
+
+            container = tk.Frame(win, bg="white", padx=25, pady=25)
+            container.pack(fill="both", expand=True)
+
+            tk.Label(container, text="✏️ Taksiti Düzenle", font=("Segoe UI", 16, "bold"), bg="white", fg="#334155").pack(pady=(0, 20))
+
+            tk.Label(container, text="İşlem Yeri / Firma:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_firma = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_firma.pack(fill="x", ipady=5, pady=(0, 15))
+            if firma_adi: ent_firma.insert(0, str(firma_adi))
+
+            tk.Label(container, text="Ödeme Dönemi (Vade):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_vade = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_vade.pack(fill="x", ipady=5, pady=(0, 15))
+            if vade_tar: ent_vade.insert(0, str(vade_tar)[:10])
+            ent_vade.bind("<KeyRelease>", mask_tarih_otomatik)
+
+            tk.Label(container, text="Tutar (TL):", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_tutar = tk.Entry(container, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#fffbeb", fg="#b45309")
+            ent_tutar.pack(fill="x", ipady=5, pady=(0, 15))
+            ent_tutar.insert(0, f"{tut:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            ent_tutar.bind("<KeyRelease>", mask_para_birimi)
+
+            tk.Label(container, text="Not / Taksit Detayı:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            ent_ack = tk.Entry(container, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
+            ent_ack.pack(fill="x", ipady=5, pady=(0, 20))
+            if ack: ent_ack.insert(0, str(ack))
+
+            def guncelle():
+                try:
+                    y_firma = ent_firma.get().strip()
+                    y_vade = ent_vade.get().strip()
+                    if len(y_vade) == 7: y_vade += "-01"
+                    y_tutar = temizle_para(ent_tutar.get())
+                    y_ack = ent_ack.get()
+
+                    self.imlec_finans.execute("UPDATE odemeler SET fatura_adi=?, vade_tarihi=?, tutar=?, aciklama=? WHERE id=?", 
+                                            (y_firma, y_vade, y_tutar, y_ack, oid))
+                    self.baglanti_finans.commit()
+                    win.destroy()
+                    akordiyonlari_yukle()
+                    messagebox.showinfo("Başarılı", "Kayıt başarıyla güncellendi.", parent=self.pencere)
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e), parent=win)
+
+            ModernButton(container, text="GÜNCELLE", command=guncelle, width=380, height=45, bg_color="#10b981").pack(side="bottom")
+        
         lokal_treeviews = []
 
         def secilenleri_sil():
@@ -3677,25 +4515,41 @@ class EczaneAsistani:
             ModernButton(win, text="ONAYLA", command=onayla, width=120, bg_color="#10b981").pack(pady=20)
 
         def kaydet_tetik():
-            basarili = self.taksit_hesapla_kaydet(kart_adi, cmb_depo.get(), ent_tutar.get(), cmb_taksit.get(), ent_islem.get(), ent_kesim.get(), ent_vade.get())
-            if basarili: akordiyonlari_yukle(); ent_tutar.delete(0, tk.END); cmb_taksit.current(0)
+            secilen_depo = cmb_depo.get().strip()
+            if secilen_depo and secilen_depo != "DİĞER..." and not secilen_depo.endswith(" KK"):
+                secilen_depo += " KK"
             
-        ModernButton(grid_frame, text="KAYDET", command=kaydet_tetik, width=90, height=28, bg_color="#10b981").grid(row=1, column=6, padx=15, pady=2)
+            basarili = self.taksit_hesapla_kaydet(kart_adi, secilen_depo, ent_tutar.get(), cmb_taksit.get(), ent_islem.get(), ent_kesim.get(), ent_vade.get())
+            if basarili: 
+                akordiyonlari_yukle()
+                ent_tutar.delete(0, tk.END)
+                cmb_taksit.current(0)
+            
+        ModernButton(grid_frame, text="KAYDET", command=kaydet_tetik, width=90, height=30, bg_color="#10b981").grid(row=1, column=6, padx=15, pady=2)
 
-        list_header = tk.Frame(tab, bg="white"); list_header.pack(fill="x", pady=(5, 5))
-        tk.Label(list_header, text=f"📅 {kart_adi} - Ödeme Planı", font=("Segoe UI", 11, "bold"), bg="white", fg="#334155").pack(side="left")
+        # --- ALT LİSTE BAŞLIĞI VE İŞLEM BUTONLARI ---
+        list_header = tk.Frame(tab, bg="white")
+        list_header.pack(fill="x", pady=(10, 5))
+        tk.Label(list_header, text="📅 Ödeme Planı (Aylar)", font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b").pack(side="left")
         
-        btn_action_frame = tk.Frame(list_header, bg="white"); btn_action_frame.pack(side="right")
-        tk.Button(btn_action_frame, text="🗑️ SEÇİLENLERİ SİL", font=("Segoe UI", 9, "bold"), bg="#f59e0b", fg="white", relief="flat", cursor="hand2", padx=10, command=secilenleri_sil).pack(side="right", padx=5)
-        tk.Button(btn_action_frame, text="💸 KISMİ ÖDEME", font=("Segoe UI", 9, "bold"), bg="#6b21a8", fg="white", relief="flat", cursor="hand2", padx=10, command=kismi_odeme_yap).pack(side="right", padx=5)
-        tk.Button(btn_action_frame, text="⛔ KARTI SİL", font=("Segoe UI", 9, "bold"), bg="#ef4444", fg="white", relief="flat", cursor="hand2", padx=10, command=lambda: self.karti_sil(kart_adi)).pack(side="right", padx=5)
+        btn_action_frame = tk.Frame(list_header, bg="white")
+        btn_action_frame.pack(side="right")
+        tk.Button(btn_action_frame, text="🗑️ SEÇİLENLERİ SİL", font=("Segoe UI", 9, "bold"), bg="#fef2f2", fg="#ef4444", relief="flat", cursor="hand2", padx=10, pady=4, command=secilenleri_sil).pack(side="right", padx=5)
+        # YENİ DÜZENLE BUTONUNU BURAYA EKLİYORUZ
+        tk.Button(btn_action_frame, text="✏️ SEÇİLENİ DÜZENLE", font=("Segoe UI", 9, "bold"), bg="#eff6ff", fg="#3b82f6", relief="flat", cursor="hand2", padx=10, pady=4, command=secili_duzenle_buton).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="💸 KISMİ ÖDEME", font=("Segoe UI", 9, "bold"), bg="#faf5ff", fg="#9333ea", relief="flat", cursor="hand2", padx=10, pady=4, command=kismi_odeme_yap).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="⛔ KARTI SİL", font=("Segoe UI", 9, "bold"), bg="#f1f5f9", fg="#64748b", relief="flat", cursor="hand2", padx=10, pady=4, command=lambda: self.karti_sil(kart_adi)).pack(side="right", padx=5)
 
-        canvas = tk.Canvas(tab, bg="white", highlightthickness=0); scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+        # --- LİSTE CANVAS'I ---
+        canvas = tk.Canvas(tab, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
         scroll_frame = tk.Frame(canvas, bg="white")
         scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         cv_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
         canvas.bind('<Configure>', lambda e: canvas.itemconfig(cv_id, width=e.width))
-        canvas.configure(yscrollcommand=scrollbar.set); canvas.pack(side="left", fill="both", expand=True, pady=5); scrollbar.pack(side="right", fill="y")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True, pady=5)
+        scrollbar.pack(side="right", fill="y")
         self.mouse_scroll_ekle(canvas, scroll_frame)
 
         def akordiyonlari_yukle():
@@ -3708,16 +4562,13 @@ class EczaneAsistani:
             # 1. Tüm Ekstre (Veritabanına manuel kaydedileni çek)
             self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi=?", (f"ekstre_toplam_{kart_adi}_{bu_ay}",))
             res_ekstre = self.imlec_finans.fetchone()
-            if res_ekstre and res_ekstre[0]:
-                bu_ay_ekstre = float(res_ekstre[0])
-            else:
-                bu_ay_ekstre = 0.0
+            bu_ay_ekstre = float(res_ekstre[0]) if res_ekstre and res_ekstre[0] else 0.0
                 
             ent_bu_ay_ekstre.delete(0, tk.END)
             if bu_ay_ekstre > 0:
                 ent_bu_ay_ekstre.insert(0, f"{bu_ay_ekstre:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
             
-            # 2. Sadece Eczane/Depo Ödemeleri (Firma adında KK, DEPO, ECZA, FARMAZON vb. geçenler)
+            # 2. Sadece Eczane/Depo Ödemeleri
             self.imlec_finans.execute("""
                 SELECT SUM(tutar) FROM odemeler 
                 WHERE satir_notu LIKE ? AND strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ'
@@ -3749,14 +4600,29 @@ class EczaneAsistani:
             for yil_ay, toplam in donemler:
                 if not yil_ay: continue
                 yil, ay = yil_ay.split("-"); baslik_str = f"{aylar_tr.get(ay, ay)} {yil}"
-                frame_ay = tk.Frame(scroll_frame, bg="white", bd=1, relief="solid"); frame_ay.pack(fill="x", pady=5, padx=5)
-                header = tk.Frame(frame_ay, bg="#f1f5f9", padx=10, pady=10, cursor="hand2"); header.pack(fill="x")
-                lbl_ok = tk.Label(header, text="▶", font=("Segoe UI", 10), bg="#f1f5f9", fg="#64748b"); lbl_ok.pack(side="left", padx=(0, 10))
-                tk.Label(header, text=baslik_str, font=("Segoe UI", 11, "bold"), bg="#f1f5f9", fg="#334155").pack(side="left")
-                tk.Label(header, text=f"{toplam:,.2f} ₺", font=("Segoe UI", 11, "bold"), bg="#f1f5f9", fg="#ef4444").pack(side="right")
                 
-                content = tk.Frame(frame_ay, bg="white", padx=5, pady=5)
-                cols = ("ID", "TIK", "GUN", "DEPO", "TUTAR", "ACIKLAMA"); tv = ttk.Treeview(content, columns=cols, show="headings", height=0)
+                # MODERN AYLIK AKORDİYON TASARIMI
+                frame_ay = tk.Frame(scroll_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1)
+                frame_ay.pack(fill="x", pady=6, padx=2)
+                
+                header = tk.Frame(frame_ay, bg="#f8fafc", padx=15, pady=12, cursor="hand2")
+                header.pack(fill="x")
+                
+                tk.Frame(header, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 10))
+                
+                lbl_ok = tk.Label(header, text="❯", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#94a3b8")
+                lbl_ok.pack(side="left", padx=(0, 10))
+                
+                tk.Label(header, text=baslik_str, font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#1e293b").pack(side="left")
+                
+                f_sag_toplam = tk.Frame(header, bg="#f8fafc")
+                f_sag_toplam.pack(side="right")
+                tk.Label(f_sag_toplam, text="Toplam:", font=("Segoe UI", 10), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(0, 5))
+                tk.Label(f_sag_toplam, text=f"{toplam:,.2f} ₺", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#ef4444").pack(side="left")
+                
+                content = tk.Frame(frame_ay, bg="white", padx=10, pady=5)
+                cols = ("ID", "TIK", "GUN", "DEPO", "TUTAR", "ACIKLAMA")
+                tv = ttk.Treeview(content, columns=cols, show="headings", height=0)
                 
                 tv.tumunu_sec_durum = False
                 def tumunu_sec_toggle(tree_ref=tv):
@@ -3777,7 +4643,7 @@ class EczaneAsistani:
                 tv.heading("DEPO", text="Firma"); tv.column("DEPO", width=150)
                 tv.heading("TUTAR", text="Tutar"); tv.column("TUTAR", width=100, anchor="e")
                 tv.heading("ACIKLAMA", text="Detay"); tv.column("ACIKLAMA", width=250)
-                tv.column("ID", width=0, stretch=False); tv.pack(fill="x")
+                tv.column("ID", width=0, stretch=False); tv.pack(fill="x", pady=(5,5))
                 
                 tv.bind('<MouseWheel>', _scroll_canvas)
                 
@@ -3794,9 +4660,11 @@ class EczaneAsistani:
                 lokal_treeviews.append(tv)
                 
                 def toggle(f=content, i=lbl_ok):
-                    if f.winfo_viewable(): f.forget(); i.config(text="▶")
-                    else: f.pack(fill="x"); i.config(text="▼")
-                for w in [header, lbl_ok] + header.winfo_children(): w.bind("<Button-1>", lambda e, f=content, i=lbl_ok: toggle(f, i))
+                    if f.winfo_viewable(): f.forget(); i.config(text="❯")
+                    else: f.pack(fill="x"); i.config(text="˅")
+                    
+                for w in [header, lbl_ok, f_sag_toplam] + header.winfo_children() + f_sag_toplam.winfo_children(): 
+                    w.bind("<Button-1>", lambda e, f=content, i=lbl_ok: toggle(f, i))
                 
                 def on_click(event, tree_ref=tv):
                     region = tree_ref.identify("region", event.x, event.y)
@@ -3810,11 +4678,18 @@ class EczaneAsistani:
                 tv.bind("<Button-1>", on_click) 
 
             tk.Label(scroll_frame, text="---- GEÇMİŞ DÖNEMLER ----", font=("Segoe UI", 9, "bold"), fg="#cbd5e1", bg="white").pack(pady=20)
-            arsiv_frame = tk.Frame(scroll_frame, bg="white", bd=1, relief="solid"); arsiv_frame.pack(fill="x", padx=5, pady=5)
-            arsiv_head = tk.Frame(arsiv_frame, bg="#e2e8f0", padx=10, pady=10, cursor="hand2"); arsiv_head.pack(fill="x")
-            lbl_ars_icon = tk.Label(arsiv_head, text="▶", font=("Segoe UI", 10), bg="#e2e8f0"); lbl_ars_icon.pack(side="left", padx=5)
-            tk.Label(arsiv_head, text="GEÇMİŞ 2 YIL (ÖDENENLER)", font=("Segoe UI", 10, "bold"), bg="#e2e8f0", fg="#475569").pack(side="left")
-            arsiv_content = tk.Frame(arsiv_frame, bg="white")
+            
+            arsiv_frame = tk.Frame(scroll_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1)
+            arsiv_frame.pack(fill="x", padx=2, pady=5)
+            arsiv_head = tk.Frame(arsiv_frame, bg="#f8fafc", padx=15, pady=12, cursor="hand2")
+            arsiv_head.pack(fill="x")
+            
+            tk.Frame(arsiv_head, bg="#64748b", width=4).pack(side="left", fill="y", padx=(0, 10))
+            lbl_ars_icon = tk.Label(arsiv_head, text="❯", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#94a3b8")
+            lbl_ars_icon.pack(side="left", padx=(0, 10))
+            tk.Label(arsiv_head, text="GEÇMİŞ 2 YIL (ÖDENENLER)", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#475569").pack(side="left")
+            
+            arsiv_content = tk.Frame(arsiv_frame, bg="white", padx=10, pady=5)
             tv_ars = ttk.Treeview(arsiv_content, columns=("TARIH", "DEPO", "TUTAR"), show="headings", height=10)
             tv_ars.heading("TARIH", text="Vade"); tv_ars.column("TARIH", width=100)
             tv_ars.heading("DEPO", text="Firma"); tv_ars.column("DEPO", width=150)
@@ -3831,11 +4706,12 @@ class EczaneAsistani:
             for row in self.imlec_finans.fetchall(): tv_ars.insert("", "end", values=(row[0], row[1], f"{row[2]:,.2f} ₺"), tags=("odendi",))
             
             def toggle_arsiv(f=arsiv_content, i=lbl_ars_icon):
-                if f.winfo_viewable(): f.forget(); i.config(text="▶")
-                else: f.pack(fill="x"); i.config(text="▼")
+                if f.winfo_viewable(): f.forget(); i.config(text="❯")
+                else: f.pack(fill="x", pady=(5,10)); i.config(text="˅")
             for w in [arsiv_head, lbl_ars_icon] + arsiv_head.winfo_children(): w.bind("<Button-1>", lambda e: toggle_arsiv())
 
         akordiyonlari_yukle()
+        tab.yenile_motoru = akordiyonlari_yukle
 
 
     def karti_yeniden_adlandir(self, eski_ad):
@@ -4009,7 +4885,6 @@ class EczaneAsistani:
 
     # --- 3. KURUM ÖDEMELERİ ---
     def sayfa_kurum_odemeleri(self, hedef_sekme=None):
-        # --- YENİ: SEKME HAFIZASI (Yenile yaparken sayfayı kaybetmemek için) ---
         if hedef_sekme is None:
             if hasattr(self, 'notebook_kurum') and self.notebook_kurum.winfo_exists():
                 try:
@@ -4018,24 +4893,23 @@ class EczaneAsistani:
                 except:
                     pass
 
-        # Ekranı temizle
         for w in self.content_area.winfo_children(): w.destroy()
         c = TM
         
         header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
         header.pack(fill="x", pady=(0, 20))
-        tk.Label(header, text="Kurum ve Sabit Gider Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(header, text="🏛️ Kurum ve Sabit Gelir Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
         
         frm_btns = tk.Frame(header, bg=c.get_color("bg_main"))
         frm_btns.pack(side="right")
         
-        ModernButton(frm_btns, text="+ YENİ KURUM TANIMLA", command=self.yeni_kurum_ekle_popup, width=220, height=40, bg_color="#f59e0b").pack(side="left", padx=10)
-        ModernButton(frm_btns, text="🔄 YENİLE", command=lambda: self.sayfa_kurum_odemeleri(), width=130, height=40, bg_color="#64748b").pack(side="left", padx=10)
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 20, "pady": 8}
+        tk.Button(frm_btns, text="➕ YENİ KURUM TANIMLA", command=self.yeni_kurum_ekle_popup, bg="#fef3c7", fg="#d97706", activebackground="#fde68a", activeforeground="#b45309", **btn_style_ana).pack(side="left", padx=10)
+        tk.Button(frm_btns, text="🔄 YENİLE", command=lambda: self.sayfa_kurum_odemeleri(), bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", activeforeground="#334155", **btn_style_ana).pack(side="left", padx=5)
 
         self.notebook_kurum = DraggableNotebook(self.content_area, on_reorder=self.kurum_sirasi_kaydet)
         self.notebook_kurum.pack(fill="both", expand=True, pady=10)
         
-        # Hafızadaki hedef sekmeyi aç
         self.kurum_sekmelerini_guncelle(hedef_sekme)
 
     def kurum_sirasi_kaydet(self, tab_names):
@@ -4047,7 +4921,6 @@ class EczaneAsistani:
         self.notebook_kurum.add(tab_ozet, text="GENEL ÖZET")
         self.kurum_ozet_sayfasi(tab_ozet)
         
-        # HATA DÜZELTİLDİ: imlec_finans yapıldı
         self.imlec_finans.execute("SELECT isim FROM kurumlar ORDER BY isim")
         kurumlar = [r[0] for r in self.imlec_finans.fetchall()]
         for k in kurumlar: self.kurum_sekmesi_olustur(k)
@@ -4065,7 +4938,8 @@ class EczaneAsistani:
         y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 300
         popup.geometry(f"+{x}+{y}")
 
-        tk.Label(popup, text="Hızlı Kurum Seçimi", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#334155").pack(pady=(20, 10))
+        tk.Label(popup, text="🏛️ Hızlı Kurum Seçimi", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#1e293b").pack(pady=(20, 5))
+        tk.Label(popup, text="(Seçtiğiniz kurum listeye eklenecektir)", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(pady=(0, 15))
 
         container = tk.Frame(popup, bg="#f8fafc"); container.pack(side="top", fill="both", expand=True, padx=5)
         canvas = tk.Canvas(container, bg="#f8fafc", highlightthickness=0)
@@ -4087,7 +4961,6 @@ class EczaneAsistani:
                 manuel_giris_ac(); return
             isim = isim.upper().replace("i", "İ").replace("ı", "I").strip()
             try:
-                # HATA DÜZELTİLDİ: Tabloyu finans veritabanında oluşturup ekliyoruz
                 self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS kurumlar (isim TEXT PRIMARY KEY)")
                 self.imlec_finans.execute("INSERT INTO kurumlar (isim) VALUES (?)", (isim,))
                 self.baglanti_finans.commit()
@@ -4099,46 +4972,71 @@ class EczaneAsistani:
         for k in hazir_kurumlar:
             btn_bg = "#fee2e2" if "SGK" in k else "white"
             btn_fg = "#991b1b" if "SGK" in k else "#0f172a"
-            btn = tk.Button(scroll_frame, text=k, font=("Segoe UI", 10), bg=btn_bg, fg=btn_fg, relief="solid", bd=1, cursor="hand2", pady=8, activebackground="#e0f2fe", command=lambda isim=k: ekle_ve_kapat(isim))
-            btn.pack(fill="x", padx=15, pady=3)
+            act_bg = "#fca5a5" if "SGK" in k else "#e0f2fe"
+            btn = tk.Button(scroll_frame, text=k, font=("Segoe UI", 10, "bold"), bg=btn_bg, fg=btn_fg, relief="flat", bd=0, cursor="hand2", pady=10, activebackground=act_bg, command=lambda isim=k: ekle_ve_kapat(isim))
+            btn.pack(fill="x", padx=15, pady=4)
 
-        tk.Frame(popup, height=2, bg="#cbd5e1").pack(fill="x", padx=30, pady=10)
+        tk.Frame(popup, height=2, bg="#e2e8f0").pack(fill="x", padx=30, pady=10)
 
         def manuel_giris_ac():
             popup.destroy()
             isim = simpledialog.askstring("Manuel Giriş", "Kurum veya Gider Adı:")
             if isim: ekle_ve_kapat(isim)
 
-        tk.Button(popup, text="✍️ DİĞER (Manuel Yaz)", font=("Segoe UI", 11, "bold"), bg="#3b82f6", fg="white", relief="flat", cursor="hand2", pady=10, command=manuel_giris_ac).pack(fill="x", padx=30, pady=(0, 20))
+        tk.Button(popup, text="✍️ DİĞER (Manuel Yaz)", font=("Segoe UI", 11, "bold"), bg="#3b82f6", fg="white", relief="flat", bd=0, cursor="hand2", pady=12, activebackground="#2563eb", activeforeground="white", command=manuel_giris_ac).pack(fill="x", padx=30, pady=(0, 20))
 
     def kurum_ozet_sayfasi(self, parent):
-        # 1. Eski "Gider" olarak kalmış kayıtları otomatik "Gelir"e dönüştüren yama
         try:
             self.imlec_finans.execute("UPDATE odemeler SET satir_notu = 'KURUM_GELIR' WHERE satir_notu LIKE '%KURUM%'")
             self.baglanti_finans.commit()
         except: pass
 
         c = TM
-        stats_frame = tk.Frame(parent, bg=c.get_color("bg_main")); stats_frame.pack(fill="x", pady=20, padx=20)
-        
+        container = tk.Frame(parent, bg=c.get_color("bg_main"))
+        container.pack(fill="both", expand=True, padx=20, pady=20)
+
         self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE satir_notu = 'KURUM_GELIR' AND durum='ODENMEDİ'")
         res = self.imlec_finans.fetchone()
         toplam_kurum_alacagi = res[0] if res and res[0] else 0.0
 
-        card = tk.Frame(stats_frame, bg="white", bd=1, relief="solid", padx=20, pady=20); card.pack(fill="x")
-        tk.Label(card, text="BEKLEYEN TOPLAM KURUM GELİRİ", font=("Segoe UI", 12, "bold"), bg="white", fg="#64748b").pack(anchor="center")
-        tk.Label(card, text=f"{toplam_kurum_alacagi:,.2f} ₺", font=("Segoe UI", 24, "bold"), bg="white", fg="#10b981").pack(anchor="center")
-        tk.Label(card, text="(SGK ve Diğer Kurum Alacakları)", font=("Segoe UI", 9), bg="white", fg="#94a3b8").pack(anchor="center")
+        # --- 1. ÜST ÖZET KARTI (MODERN) ---
+        card = tk.Frame(container, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1)
+        card.pack(fill="x", pady=(0, 20))
+        
+        header_frame = tk.Frame(card, bg="#f8fafc", padx=15, pady=15)
+        header_frame.pack(fill="x")
+        
+        tk.Frame(header_frame, bg="#10b981", width=4).pack(side="left", fill="y", padx=(0, 15))
+        tk.Label(header_frame, text="BEKLEYEN TOPLAM KURUM GELİRİ", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#1e293b").pack(side="left")
+        
+        content_frame = tk.Frame(card, bg="white", pady=20)
+        content_frame.pack(fill="x")
+        tk.Label(content_frame, text=f"{toplam_kurum_alacagi:,.2f} ₺", font=("Segoe UI", 28, "bold"), bg="white", fg="#10b981").pack(anchor="center")
+        tk.Label(content_frame, text="(SGK ve Diğer Kurum Alacakları Toplamı)", font=("Segoe UI", 10), bg="white", fg="#94a3b8").pack(anchor="center", pady=(5,0))
 
-        list_frame = tk.Frame(parent, bg="white", padx=10, pady=10); list_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        tk.Label(list_frame, text="Kurum Bazlı Gelir Dağılımı", font=("Segoe UI", 12, "bold"), bg="white", fg="#334155").pack(anchor="w", pady=(0, 10))
+        # --- 2. LİSTE KARTI ---
+        list_container = tk.Frame(container, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1)
+        list_container.pack(fill="both", expand=True)
+        
+        list_header = tk.Frame(list_container, bg="#f8fafc", padx=15, pady=12)
+        list_header.pack(fill="x")
+        
+        tk.Frame(list_header, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 15))
+        tk.Label(list_header, text="Kurum Bazlı Gelir Dağılımı", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#334155").pack(side="left")
+
+        inner_table = tk.Frame(list_container, bg="white", padx=2, pady=2)
+        inner_table.pack(fill="both", expand=True)
 
         cols = ("KURUM", "ISLEM_ADET", "TOPLAM_TUTAR", "EN_YAKIN_ODEME")
-        tree = ttk.Treeview(list_frame, columns=cols, show="headings", height=15)
+        tree = ttk.Treeview(inner_table, columns=cols, show="headings", height=15)
         tree.heading("KURUM", text="Kurum Adı"); tree.column("KURUM", width=250)
         tree.heading("ISLEM_ADET", text="Bekleyen Fatura"); tree.column("ISLEM_ADET", width=120, anchor="center")
         tree.heading("TOPLAM_TUTAR", text="Toplam Alacak"); tree.column("TOPLAM_TUTAR", width=150, anchor="e")
         tree.heading("EN_YAKIN_ODEME", text="Ödeme Tarihi"); tree.column("EN_YAKIN_ODEME", width=150, anchor="center")
+        
+        sc = ttk.Scrollbar(inner_table, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sc.set)
+        sc.pack(side="right", fill="y")
         tree.pack(fill="both", expand=True)
 
         sorgu = """
@@ -4155,66 +5053,30 @@ class EczaneAsistani:
 
     def kurum_sekmesi_olustur(self, kurum_adi):
         c = TM
-        tab = tk.Frame(self.notebook_kurum, bg="white", padx=10, pady=10)
+        tab = tk.Frame(self.notebook_kurum, bg="white", padx=15, pady=15)
         self.notebook_kurum.add(tab, text=kurum_adi)
         
-        bar = tk.Frame(tab, bg="white", pady=5); bar.pack(fill="x", pady=(0, 10))
-
-        cols = ("ID", "TIK", "FATURA", "VADE", "TUTAR", "ACIKLAMA")
-        tree = ttk.Treeview(tab, columns=cols, show="headings", height=12)
+        # --- 1. MODERN BAŞLIK ŞERİDİ ---
+        header_strip = tk.Frame(tab, bg="white")
+        header_strip.pack(fill="x", pady=(0, 15))
         
-        tree.heading("ID", text="ID"); tree.column("ID", width=0, stretch=False)
-        tree.heading("TIK", text="✔"); tree.column("TIK", width=40, anchor="center")
-        tree.heading("FATURA", text="Dönem/Fatura"); tree.column("FATURA", width=120, anchor="center")
-        tree.heading("VADE", text="Ödeme Tarihi"); tree.column("VADE", width=120, anchor="center")
-        tree.heading("TUTAR", text="Tutar"); tree.column("TUTAR", width=150, anchor="e")
-        tree.heading("ACIKLAMA", text="Açıklama / Tür"); tree.column("ACIKLAMA", width=300)
+        left_box = tk.Frame(header_strip, bg="white")
+        left_box.pack(side="left")
+        tk.Label(left_box, text=f"🏛️ {kurum_adi}", font=("Segoe UI", 18, "bold"), bg="white", fg="#1e293b").pack(side="left")
         
-        tree.tag_configure("gecmis", background="#fee2e2", foreground="#000000")
-        tree.tag_configure("guncel", background="#ffffff", foreground="#000000") 
-        # --- YENİ EKLENEN YEŞİL TAG (ÖDENDİ RENGİ) ---
-        tree.tag_configure("odendi", background="#dcfce7", foreground="#166534", font=("Segoe UI", 10, "bold"))
-
-        sc = ttk.Scrollbar(tab, orient="vertical", command=tree.yview)
-        tree.configure(yscroll=sc.set); sc.pack(side="right", fill="y"); tree.pack(fill="both", expand=True)
-
-        def tabloyu_yenile():
-            for i in tree.get_children(): tree.delete(i)
-            
-            # DÜZELTME: durum='ODENMEDİ' şartı kaldırıldı!
-            # Akıllı Sıralama: Önce Ödenmemişler (1), Sonra Ödenmişler (2) gelir.
-            self.imlec_finans.execute("""
-                SELECT id, alim_tarihi, vade_tarihi, tutar, aciklama, durum 
-                FROM odemeler WHERE fatura_adi=? AND satir_notu = 'KURUM_GELIR' 
-                ORDER BY CASE WHEN durum='ODENMEDİ' THEN 1 ELSE 2 END, vade_tarihi ASC
-            """, (kurum_adi,))
-            
-            bugun = date.today()
-            for row in self.imlec_finans.fetchall():
-                oid, fatura, vade, tutar, ack, durum = row
-                try: vade_dt = datetime.strptime(vade, "%Y-%m-%d").date()
-                except: vade_dt = bugun
-                
-                vade_str = vade_dt.strftime("%d.%m.%Y")
-                try: fatura_str = datetime.strptime(fatura, "%Y-%m-%d").strftime("%d.%m.%Y")
-                except: fatura_str = fatura
-                
-                # --- DURUMA GÖRE İKON VE RENK BELİRLEME ---
-                if durum == 'ODENDİ':
-                    tag = "odendi"
-                    tik = "✅"
-                else:
-                    tag = "gecmis" if vade_dt < bugun else "guncel"
-                    tik = "☐"
-                    
-                tree.insert("", "end", values=(oid, tik, fatura_str, vade_str, f"{tutar:,.2f} ₺", ack), tags=(tag,))
+        # --- 2. YENİ GELİR GİRİŞ BÖLÜMÜ (Hızlı İşlem Kartı) ---
+        f_giris_card = tk.Frame(tab, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_giris_card.pack(fill="x", pady=(0, 20))
+        
+        f_giris_header = tk.Frame(f_giris_card, bg="#f8fafc", padx=15, pady=8)
+        f_giris_header.pack(fill="x")
+        tk.Label(f_giris_header, text="⚡ Yeni Gelir Girişi", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#10b981").pack(side="left")
 
         def manuel_ekle_ac():
             def veritabanina_ekle(k_adi, alim, vade, tutar, not_icerik, odeme_turu):
                 aciklama_str = f"[{odeme_turu}]"
                 if not_icerik: aciklama_str += f" - {not_icerik}"
                 
-                # SGK için otomatik vade hesaplaması
                 if "SGK" in k_adi.upper() or "SOSYAL" in k_adi.upper():
                     try:
                         vade_dt = datetime.strptime(vade, "%Y-%m-%d")
@@ -4234,14 +5096,27 @@ class EczaneAsistani:
                 tabloyu_yenile()
                 messagebox.showinfo("Başarılı", "Kurum geliri sisteme eklendi.")
 
-            # AKILLI YÖNLENDİRME: Kurum adı SGK ise detaylı pencereyi aç, değilse klasiği aç
             if "SGK" in kurum_adi.upper() or "SOSYAL" in kurum_adi.upper():
                 SgkAylikFaturaSihirbazi(self.pencere, kurum_adi, veritabanina_ekle)
             else:
                 ManualAddWindow(self.pencere, kurum_adi, veritabanina_ekle)
-
-        ModernButton(bar, text="➕ YENİ GELİR EKLE", command=manuel_ekle_ac, width=180, height=35, bg_color="#10b981").pack(side="left", padx=5)
         
+        f_giris_btns = tk.Frame(f_giris_card, bg="white", padx=15, pady=15)
+        f_giris_btns.pack(fill="x")
+        btn_style_pastel = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 15, "pady": 6}
+        tk.Button(f_giris_btns, text="➕ YENİ GELİR EKLE", command=manuel_ekle_ac, bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style_pastel).pack(side="left", padx=(0, 10))
+
+        # --- 3. ANA TABLO KARTI ---
+        frm_table_container = tk.Frame(tab, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        frm_table_container.pack(fill="both", expand=True)
+
+        list_header = tk.Frame(frm_table_container, bg="white")
+        list_header.pack(fill="x", padx=15, pady=(10, 5))
+        tk.Label(list_header, text="📄 Fatura ve Bekleyen Gelirler", font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b").pack(side="left")
+
+        btn_action_frame = tk.Frame(list_header, bg="white")
+        btn_action_frame.pack(side="right")
+
         def secilenleri_sil():
             ids = [tree.item(i)['values'][0] for i in tree.get_children() if tree.item(i)['values'][1] == "☑"]
             if not ids: return
@@ -4250,12 +5125,80 @@ class EczaneAsistani:
                 self.baglanti_finans.commit()
                 tabloyu_yenile()
 
-        ModernButton(bar, text="🗑️ SEÇİLİLERİ SİL", command=secilenleri_sil, width=200, height=35, bg_color="#ef4444").pack(side="right", padx=5)
-        ModernButton(bar, text="⛔ KURUMU SİL", command=lambda: self.kurumu_sil(kurum_adi), width=200, height=35, bg_color="#7f1d1d").pack(side="right", padx=5)
+        btn_style_kucuk = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 10, "pady": 4}
+        tk.Button(btn_action_frame, text="⛔ KURUMU SİL", command=lambda: self.kurumu_sil(kurum_adi), bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style_kucuk).pack(side="right", padx=5)
+        tk.Button(btn_action_frame, text="🗑️ SEÇİLİLERİ SİL", command=secilenleri_sil, bg="#fee2e2", fg="#991b1b", activebackground="#fca5a5", activeforeground="#7f1d1d", **btn_style_kucuk).pack(side="right", padx=5)
 
-        # --- YATAN PARA KONTROL SİHİRBAZI ---
-        bottom_bar = tk.Frame(tab, bg="white", pady=10)
-        bottom_bar.pack(fill="x")
+        frm_table = tk.Frame(frm_table_container, bg="white")
+        frm_table.pack(fill="both", expand=True, padx=2, pady=(0,2))
+
+        cols = ("ID", "TIK", "FATURA", "VADE", "TUTAR", "ACIKLAMA")
+        tree = ttk.Treeview(frm_table, columns=cols, show="headings", height=12)
+        
+        tree.heading("ID", text="ID"); tree.column("ID", width=0, stretch=False)
+        tree.heading("TIK", text="✔"); tree.column("TIK", width=40, anchor="center")
+        tree.heading("FATURA", text="Dönem/Fatura"); tree.column("FATURA", width=120, anchor="center")
+        tree.heading("VADE", text="Ödeme Tarihi"); tree.column("VADE", width=120, anchor="center")
+        tree.heading("TUTAR", text="Tutar"); tree.column("TUTAR", width=150, anchor="e")
+        tree.heading("ACIKLAMA", text="Açıklama / Tür"); tree.column("ACIKLAMA", width=300)
+        
+        tree.tag_configure("gecmis", background="#fee2e2", foreground="#000000")
+        tree.tag_configure("guncel", background="#ffffff", foreground="#000000") 
+        tree.tag_configure("odendi", background="#dcfce7", foreground="#166534", font=("Segoe UI", 10, "bold"))
+
+        sc = ttk.Scrollbar(frm_table, orient="vertical", command=tree.yview)
+        tree.configure(yscroll=sc.set); sc.pack(side="right", fill="y")
+        tree.pack(side="left", fill="both", expand=True)
+
+        def tabloyu_yenile():
+            tree.delete(*tree.get_children())
+            
+            self.imlec_finans.execute("""
+                SELECT id, alim_tarihi, vade_tarihi, tutar, aciklama, durum 
+                FROM odemeler WHERE fatura_adi=? AND satir_notu = 'KURUM_GELIR' 
+                ORDER BY CASE WHEN durum='ODENMEDİ' THEN 1 ELSE 2 END, vade_tarihi ASC
+            """, (kurum_adi,))
+            
+            bugun = date.today()
+            for row in self.imlec_finans.fetchall():
+                oid, fatura, vade, tutar, ack, durum = row
+                try: vade_dt = datetime.strptime(vade, "%Y-%m-%d").date()
+                except: vade_dt = bugun
+                
+                vade_str = vade_dt.strftime("%d.%m.%Y")
+                try: fatura_str = datetime.strptime(fatura, "%Y-%m-%d").strftime("%d.%m.%Y")
+                except: fatura_str = fatura
+                
+                if durum == 'ODENDİ':
+                    tag = "odendi"
+                    tik = "✅"
+                else:
+                    tag = "gecmis" if vade_dt < bugun else "guncel"
+                    tik = "☐"
+                    
+                tree.insert("", "end", values=(oid, tik, fatura_str, vade_str, f"{tutar:,.2f} ₺", ack), tags=(tag,))
+
+        # SOL TIK
+        def on_click(event):
+            region = tree.identify("region", event.x, event.y)
+            if region == "cell":
+                if tree.identify_column(event.x) == "#2":
+                    item = tree.identify_row(event.y)
+                    if item:
+                        vals = list(tree.item(item, "values"))
+                        if vals[1] == "✅": 
+                            messagebox.showinfo("Bilgi", "Bu kayıt tahsil edilmiş.\n\nGeri almak veya silmek için farenizle üzerine SAĞ TIKLAYIN.", parent=self.pencere)
+                            return
+                        vals[1] = "☑" if vals[1] == "☐" else "☐"
+                        tree.item(item, values=vals)
+                        
+        tree.bind("<Button-1>", on_click)
+        
+        tabloyu_yenile()
+
+        # --- 4. ALT ÇUBUK (YATAN PARA KONTROLÜ) ---
+        bottom_bar = tk.Frame(tab, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, pady=12, padx=15)
+        bottom_bar.pack(fill="x", pady=(15, 0))
 
         def secilenleri_alindi_yap():
             ids = [tree.item(i)['values'][0] for i in tree.get_children() if tree.item(i)['values'][1] == "☑"]
@@ -4317,7 +5260,7 @@ class EczaneAsistani:
                 messagebox.showinfo("Başarılı", "Seçili faturalar tahsil edildi olarak işaretlendi ve yeşile boyandı.", parent=self.pencere)
                 win.destroy()
 
-            ModernButton(f_bot, text="✅ SEÇİLİLERİ 'ÖDENDİ' YAP (TAHSİLAT)", command=tahsilati_onayla, bg_color="#10b981", width=420, height=45).pack(anchor="center")
+            tk.Button(f_bot, text="✅ SEÇİLİLERİ 'ÖDENDİ' YAP (TAHSİLAT)", command=tahsilati_onayla, bg="#10b981", fg="white", font=("Segoe UI", 11, "bold"), relief="flat", cursor="hand2", width=45, pady=10).pack(anchor="center")
 
             tk.Label(win, text="🔍 YATAN PARA (TAHSİLAT) KONTROLÜ", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#334155").pack(pady=(20, 10))
 
@@ -4430,7 +5373,7 @@ class EczaneAsistani:
                 
                 e_tutar.focus_set()
 
-            ModernButton(f_giris, text="EKLE", command=parca_ekle, bg_color="#3b82f6", width=80, height=32).pack(side="right")
+            tk.Button(f_giris, text="EKLE", command=parca_ekle, bg="#3b82f6", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", padx=10, pady=4).pack(side="right")
             e_tutar.bind("<Return>", parca_ekle)
 
             def sil_parca(event=None):
@@ -4444,165 +5387,73 @@ class EczaneAsistani:
             listbox.bind("<Delete>", sil_parca)
             listbox.bind("<Double-Button-1>", sil_parca)
 
-        ModernButton(bottom_bar, text="🔍 YATAN PARAYI KONTROL ET", command=yatan_para_kontrol_ac, width=280, height=45, bg_color="#3b82f6").pack(side="left", padx=10)
-        ModernButton(bottom_bar, text="✅ DİREKT TAHSİLAT YAPILDI", command=secilenleri_alindi_yap, width=260, height=45, bg_color="#10b981").pack(side="right", padx=10)
-
-        # --- YENİ: SAĞ TIK MENÜSÜ İŞLEMLERİ ---
-        sag_tik_menusu = tk.Menu(self.pencere, tearoff=0, bg="white", fg="#0f172a", font=("Segoe UI", 10, "bold"))
-        
-        def secili_geri_al():
-            sel = tree.selection()
-            if not sel: return
-            oid = tree.item(sel[0], "values")[0]
-            self.imlec_finans.execute("UPDATE odemeler SET durum='ODENMEDİ' WHERE id=?", (oid,))
-            self.baglanti_finans.commit()
-            tabloyu_yenile()
-            messagebox.showinfo("Başarılı", "Kayıt geri alındı. Tekrar 'Bekliyor (Ödenmedi)' durumuna geçti.", parent=self.pencere)
-
-        def secili_sil_sag_tik():
-            sel = tree.selection()
-            if not sel: return
-            oid = tree.item(sel[0], "values")[0]
-            if messagebox.askyesno("Silme Onayı", "Bu kaydı kalıcı olarak silmek istiyor musunuz?", parent=self.pencere):
-                self.imlec_finans.execute("DELETE FROM odemeler WHERE id=?", (oid,))
-                self.baglanti_finans.commit()
-                tabloyu_yenile()
-
-        sag_tik_menusu.add_command(label="🔄 Geri Al (Ödenmedi Yap)", command=secili_geri_al)
-        sag_tik_menusu.add_separator()
-        sag_tik_menusu.add_command(label="🗑️ Kaydı Tamamen Sil", command=secili_sil_sag_tik)
-
-        def on_right_click(event):
-            iid = tree.identify_row(event.y)
-            if iid:
-                # Sağ tıklanan satırı mavi (seçili) yap ki kullanıcı neye işlem yaptığını görsün
-                tree.selection_set(iid) 
-                sag_tik_menusu.tk_popup(event.x_root, event.y_root)
-
-        tree.bind("<Button-3>", on_right_click)
-
-        # --- SOL TIK İŞLEMLERİ ---
-        def on_click(event):
-            region = tree.identify("region", event.x, event.y)
-            if region == "cell":
-                if tree.identify_column(event.x) == "#2":
-                    item = tree.identify_row(event.y)
-                    if item:
-                        vals = list(tree.item(item, "values"))
-                        if vals[1] == "✅": 
-                            # Eğer yeşil (ödendi) satırına sol tıklamaya çalışırsa sağ tıkı hatırlat
-                            messagebox.showinfo("Bilgi", "Bu kayıt tahsil edilmiş.\n\nGeri almak veya silmek için farenizle üzerine SAĞ TIKLAYIN.", parent=self.pencere)
-                            return
-                        vals[1] = "☑" if vals[1] == "☐" else "☐"
-                        tree.item(item, values=vals)
-                        
-        tree.bind("<Button-1>", on_click)
-        
-        # En son tabloyu ekrana çiz
-        tabloyu_yenile()
-        
-        # --- TABLO ALTI İŞLEM ÇUBUĞU ---
-        frm_row_ops = tk.Frame(tab, bg=c.get_color("card_bg"), pady=10, padx=10) 
-        frm_row_ops.pack(side="bottom", fill="x")
-
-        bottom_bar = tk.Frame(tab, bg="white", pady=10); bottom_bar.pack(fill="x")
-        def secilenleri_ode():
-            ids = [tree.item(i)['values'][0] for i in tree.get_children() if tree.item(i)['values'][1] == "☑"]
-            if not ids: messagebox.showwarning("Uyarı", "Seçim yapmadınız."); return
-            if messagebox.askyesno("Ödeme Onayı", f"{len(ids)} adet kaydı 'ÖDENDİ' olarak işaretleyip kapatmak istiyor musunuz?"):
-                for oid in ids: 
-                    # HATA DÜZELTİLDİ
-                    self.imlec_finans.execute("UPDATE odemeler SET durum='ODENDİ' WHERE id=?", (oid,))
-                self.baglanti_finans.commit()
-                tabloyu_yenile()
-                messagebox.showinfo("Başarılı", "Kayıtlar ödendi olarak işaretlendi.")
-                # --- YENİ STOK YÜKLEME TARİHİNİ KAYDET ---
-            guncel_tarih = datetime.now().strftime("%d.%m.%Y - %H:%M")
-            try:
-                self.imlec.execute("SELECT id FROM ayarlar WHERE anahtar='son_stok_yukleme_tarihi'")
-                if self.imlec.fetchone():
-                    self.imlec.execute("UPDATE ayarlar SET deger=? WHERE anahtar='son_stok_yukleme_tarihi'", (guncel_tarih,))
-                else:
-                    self.imlec.execute("INSERT INTO ayarlar (anahtar, deger) VALUES ('son_stok_yukleme_tarihi', ?)", (guncel_tarih,))
-                self.baglanti_skt.commit()
-            except Exception as e:
-                print("Stok tarihi güncellenemedi:", e)
+        tk.Button(bottom_bar, text="🔍 YATAN PARAYI KONTROL ET (PARÇALI)", command=yatan_para_kontrol_ac, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style_pastel).pack(side="left", padx=5)
+        tk.Button(bottom_bar, text="✅ DİREKT TAHSİLAT YAPILDI", command=secilenleri_alindi_yap, bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style_pastel).pack(side="right", padx=5)
 
     def kurumu_sil(self, isim):
         if messagebox.askyesno("Sil", f"'{isim}' kurumunu ve tüm kayıtlarını silmek istiyor musun?"):
             try:
-                # HATA DÜZELTİLDİ
                 self.imlec_finans.execute("DELETE FROM kurumlar WHERE isim=?", (isim,))
-                self.imlec_finans.execute("DELETE FROM odemeler WHERE fatura_adi=? AND satir_notu LIKE '%KURUM GİDERİ%'", (isim,))
+                self.imlec_finans.execute("DELETE FROM odemeler WHERE fatura_adi=? AND satir_notu LIKE '%KURUM_GELIR%'", (isim,))
                 self.baglanti_finans.commit()
                 messagebox.showinfo("Başarılı", "Kurum silindi.")
                 self.sayfa_kurum_odemeleri()
             except Exception as e: messagebox.showerror("Hata", f"Silme hatası: {e}")
 
     # --- 4. GELİR VE GİDER TAKİBİ ---
-    def sayfa_gelir(self): self._olustur_aylik_finans_sayfasi("GELİR")
-
-    def sabit_gider_sihirbazi(self, secilen_yil):
-        # Tablo kontrolü ve oluşturma
-        self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS sabit_giderler (id INTEGER PRIMARY KEY AUTOINCREMENT, kalem_adi TEXT, varsayilan_tutar REAL)")
+    def sabit_gelir_sihirbazi(self, secilen_yil):
+        self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS sabit_gelirler (id INTEGER PRIMARY KEY AUTOINCREMENT, kalem_adi TEXT, varsayilan_tutar REAL)")
         self.baglanti_finans.commit()
 
-        # Ana Pencere Ayarları
         win = tk.Toplevel(self.pencere)
-        win.title("Sabit Gider Yönetimi")
+        win.title("⚡ Sabit Gelir Yönetimi")
         win.geometry("600x750") 
         win.transient(self.pencere); win.grab_set()
         win.configure(bg="#f8fafc")
         
-        # Ekranı Ortala
         x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 300
         y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 375
         win.geometry(f"+{x}+{y}")
 
-        # --- YENİ ŞABLON EKLEME POPUP ---
         def modern_ekle_popup():
             pop = tk.Toplevel(win)
             pop.title("Yeni Şablon")
-            pop.geometry("400x350")
+            pop.geometry("400x380")
             pop.configure(bg="white")
             pop.transient(win); pop.grab_set()
             
             px = win.winfo_x() + 100; py = win.winfo_y() + 100
             pop.geometry(f"+{px}+{py}")
             
-            tk.Label(pop, text="Yeni Sabit Gider Şablonu", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=20)
+            tk.Label(pop, text="⚡ Yeni Sabit Gelir Şablonu", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=(20, 15))
             
-            tk.Label(pop, text="Gider Adı (Örn: Elektrik, Kira):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(anchor="w", padx=30)
-            ent_ad = tk.Entry(pop, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
-            ent_ad.pack(fill="x", padx=30, pady=(5, 15), ipady=5)
+            tk.Label(pop, text="Gelir Adı (Örn: Kira Geliri, Fon):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(anchor="w", padx=30)
+            ent_ad = tk.Entry(pop, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
+            ent_ad.pack(fill="x", padx=30, pady=(5, 15), ipady=6)
             ent_ad.focus_set()
             
             tk.Label(pop, text="Varsayılan Tutar (TL):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(anchor="w", padx=30)
-            ent_tut = tk.Entry(pop, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc")
-            ent_tut.pack(fill="x", padx=30, pady=(5, 20), ipady=5)
+            ent_tut = tk.Entry(pop, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#f0fdf4", fg="#166534", insertbackground="#166534")
+            ent_tut.pack(fill="x", padx=30, pady=(5, 20), ipady=6)
             ent_tut.bind("<KeyRelease>", mask_para_birimi)
             
             def kaydet_kapat():
                 ad = ent_ad.get().strip()
                 tutar = temizle_para(ent_tut.get())
-                
                 if not ad:
                     messagebox.showwarning("Eksik", "Lütfen bir isim girin.", parent=pop)
                     return
-                
                 try:
-                    self.imlec_finans.execute("INSERT INTO sabit_giderler (kalem_adi, varsayilan_tutar) VALUES (?, ?)", (ad, tutar))
+                    self.imlec_finans.execute("INSERT INTO sabit_gelirler (kalem_adi, varsayilan_tutar) VALUES (?, ?)", (ad, tutar))
                     self.baglanti_finans.commit()
                     listeyi_yukle()
                     pop.destroy()
                 except Exception as e:
                     messagebox.showerror("Hata", str(e), parent=pop)
 
-            ModernButton(pop, text="KAYDET", command=kaydet_kapat, width=200, height=40, bg_color="#10b981").pack(side="bottom", pady=30)
+            tk.Button(pop, text="KAYDET", command=kaydet_kapat, font=("Segoe UI", 11, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=10).pack(fill="x", padx=30, pady=(10, 0))
             pop.bind('<Return>', lambda e: kaydet_kapat())
 
-        # --- ARAYÜZ DÜZENİ ---
-        # 1. ÜST PANEL (Dönem)
         frm_top = tk.Frame(win, bg="#f1f5f9", pady=20, padx=20)
         frm_top.pack(side="top", fill="x")
         
@@ -4616,14 +5467,11 @@ class EczaneAsistani:
         ent_donem.pack(anchor="w", pady=5)
         ent_donem.insert(0, secili_ay_str)
 
-        # 2. ORTA PANEL (LİSTE) - SCROLLABLE
         frm_mid = tk.Frame(win, bg="white", padx=10, pady=10)
         frm_mid.pack(side="top", fill="both", expand=True)
         
-        lbl_baslik = tk.Label(frm_mid, text="Şablon Listesi (Tutarları değiştirebilirsiniz)", font=("Segoe UI", 10, "bold"), bg="white", fg="#475569")
-        lbl_baslik.pack(anchor="w", pady=(0, 10))
+        tk.Label(frm_mid, text="Şablon Listesi (Tutarları değiştirebilirsiniz)", font=("Segoe UI", 10, "bold"), bg="white", fg="#475569").pack(anchor="w", pady=(0, 10))
         
-        # Scroll Sistemi
         canvas = tk.Canvas(frm_mid, bg="white", highlightthickness=0)
         scrollbar = ttk.Scrollbar(frm_mid, orient="vertical", command=canvas.yview)
         scroll_frame = tk.Frame(canvas, bg="white")
@@ -4638,8 +5486,173 @@ class EczaneAsistani:
         
         self.mouse_scroll_ekle(canvas, scroll_frame)
 
-        # 3. ALT PANEL (Butonlar)
-        frm_bot = tk.Frame(win, bg="#e2e8f0", pady=15, padx=20)
+        frm_bot = tk.Frame(win, bg="#f8fafc", pady=15, padx=20, highlightbackground="#e2e8f0", highlightthickness=1)
+        frm_bot.pack(side="bottom", fill="x")
+
+        check_vars = {} 
+
+        def listeyi_yukle():
+            for w in scroll_frame.winfo_children(): w.destroy()
+            check_vars.clear()
+            
+            self.imlec_finans.execute("SELECT id, kalem_adi, varsayilan_tutar FROM sabit_gelirler")
+            kayitlar = self.imlec_finans.fetchall()
+            
+            if not kayitlar:
+                tk.Label(scroll_frame, text="Henüz şablon yok.", font=("Segoe UI", 11), bg="white", fg="#94a3b8").pack(pady=20)
+                return
+
+            for row in kayitlar:
+                rid, ad, tutar = row
+                var = tk.IntVar(value=1)
+                
+                card = tk.Frame(scroll_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, padx=5, pady=5)
+                card.pack(fill="x", pady=4, padx=2)
+                
+                cb = tk.Checkbutton(card, variable=var, bg="white", cursor="hand2")
+                cb.pack(side="left")
+                
+                tk.Label(card, text=ad, font=("Segoe UI", 11, "bold"), bg="white", fg="#334155", width=20, anchor="w").pack(side="left", padx=5)
+                
+                ent_tutar_row = tk.Entry(card, font=("Segoe UI", 11, "bold"), width=12, justify="right", bd=1, relief="solid", bg="#f0fdf4", fg="#166534")
+                ent_tutar_row.pack(side="left", padx=10, ipady=3)
+                tutar_str = f"{tutar:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                ent_tutar_row.insert(0, tutar_str)
+                ent_tutar_row.bind("<KeyRelease>", mask_para_birimi)
+                
+                check_vars[rid] = (var, ad, ent_tutar_row)
+                
+                tk.Button(card, text="🗑️", font=("Segoe UI", 9), bg="#fee2e2", fg="#991b1b", relief="flat", bd=0, cursor="hand2", command=lambda i=rid: sil(i)).pack(side="right", padx=5, ipadx=5, ipady=2)
+
+        def sil(rid):
+            if messagebox.askyesno("Onay", "Bu şablonu silmek istiyor musunuz?", parent=win):
+                self.imlec_finans.execute("DELETE FROM sabit_gelirler WHERE id=?", (rid,))
+                self.baglanti_finans.commit()
+                listeyi_yukle()
+
+        def aktar():
+            tarih_str = ent_donem.get() + "-01"
+            secilenler = []
+            
+            for rid, (var, ad, ent_widget) in check_vars.items():
+                if var.get() == 1:
+                    guncel_tutar = temizle_para(ent_widget.get())
+                    secilenler.append((ad, guncel_tutar))
+            
+            if not secilenler:
+                messagebox.showwarning("Uyarı", "Listeden en az bir gelir seçmelisiniz.", parent=win)
+                return
+            
+            toplam_tutar = sum([x[1] for x in secilenler])
+            
+            if messagebox.askyesno("Onay", f"{len(secilenler)} adet gelir kalemi\nToplam: {toplam_tutar:,.2f} TL\n\n{ent_donem.get()} dönemine işlenecek.\nOnaylıyor musunuz?", parent=win):
+                eklenen = 0
+                for ad, tutar in secilenler:
+                    try:
+                        aciklama = f"[SABİT] {ad}"
+                        # "MANUEL_GELIR" olarak kaydediyoruz
+                        self.imlec_finans.execute("INSERT INTO odemeler (fatura_adi, vade_tarihi, tutar, aciklama, durum, satir_notu) VALUES (?, ?, ?, ?, 'ODENMEDİ', ?)", 
+                                           (ad, tarih_str, tutar, aciklama, "MANUEL_GELIR"))
+                        eklenen += 1
+                    except: pass
+                
+                self.baglanti_finans.commit()
+                messagebox.showinfo("Başarılı", f"{eklenen} adet gelir eklendi.", parent=win)
+                win.destroy()
+                self.sayfa_gelir() # Gelir sayfasını yenile
+
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 15, "pady": 8}
+        tk.Button(frm_bot, text="➕ YENİ ŞABLON EKLE", command=modern_ekle_popup, bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", activeforeground="#334155", **btn_style).pack(side="left")
+        tk.Button(frm_bot, text="⚡ SEÇİLENLERİ İŞLE", command=aktar, bg="#10b981", fg="white", activebackground="#059669", activeforeground="white", **btn_style).pack(side="right")
+        
+        listeyi_yukle()
+
+    def sabit_gider_sihirbazi(self, secilen_yil):
+        self.imlec_finans.execute("CREATE TABLE IF NOT EXISTS sabit_giderler (id INTEGER PRIMARY KEY AUTOINCREMENT, kalem_adi TEXT, varsayilan_tutar REAL)")
+        self.baglanti_finans.commit()
+
+        win = tk.Toplevel(self.pencere)
+        win.title("⚡ Sabit Gider Yönetimi")
+        win.geometry("600x750") 
+        win.transient(self.pencere); win.grab_set()
+        win.configure(bg="#f8fafc")
+        
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 300
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 375
+        win.geometry(f"+{x}+{y}")
+
+        def modern_ekle_popup():
+            pop = tk.Toplevel(win)
+            pop.title("Yeni Şablon")
+            pop.geometry("400x380")
+            pop.configure(bg="white")
+            pop.transient(win); pop.grab_set()
+            
+            px = win.winfo_x() + 100; py = win.winfo_y() + 100
+            pop.geometry(f"+{px}+{py}")
+            
+            tk.Label(pop, text="⚡ Yeni Sabit Gider Şablonu", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=(20, 15))
+            
+            tk.Label(pop, text="Gider Adı (Örn: Elektrik, Kira):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(anchor="w", padx=30)
+            ent_ad = tk.Entry(pop, font=("Segoe UI", 11), relief="solid", bd=1, bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
+            ent_ad.pack(fill="x", padx=30, pady=(5, 15), ipady=6)
+            ent_ad.focus_set()
+            
+            tk.Label(pop, text="Varsayılan Tutar (TL):", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(anchor="w", padx=30)
+            ent_tut = tk.Entry(pop, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#fffbeb", fg="#b45309", insertbackground="#b45309")
+            ent_tut.pack(fill="x", padx=30, pady=(5, 20), ipady=6)
+            ent_tut.bind("<KeyRelease>", mask_para_birimi)
+            
+            def kaydet_kapat():
+                ad = ent_ad.get().strip()
+                tutar = temizle_para(ent_tut.get())
+                if not ad:
+                    messagebox.showwarning("Eksik", "Lütfen bir isim girin.", parent=pop)
+                    return
+                try:
+                    self.imlec_finans.execute("INSERT INTO sabit_giderler (kalem_adi, varsayilan_tutar) VALUES (?, ?)", (ad, tutar))
+                    self.baglanti_finans.commit()
+                    listeyi_yukle()
+                    pop.destroy()
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e), parent=pop)
+
+            tk.Button(pop, text="KAYDET", command=kaydet_kapat, font=("Segoe UI", 11, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=10).pack(fill="x", padx=30, pady=(10, 0))
+            pop.bind('<Return>', lambda e: kaydet_kapat())
+
+        frm_top = tk.Frame(win, bg="#f1f5f9", pady=20, padx=20)
+        frm_top.pack(side="top", fill="x")
+        
+        tk.Label(frm_top, text="Hangi aya işlenecek?", bg="#f1f5f9", font=("Segoe UI", 10), fg="#64748b").pack(anchor="w")
+        
+        bugun = date.today()
+        yil_val = secilen_yil if secilen_yil else str(bugun.year)
+        secili_ay_str = f"{yil_val}-{bugun.month:02d}"
+        
+        ent_donem = tk.Entry(frm_top, font=("Segoe UI", 14, "bold"), width=15, justify="center", relief="solid", bd=1, fg="#334155")
+        ent_donem.pack(anchor="w", pady=5)
+        ent_donem.insert(0, secili_ay_str)
+
+        frm_mid = tk.Frame(win, bg="white", padx=10, pady=10)
+        frm_mid.pack(side="top", fill="both", expand=True)
+        
+        tk.Label(frm_mid, text="Şablon Listesi (Tutarları değiştirebilirsiniz)", font=("Segoe UI", 10, "bold"), bg="white", fg="#475569").pack(anchor="w", pady=(0, 10))
+        
+        canvas = tk.Canvas(frm_mid, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(frm_mid, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg="white")
+        
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win_id = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.bind('<Configure>', lambda e: canvas.itemconfig(win_id, width=e.width))
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        self.mouse_scroll_ekle(canvas, scroll_frame)
+
+        frm_bot = tk.Frame(win, bg="#f8fafc", pady=15, padx=20, highlightbackground="#e2e8f0", highlightthickness=1)
         frm_bot.pack(side="bottom", fill="x")
 
         check_vars = {} 
@@ -4659,8 +5672,7 @@ class EczaneAsistani:
                 rid, ad, tutar = row
                 var = tk.IntVar(value=1)
                 
-                # Kart Görünümü
-                card = tk.Frame(scroll_frame, bg="white", bd=1, relief="solid", padx=5, pady=5)
+                card = tk.Frame(scroll_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1, padx=5, pady=5)
                 card.pack(fill="x", pady=4, padx=2)
                 
                 cb = tk.Checkbutton(card, variable=var, bg="white", cursor="hand2")
@@ -4668,17 +5680,15 @@ class EczaneAsistani:
                 
                 tk.Label(card, text=ad, font=("Segoe UI", 11, "bold"), bg="white", fg="#334155", width=20, anchor="w").pack(side="left", padx=5)
                 
-                ent_tutar_row = tk.Entry(card, font=("Segoe UI", 11), width=10, justify="right", bd=1, relief="solid", bg="#fffbeb")
-                ent_tutar_row.pack(side="left", padx=10)
+                ent_tutar_row = tk.Entry(card, font=("Segoe UI", 11, "bold"), width=12, justify="right", bd=1, relief="solid", bg="#fffbeb", fg="#b45309")
+                ent_tutar_row.pack(side="left", padx=10, ipady=3)
                 tutar_str = f"{tutar:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 ent_tutar_row.insert(0, tutar_str)
                 ent_tutar_row.bind("<KeyRelease>", mask_para_birimi)
                 
                 check_vars[rid] = (var, ad, ent_tutar_row)
                 
-                tk.Button(card, text="🗑️", font=("Segoe UI", 9), bg="white", fg="#dc2626", 
-                          relief="flat", cursor="hand2",
-                          command=lambda i=rid: sil(i)).pack(side="right", padx=5)
+                tk.Button(card, text="🗑️", font=("Segoe UI", 9), bg="#fee2e2", fg="#991b1b", relief="flat", bd=0, cursor="hand2", command=lambda i=rid: sil(i)).pack(side="right", padx=5, ipadx=5, ipady=2)
 
         def sil(rid):
             if messagebox.askyesno("Onay", "Bu şablonu silmek istiyor musunuz?", parent=win):
@@ -4716,8 +5726,9 @@ class EczaneAsistani:
                 win.destroy()
                 self.sayfa_gider()
 
-        ModernButton(frm_bot, text="➕ YENİ ŞABLON EKLE", command=modern_ekle_popup, width=200, bg_color="#64748b").pack(side="left")
-        ModernButton(frm_bot, text="⚡ SEÇİLENLERİ İŞLE", command=aktar, width=220, bg_color="#10b981").pack(side="right")
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 15, "pady": 8}
+        tk.Button(frm_bot, text="➕ YENİ ŞABLON EKLE", command=modern_ekle_popup, bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", activeforeground="#334155", **btn_style).pack(side="left")
+        tk.Button(frm_bot, text="⚡ SEÇİLENLERİ İŞLE", command=aktar, bg="#10b981", fg="white", activebackground="#059669", activeforeground="white", **btn_style).pack(side="right")
         
         listeyi_yukle()
 
@@ -4726,24 +5737,34 @@ class EczaneAsistani:
     def _olustur_aylik_finans_sayfasi(self, tip, korunacak_yview=None):
         for w in self.content_area.winfo_children(): w.destroy()
         c = TM
-        ana_renk = "#10b981" if tip == "GELİR" else "#ef4444"
-        # İç boşluklar (padx=20, pady=15) artırıldı.
-        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"), padx=20, pady=15)
-        header.pack(fill="x")
         
-        # Başlığa ikon eklendi ve font boyutu 24'e çıkarıldı.
+        ana_renk = "#10b981" if tip == "GELİR" else "#ef4444"
+        ana_bg = "#dcfce7" if tip == "GELİR" else "#fef2f2"
+        ana_act_bg = "#bbf7d0" if tip == "GELİR" else "#fee2e2"
+        ana_act_fg = "#166534" if tip == "GELİR" else "#991b1b"
+
+        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        header.pack(fill="x", pady=(0, 20))
+        
         ikon = "💰" if tip == "GELİR" else "📉"
-        tk.Label(header, text=f"{ikon} {tip} YÖNETİMİ", font=("Segoe UI", 24, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
-        frm_btns = tk.Frame(header, bg=c.get_color("bg_main")); frm_btns.pack(side="right")
-        tk.Label(frm_btns, text="Yıl:", bg=c.get_color("bg_main"), font=("Segoe UI", 10, "bold")).pack(side="left", padx=5)
-        # Yıl aralığı 10+ yıllık kredileri kapsayacak şekilde +16'ya çıkarıldı
+        tk.Label(header, text=f"{ikon} {tip} Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        
+        frm_btns = tk.Frame(header, bg=c.get_color("bg_main"))
+        frm_btns.pack(side="right")
+        
+        tk.Label(frm_btns, text="Yıl:", bg=c.get_color("bg_main"), font=("Segoe UI", 10, "bold"), fg=c.get_color("fg_text")).pack(side="left", padx=5)
         yil_listesi = [str(y) for y in range(datetime.now().year - 2, datetime.now().year + 16)]
         cmb_yil = ttk.Combobox(frm_btns, values=yil_listesi, state="readonly", width=6, font=("Segoe UI", 10))
-        cmb_yil.set(str(datetime.now().year)); cmb_yil.pack(side="left", padx=(0, 15))
-        ModernButton(frm_btns, text=f"➕  {tip} EKLE", command=lambda: self.manuel_finans_popup(tip), width=200, height=35, bg_color=ana_renk).pack(side="left", padx=5)
+        cmb_yil.set(str(datetime.now().year)); cmb_yil.pack(side="left", padx=(0, 15), ipady=3)
+        
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 20, "pady": 8}
+        
+        tk.Button(frm_btns, text=f"➕ YENİ {tip} EKLE", command=lambda: self.manuel_finans_popup(tip), bg=ana_bg, fg=ana_renk, activebackground=ana_act_bg, activeforeground=ana_act_fg, **btn_style_ana).pack(side="left", padx=5)
         
         if tip == "GİDER":
-            ModernButton(frm_btns, text="⚡ SABİT GİDERLER", command=lambda: self.sabit_gider_sihirbazi(cmb_yil.get()), width=200, height=35, bg_color="#8b5cf6").pack(side="left", padx=5)
+            tk.Button(frm_btns, text="⚡ SABİT GİDERLER", command=lambda: self.sabit_gider_sihirbazi(cmb_yil.get()), bg="#faf5ff", fg="#9333ea", activebackground="#f3e8ff", activeforeground="#7e22ce", **btn_style_ana).pack(side="left", padx=5)
+        elif tip == "GELİR":
+            tk.Button(frm_btns, text="⚡ SABİT GELİRLER", command=lambda: self.sabit_gelir_sihirbazi(cmb_yil.get()), bg="#f0fdf4", fg="#15803d", activebackground="#dcfce7", activeforeground="#166534", **btn_style_ana).pack(side="left", padx=5)
 
         def yenile(gecici_pos=None): 
             kayitli_pos = gecici_pos if gecici_pos else self.finans_canvas.yview()
@@ -4751,16 +5772,18 @@ class EczaneAsistani:
             if kayitli_pos:
                 self.pencere.after(50, lambda: self.finans_canvas.yview_moveto(kayitli_pos[0]))
 
-        ModernButton(frm_btns, text="🔄 YENİLE", command=lambda: yenile(None), width=100, height=35, bg_color="#64748b").pack(side="left", padx=5)
+        tk.Button(frm_btns, text="🔄 YENİLE", command=lambda: yenile(None), bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", activeforeground="#334155", **btn_style_ana).pack(side="left", padx=5)
         cmb_yil.bind("<<ComboboxSelected>>", lambda e: yenile(None))
 
         canvas = tk.Canvas(self.content_area, bg=c.get_color("bg_main"), highlightthickness=0)
         self.finans_canvas = canvas
         scrollbar = ttk.Scrollbar(self.content_area, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, bg=c.get_color("bg_main"))
+        
         scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
+        
         canvas.configure(yscrollcommand=scrollbar.set); canvas.pack(side="left", fill="both", expand=True, pady=5)
         scrollbar.pack(side="right", fill="y")
         self.mouse_scroll_ekle(canvas, scrollable_frame)
@@ -4768,7 +5791,7 @@ class EczaneAsistani:
 
     def _aylik_tablolari_doldur(self, parent_frame, tip, secilen_yil):
         for widget in parent_frame.winfo_children(): widget.destroy()
-        c = TM # Temayı almayı unutmamak için (Hata vermemesi için gerekli)
+        c = TM
         aylar_listesi = ["OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK"]
         genel_yil_kalan = 0.0; kayit_var_mi = False
         bugun = date.today()
@@ -4784,7 +5807,6 @@ class EczaneAsistani:
                     FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND (satir_notu LIKE '%KURUM%' OR satir_notu = 'MANUEL_GELIR') ORDER BY vade_tarihi
                 """
             else:
-                # GİDER SORGUSU GÜNCELLENDİ: Çift gider yazılmasını önlemek için Depo Kredi Kartı ödemelerini gizler.
                 sorgu = """
                     SELECT id, strftime('%d', vade_tarihi), fatura_adi, aciklama, tutar, satir_notu, vade_tarihi, durum 
                     FROM odemeler 
@@ -4810,32 +5832,39 @@ class EczaneAsistani:
             elif secilen_yil_int == bugun.year:
                 if ay_index >= bugun.month: genel_yil_kalan += ay_kalan
 
-            # relief="solid" kaldırıldı, yerine ince ve yumuşak bir sınır (border) eklendi.
-            card = tk.Frame(parent_frame, bg=c.get_color("card_bg"), bd=0, highlightbackground=c.get_color("border"), highlightthickness=1)
-            card.pack(fill="x", pady=10, padx=10)
-            baslik_bg = "#f1f5f9"; baslik_fg = "#334155"
-            tutar_renk = "#166534" if tip == "GELİR" else "#ef4444"
+            tutar_renk = "#10b981" if tip == "GELİR" else "#ef4444"
             
-            header_frame = tk.Frame(card, bg=baslik_bg, padx=10, pady=10, cursor="hand2"); header_frame.pack(fill="x")
-            lbl_icon = tk.Label(header_frame, text="▶", font=("Segoe UI", 12), bg=baslik_bg, fg=baslik_fg); lbl_icon.pack(side="left", padx=(0, 10))
-            lbl_title = tk.Label(header_frame, text=f"{aylar_listesi[ay_index-1]} {secilen_yil}", font=("Segoe UI", 11, "bold"), bg=baslik_bg, fg=baslik_fg); lbl_title.pack(side="left")
+            # 1. ANA ÇERÇEVE
+            card = tk.Frame(parent_frame, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=1)
+            card.pack(fill="x", pady=(0, 15), padx=10)
             
-            # --- HATA YARATAN KISIM BURASIYDI, HİZASI DÜZELTİLDİ ---
-            # Toplam tutar için özel bir arka plan çerçevesi (input_bg renginde) oluşturduk
-            f_toplam_kutu = tk.Frame(header_frame, bg=c.get_color("input_bg"), padx=15, pady=5, relief="flat", bd=0)
-            f_toplam_kutu.pack(side="right", fill="y")
+            # 2. BAŞLIK (HEADER)
+            header_frame = tk.Frame(card, bg="#f8fafc", padx=15, pady=12, cursor="hand2")
+            header_frame.pack(fill="x")
             
-            tk.Label(f_toplam_kutu, text="Aylık Toplam:", font=("Segoe UI", 10), bg=c.get_color("input_bg"), fg="#64748b").pack(side="left", padx=(0, 10))
-            lbl_total = tk.Label(f_toplam_kutu, text=f"{ay_toplami:,.2f} ₺", font=("Segoe UI", 14, "bold"), bg=c.get_color("input_bg"), fg=tutar_renk)
+            tk.Frame(header_frame, bg=tutar_renk, width=4).pack(side="left", fill="y", padx=(0, 15))
+            lbl_icon = tk.Label(header_frame, text="❯", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#94a3b8")
+            lbl_icon.pack(side="left", padx=(0, 10))
+            
+            lbl_title = tk.Label(header_frame, text=f"{aylar_listesi[ay_index-1]} {secilen_yil}", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#1e293b")
+            lbl_title.pack(side="left")
+            
+            f_sag_toplam = tk.Frame(header_frame, bg="#f8fafc")
+            f_sag_toplam.pack(side="right")
+            tk.Label(f_sag_toplam, text="Aylık Toplam:", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(0, 10))
+            lbl_total = tk.Label(f_sag_toplam, text=f"{ay_toplami:,.2f} ₺", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg=tutar_renk)
             lbl_total.pack(side="right")
-            # --------------------------------------------------------
             
-            content_frame = tk.Frame(card, bg=c.get_color("card_bg"), padx=10, pady=10)
-            content_frame.pack(fill="both", expand=True)
+            # 3. İÇERİK ALANI (TABLO)
+            content_frame = tk.Frame(card, bg="white", padx=15, pady=5)
             
             cols = ("ID", "GUN", "FIRMA", "KAYNAK", "ACIKLAMA", "TUTAR", "TUR")
-            h = len(ham_veriler) if len(ham_veriler) < 10 else 10
+            h = len(ham_veriler) if len(ham_veriler) < 12 else 12
             tree = ttk.Treeview(content_frame, columns=cols, show="headings", height=h)
+            
+            sc_tree = ttk.Scrollbar(content_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=sc_tree.set)
+            sc_tree.pack(side="right", fill="y")
             
             tree.heading("ID", text="ID"); tree.column("ID", width=0, stretch=False)
             tree.heading("GUN", text="Gün"); tree.column("GUN", width=50, anchor="center")
@@ -4848,18 +5877,22 @@ class EczaneAsistani:
             tree.tag_configure("yesil", background="#ecfdf5", foreground="#065f46") 
             tree.tag_configure("kirmizi", background="#fef2f2", foreground="#991b1b") 
             
-            tree.pack(fill="both", expand=True)
+            tree.pack(side="left", fill="both", expand=True, pady=(5, 5))
 
-            # --- EKLENEN KISIM: SCROLL (KAYDIRMA) ÇÖZÜMÜ ---
-            # Fare tablonun (Treeview) üzerindeyken ana ekranın (Canvas) kaymasını sağlar.
-            def tree_scroll(event, canvas=parent_frame.master):
+            def akilli_tree_scroll(event, canvas=parent_frame.master, tv=tree):
                 try: 
-                    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-                except: 
-                    pass
+                    delta = event.delta
+                    if delta > 0:
+                        if tv.yview()[0] <= 0.0:
+                            canvas.yview_scroll(int(-1*(delta/120)), "units")
+                            return "break"
+                    elif delta < 0:
+                        if tv.yview()[1] >= 1.0:
+                            canvas.yview_scroll(int(-1*(delta/120)), "units")
+                            return "break"
+                except: pass
             
-            tree.bind('<MouseWheel>', tree_scroll)
-            # -----------------------------------------------
+            tree.bind('<MouseWheel>', akilli_tree_scroll)
 
             for row in ham_veriler:
                 oid, gun, firma, aciklama, tutar, notu, tam_tarih_str, durum = row
@@ -4867,18 +5900,15 @@ class EczaneAsistani:
                 aciklama_goster = aciklama if aciklama else ""
                 kaynak_bilgisi = "-"
                 
-                # --- KREDİLERİ VE KARTLARI YAKALAYIP DÜZENLEME ---
                 if aciklama and str(aciklama).startswith("KREDI:"):
                     tur = "OTOMATİK"
                     kaynak_bilgisi = str(aciklama).replace("KREDI:", "").strip()
                     aciklama_goster = "Aylık Kredi Taksiti"
                 elif notu and "KART:" in str(notu):
                     tur = "OTOMATİK"
-                    # "KART:" yazısını temizle ve "[" işaretinden sonrasını ([İşlem: ...] kısmını) at
                     kaynak_bilgisi = str(notu).replace("KART:", "").split("[")[0].strip()
                     aciklama_goster = "Kredi Kartı Ödemesi"
                 else:
-                    # Kredi veya Kart değilse normal işlem
                     if tip == "GİDER":
                         if tur == "MANUEL": kaynak_bilgisi = "Elden / Manuel"
                         else: kaynak_bilgisi = "Cari / Nakit"
@@ -4895,13 +5925,26 @@ class EczaneAsistani:
                 tree.insert("", "end", values=(oid, gun, firma, kaynak_bilgisi, aciklama_goster, f"{tutar:,.2f} ₺", tur), tags=(satir_renk_tag,))
 
             self._sag_tik_menu_bagla(tree, tip)
+            
             def toggle_func(c_frame=content_frame, icon=lbl_icon):
-                if c_frame.winfo_viewable(): c_frame.forget(); icon.config(text="▶")
-                else: c_frame.pack(fill="x", expand=True); icon.config(text="▼")
-            for widget in [header_frame, lbl_icon, lbl_title, lbl_total]: widget.bind("<Button-1>", lambda e, f=toggle_func: f())
+                if c_frame.winfo_viewable(): c_frame.forget(); icon.config(text="❯")
+                else: c_frame.pack(fill="x", expand=True, pady=(5, 10)); icon.config(text="˅")
+                
+            for widget in [header_frame, lbl_icon, lbl_title, f_sag_toplam] + f_sag_toplam.winfo_children(): 
+                widget.bind("<Button-1>", lambda e, f=toggle_func: f())
 
-        if not kayit_var_mi: tk.Label(parent_frame, text=f"{secilen_yil} yılına ait {tip.lower()} kaydı bulunamadı.", font=("Segoe UI", 12), fg="#64748b", bg=parent_frame["bg"]).pack(pady=20)
-        else: tk.Label(parent_frame, text=f"{secilen_yil} YILI KALAN BORÇ (Gelecek): {genel_yil_kalan:,.2f} ₺", font=("Segoe UI", 16, "bold"), bg=parent_frame["bg"], fg="#ef4444", pady=20).pack(fill="x")
+        # Alt Kısımdaki Durum Göstergesi (Gelir/Gider Ayarı Yapıldı)
+        if not kayit_var_mi: 
+            tk.Label(parent_frame, text=f"{secilen_yil} yılına ait {tip.lower()} kaydı bulunamadı.", font=("Segoe UI", 12), fg="#64748b", bg=parent_frame["bg"]).pack(pady=20)
+        else: 
+            if tip == "GELİR":
+                alt_metin = f"{secilen_yil} YILI BEKLEYEN GELİR (Gelecek): {genel_yil_kalan:,.2f} ₺"
+                alt_renk = "#10b981"  # Zümrüt Yeşili
+            else:
+                alt_metin = f"{secilen_yil} YILI KALAN BORÇ (Gelecek): {genel_yil_kalan:,.2f} ₺"
+                alt_renk = "#ef4444"  # Kırmızı
+                
+            tk.Label(parent_frame, text=alt_metin, font=("Segoe UI", 16, "bold"), bg=parent_frame["bg"], fg=alt_renk, pady=20).pack(fill="x")
 
     def _sag_tik_menu_bagla(self, tree, tip):
         menu = tk.Menu(self.pencere, tearoff=0)
@@ -4917,13 +5960,11 @@ class EczaneAsistani:
     def _finans_satir_sil(self, tree, tip):
         sel = tree.selection()
         if not sel: return
-        
         item = tree.item(sel[0])
         val = item['values']
         oid = val[0]
         tur = str(val[6]).strip() 
         
-        # --- ZORLA SİLME (HAYALET/KALINTI KAYITLAR İÇİN) DÜZENLEMESİ ---
         if tur != "MANUEL":
             onay = messagebox.askyesno("Sistem Uyarısı", f"⚠️ DİKKAT: Bu kayıt sisteme OTOMATİK olarak eklenmiş.\n\nNormal şartlarda krediyi, kartı veya faturayı iptal ettiğinizde bunun da silinmesi/kalması gerekirdi. Ancak bunu muhasebeden kalıcı olarak temizlemek istiyorsanız ZORLA SİLEBİLİRSİNİZ.\n\nBu '{tip}' kaydını kalıcı olarak ZORLA SİLMEK istiyor musunuz?")
             if not onay: 
@@ -4937,25 +5978,20 @@ class EczaneAsistani:
         
         self.imlec_finans.execute("DELETE FROM odemeler WHERE id=?", (oid,))
         self.baglanti_finans.commit()
-        
         self.gecmise_kaydet("SIL", "odemeler", oid, eski_veri)
-        
         mevcut_yview = self.finans_canvas.yview() if hasattr(self, 'finans_canvas') else None
         self._olustur_aylik_finans_sayfasi(tip, korunacak_yview=mevcut_yview)
 
     def _finans_satir_duzenle(self, tree, tip):
         sel = tree.selection()
         if not sel: return
-        
         item = tree.item(sel[0])
         val = item['values']
         oid = val[0]
         tur = str(val[6]).strip() 
-        
         if tur != "MANUEL":
             messagebox.showwarning("İzin Yok", "Otomatik kayıtlar buradan düzenlenemez.")
             return
-
         self._finans_duzenle_popup(oid, tip)
 
     def _finans_duzenle_popup(self, oid, tip):
@@ -4964,51 +6000,63 @@ class EczaneAsistani:
         if not kayit: return
         
         win = tk.Toplevel(self.pencere)
-        win.title("Düzenle")
-        win.geometry("400x400")
+        win.title("Kaydı Düzenle")
+        win.geometry("400x480")
+        win.configure(bg="#f8fafc")
+        win.transient(self.pencere); win.grab_set()
+
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 200
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 240
+        win.geometry(f"+{x}+{y}")
         
-        tk.Label(win, text="Kaydı Düzenle", font=("Segoe UI", 12, "bold")).pack(pady=10)
-        frm = tk.Frame(win, padx=20)
-        frm.pack(fill="both")
+        tk.Label(win, text="✏️ Kaydı Düzenle", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#334155").pack(pady=(20, 10))
         
-        tk.Label(frm, text="Firma/Kaynak:", anchor="w").pack(fill="x")
-        e_ad = tk.Entry(frm, relief="solid", bd=1)
-        e_ad.pack(fill="x")
+        frm = tk.Frame(win, bg="#f8fafc", padx=30)
+        frm.pack(fill="both", expand=True)
+        
+        lbl_style = {"bg": "#f8fafc", "fg": "#64748b", "font": ("Segoe UI", 9, "bold")}
+        entry_style = {"font": ("Segoe UI", 11), "bg": "white", "fg": "#0f172a", "insertbackground": "#0f172a", "relief": "solid", "bd": 1}
+
+        tk.Label(frm, text="Firma / Kaynak:", **lbl_style).pack(anchor="w", pady=(5,0))
+        e_ad = tk.Entry(frm, **entry_style)
+        e_ad.pack(fill="x", ipady=5, pady=(2, 10))
         e_ad.insert(0, kayit[0])
         
-        tk.Label(frm, text="Tarih (YYYY-AA-GG):", anchor="w").pack(fill="x", pady=(5,0))
-        e_tar = tk.Entry(frm, relief="solid", bd=1)
-        e_tar.pack(fill="x")
+        tk.Label(frm, text="Tarih (YYYY-AA-GG):", **lbl_style).pack(anchor="w")
+        
+        f_date = tk.Frame(frm, bg="white", bd=1, relief="solid")
+        f_date.pack(fill="x", pady=(2, 10))
+        e_tar = tk.Entry(f_date, font=("Segoe UI", 11), relief="flat", bg="white", fg="#0f172a")
+        e_tar.pack(side="left", fill="both", expand=True, ipady=4, padx=5)
         e_tar.insert(0, kayit[1])
-        tarih_secici_bagla(frm, e_tar)
+        tarih_secici_bagla(f_date, e_tar)
+        e_tar.bind("<KeyRelease>", mask_tarih_otomatik)
         
-        tk.Label(frm, text="Tutar:", anchor="w").pack(fill="x", pady=(5,0))
-        e_tut = tk.Entry(frm, relief="solid", bd=1)
-        e_tut.pack(fill="x")
-        e_tut.insert(0, f"{kayit[2]:.2f}")
+        tk.Label(frm, text="Tutar (TL):", **lbl_style).pack(anchor="w")
+        e_tut = tk.Entry(frm, font=("Segoe UI", 12, "bold"), bg="#fffbeb", fg="#b45309", relief="solid", bd=1)
+        e_tut.pack(fill="x", ipady=5, pady=(2, 10))
+        e_tut.insert(0, f"{kayit[2]:.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        e_tut.bind("<KeyRelease>", mask_para_birimi)
         
-        tk.Label(frm, text="Açıklama:", anchor="w").pack(fill="x", pady=(5,0))
-        e_ack = tk.Entry(frm, relief="solid", bd=1)
-        e_ack.pack(fill="x")
+        tk.Label(frm, text="Açıklama:", **lbl_style).pack(anchor="w")
+        e_ack = tk.Entry(frm, **entry_style)
+        e_ack.pack(fill="x", ipady=5, pady=(2, 20))
         e_ack.insert(0, kayit[3])
         
         def kaydet():
             try:
-                yeni_tut = float(e_tut.get().replace(",", "."))
+                yeni_tut = temizle_para(e_tut.get())
                 self.imlec_finans.execute("UPDATE odemeler SET fatura_adi=?, vade_tarihi=?, tutar=?, aciklama=? WHERE id=?", 
                                    (e_ad.get(), e_tar.get(), yeni_tut, e_ack.get(), oid))
                 self.baglanti_finans.commit()
                 win.destroy()
-                
                 mevcut_yview = self.finans_canvas.yview() if hasattr(self, 'finans_canvas') else None
                 self._olustur_aylik_finans_sayfasi(tip, korunacak_yview=mevcut_yview)
+            except Exception as e: 
+                messagebox.showerror("Hata", str(e), parent=win)
                 
-            except: 
-                messagebox.showerror("Hata", "Tutar hatalı.")
-                
-        ModernButton(win, text="GÜNCELLE", command=kaydet, bg_color="#3b82f6").pack(pady=20)
+        tk.Button(frm, text="GÜNCELLE", command=kaydet, font=("Segoe UI", 11, "bold"), bg="#3b82f6", fg="white", relief="flat", cursor="hand2", pady=10).pack(fill="x")
     
-
     def manuel_finans_popup(self, tip):
         tema_renk = "#10b981" if tip == "GELİR" else "#ef4444"
         pencere = tk.Toplevel(self.pencere); pencere.title(f"Yeni {tip} Kaydı"); pencere.geometry("420x550"); pencere.configure(bg="white")
@@ -5016,6 +6064,7 @@ class EczaneAsistani:
         x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 210
         y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 275
         pencere.geometry(f"+{x}+{y}")
+        
         header_frame = tk.Frame(pencere, bg=tema_renk, height=80); header_frame.pack(fill="x"); header_frame.pack_propagate(False)
         icon = "💰" if tip == "GELİR" else "📉"
         tk.Label(header_frame, text=f"{icon} YENİ {tip} GİRİŞİ", font=("Segoe UI", 16, "bold"), bg=tema_renk, fg="white").pack(expand=True)
@@ -5024,18 +6073,19 @@ class EczaneAsistani:
         def create_modern_entry(label_text, default_val=None, mask_func=None, is_date=False):
             tk.Label(container, text=label_text, font=("Segoe UI", 10, "bold"), bg="white", fg="#475569").pack(anchor="w", pady=(10, 5))
             entry_frame = tk.Frame(container, bg="white", bd=1, relief="solid"); entry_frame.pack(fill="x")
-            entry = tk.Entry(entry_frame, font=("Segoe UI", 11), bd=0, bg="#f8fafc", highlightthickness=0)
-            entry.pack(side="left", fill="x", expand=True, ipady=8, padx=5)
+            entry = tk.Entry(entry_frame, font=("Segoe UI", 11), bd=0, bg="#f8fafc", highlightthickness=0, insertbackground="#0f172a")
+            entry.pack(side="left", fill="x", expand=True, ipady=6, padx=5)
             if default_val: entry.insert(0, default_val)
             if mask_func: entry.bind("<KeyRelease>", mask_func)
             if is_date: tarih_secici_bagla(entry_frame, entry)
             return entry
 
-        e_tarih = create_modern_entry("📅 İşlem Tarihi", date.today().strftime("%Y-%m-%d"), mask_tarih_otomatik, is_date=True)
+        e_tarih = create_modern_entry("📅 İşlem Tarihi (YYYY-AA-GG)", date.today().strftime("%Y-%m-%d"), mask_tarih_otomatik, is_date=True)
         lbl_kaynak = "Nereden Geldi? (Müşteri, Satış vb.)" if tip == "GELİR" else "Nereye Ödendi? (Elektrik, Yemek vb.)"
         e_kaynak = create_modern_entry(f"🏢 {lbl_kaynak}")
-        e_tutar = create_modern_entry("💵 Tutar (TL)", mask_func=mask_para_birimi); e_tutar.configure(fg=tema_renk, font=("Segoe UI", 12, "bold"))
+        e_tutar = create_modern_entry("💵 Tutar (TL)", mask_func=mask_para_birimi); e_tutar.configure(fg=tema_renk, font=("Segoe UI", 13, "bold"), bg="#f8fafc")
         e_aciklama = create_modern_entry("📝 Açıklama / Not")
+        
         btn_frame = tk.Frame(pencere, bg="white", pady=20); btn_frame.pack(fill="x", padx=30, side="bottom")
 
         def kaydet():
@@ -5057,8 +6107,8 @@ class EczaneAsistani:
                 else: self.sayfa_gider()
             except Exception as e: messagebox.showerror("Hata", str(e), parent=pencere)
 
-        tk.Button(btn_frame, text="İPTAL", font=("Segoe UI", 10, "bold"), bg="#f1f5f9", fg="#64748b", relief="flat", cursor="hand2", width=12, pady=10, command=pencere.destroy).pack(side="left")
-        tk.Button(btn_frame, text="KAYDET", font=("Segoe UI", 10, "bold"), bg=tema_renk, fg="white", relief="flat", cursor="hand2", width=18, pady=10, command=kaydet).pack(side="right")
+        tk.Button(btn_frame, text="İPTAL", font=("Segoe UI", 10, "bold"), bg="#f1f5f9", fg="#64748b", relief="flat", cursor="hand2", width=12, pady=10, bd=0, command=pencere.destroy).pack(side="left")
+        tk.Button(btn_frame, text="KAYDET", font=("Segoe UI", 10, "bold"), bg=tema_renk, fg="white", relief="flat", cursor="hand2", width=18, pady=10, bd=0, command=kaydet).pack(side="right")
         pencere.bind('<Return>', lambda e: kaydet()); pencere.bind('<Escape>', lambda e: pencere.destroy())
 
     def sayfa_kasa_defteri(self):
@@ -5471,8 +6521,7 @@ class EczaneAsistani:
         yenile_tetik()
 
     def _kasa_verilerini_yukle(self, donem_filtresi):
-        for i in self.tree_kasa.get_children(): 
-            self.tree_kasa.delete(i)
+        self.tree_kasa.delete(*self.tree_kasa.get_children())
         
         secili_kasa = self.var_kasa_filtre.get() if hasattr(self, 'var_kasa_filtre') else "Tümü"
         
@@ -5597,21 +6646,16 @@ class EczaneAsistani:
             except Exception as e:
                 messagebox.showerror("Hata", f"Silme işlemi başarısız oldu:\n{e}")    
 
-    # =========================================================================
-    # MODÜL 15: KREDİ & FİNANSMAN SİMÜLATÖRÜ (SADECE HESAPLAMA)
-    # =========================================================================
     def arayuz_kredi_hesaplama(self):
         c = TM
         for w in self.content_area.winfo_children(): w.destroy()
 
-        # Bireysel (İhtiyaç/Taşıt) = %15 BSMV + %15 KKDF -> Çarpan 1.30
-        # Ticari = %5 BSMV -> Çarpan 1.05
-        # Konut = Vergisiz -> Çarpan 1.00
+        # Kredi Oranları ve Vergi Çarpanları
         kredi_veriler = { 
-            "İhtiyaç": {"oran": 4.29, "vergi_carpani": 1.30}, 
-            "Taşıt": {"oran": 3.49, "vergi_carpani": 1.30}, 
-            "Konut": {"oran": 3.05, "vergi_carpani": 1.00}, 
-            "Ticari": {"oran": 3.59, "vergi_carpani": 1.05} 
+            "İhtiyaç": {"oran": 4.29, "vergi_carpani": 1.30, "renk": "#3b82f6"}, 
+            "Taşıt": {"oran": 3.49, "vergi_carpani": 1.30, "renk": "#8b5cf6"},   
+            "Konut": {"oran": 3.05, "vergi_carpani": 1.00, "renk": "#10b981"},   
+            "Ticari": {"oran": 3.59, "vergi_carpani": 1.05, "renk": "#f59e0b"}   
         }
 
         self.hesap_modu = tk.StringVar(value="TUTAR") 
@@ -5620,117 +6664,214 @@ class EczaneAsistani:
         self.k_oran = tk.StringVar()
         self.k_tur = tk.StringVar(value="İhtiyaç")
 
-        # Başlık
+        # --- 1. ÜST BAŞLIK ---
         header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        header.pack(fill="x", pady=(0, 20))
-        tk.Label(header, text="🏦 Kredi Hesaplama Simülatörü", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        header.pack(fill="x", pady=(0, 15))
+        tk.Label(header, text="🏦 Kredi & Finansman Simülatörü", font=("Segoe UI", 24, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
 
+        # Ana Gövde
         main_body = tk.Frame(self.content_area, bg=c.get_color("bg_main"), padx=20)
         main_body.pack(fill="both", expand=True)
 
-        # Mod Değiştirici
-        toggle_frame = tk.Frame(main_body, bg=c.get_color("card_bg"), bd=1, relief="solid", highlightbackground=c.get_color("border"), highlightthickness=1)
-        toggle_frame.pack(fill="x", pady=(0, 20))
+        # --- 2. MODERN MOD SEÇİCİ (Segmented Control) ---
+        toggle_wrapper = tk.Frame(main_body, bg=c.get_color("bg_main"))
+        toggle_wrapper.pack(fill="x", pady=(0, 20))
         
-        btn_tutar = tk.Button(toggle_frame, text="💰 Çekilecek Tutara Göre Hesapla", font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2", pady=12)
-        btn_taksit = tk.Button(toggle_frame, text="📅 Ödeyebileceğiniz Taksite Göre Hesapla", font=("Segoe UI", 11, "bold"), bd=0, cursor="hand2", pady=12)
-        btn_tutar.pack(side="left", fill="x", expand=True)
-        btn_taksit.pack(side="left", fill="x", expand=True)
+        toggle_frame = tk.Frame(toggle_wrapper, bg=c.get_color("input_bg"), bd=0, highlightbackground=c.get_color("border"), highlightthickness=1)
+        toggle_frame.pack(fill="x")
+        
+        btn_style = {"font": ("Segoe UI", 11, "bold"), "bd": 0, "cursor": "hand2", "pady": 12}
+        btn_tutar = tk.Button(toggle_frame, text="💰 Çekilecek Tutara Göre Hesapla", **btn_style)
+        btn_taksit = tk.Button(toggle_frame, text="📅 Ödeyebileceğiniz Taksite Göre Hesapla", **btn_style)
+        
+        btn_tutar.pack(side="left", fill="x", expand=True, padx=2, pady=2)
+        btn_taksit.pack(side="left", fill="x", expand=True, padx=2, pady=2)
 
+        # İkiye Bölünmüş Ekran
         split_frame = tk.Frame(main_body, bg=c.get_color("bg_main"))
         split_frame.pack(fill="both", expand=True)
 
-        f_form = tk.Frame(split_frame, bg=c.get_color("card_bg"), padx=40, pady=30, bd=1, relief="solid", highlightbackground=c.get_color("border"), highlightthickness=1)
+        # =====================================================================
+        # 3. SOL KOLON: GİRİŞ FORMU (Ana Alan)
+        # =====================================================================
+        f_form = tk.Frame(split_frame, bg=c.get_color("card_bg"), padx=40, pady=30, bd=0, highlightbackground=c.get_color("border"), highlightthickness=1)
         f_form.pack(side="left", fill="both", expand=True, padx=(0, 15))
 
-        f_res = tk.Frame(split_frame, bg="#0f172a", width=450)
-        f_res.pack(side="right", fill="y")
-        f_res.pack_propagate(False)
-        f_res_inner = tk.Frame(f_res, bg="#0f172a", padx=40, pady=40)
-        f_res_inner.pack(fill="both", expand=True)
-
-        # SAĞ EKRAN: SONUÇLAR
-        tk.Label(f_res_inner, text="HESAP ÖZETİ", font=("Segoe UI", 14, "bold"), bg="#0f172a", fg="#94a3b8").pack(anchor="w", pady=(0, 20))
-        lbl_res_main_title = tk.Label(f_res_inner, text="Ödenecek Aylık Taksit Tutarı:", font=("Segoe UI", 12), bg="#0f172a", fg="#cbd5e1")
-        lbl_res_main_title.pack(anchor="w")
-        lbl_res_main_val = tk.Label(f_res_inner, text="0.00 ₺", font=("Segoe UI", 36, "bold"), bg="#0f172a", fg="#34d399")
-        lbl_res_main_val.pack(anchor="w", pady=(5, 30))
-
-        tk.Frame(f_res_inner, height=1, bg="#334155").pack(fill="x", pady=10)
-
-        def detail_row(parent, title):
-            row = tk.Frame(parent, bg="#0f172a")
-            row.pack(fill="x", pady=15)
-            tk.Label(row, text=title, font=("Segoe UI", 11), bg="#0f172a", fg="#94a3b8").pack(side="left")
-            val_lbl = tk.Label(row, text="0.00 ₺", font=("Segoe UI", 14, "bold"), bg="#0f172a", fg="white")
-            val_lbl.pack(side="right")
-            return val_lbl
-
-        lbl_res_toplam = detail_row(f_res_inner, "Toplam Geri Ödeme:")
-        lbl_res_faiz = detail_row(f_res_inner, "Toplam Faiz + Vergi:")
-
-        lbl_info = tk.Label(f_res_inner, text="* Kredi maliyetleri tahmini olup, kuruma göre farklılık gösterebilir. BSMV/KKDF oranları seçilen türe göre (Ticari, Bireysel vb.) otomatik yansıtılır.", font=("Segoe UI", 9, "italic"), bg="#0f172a", fg="#64748b", wraplength=350, justify="left")
-        lbl_info.pack(side="bottom", anchor="w", pady=20)
-
-        # SOL EKRAN: GİRİŞ FORMU
-        lbl_style = {"bg": c.get_color("card_bg"), "fg": c.get_color("fg_text"), "font": ("Segoe UI", 11, "bold")}
+        lbl_style = {"bg": c.get_color("card_bg"), "fg": "#64748b", "font": ("Segoe UI", 10, "bold")}
         
-        tk.Label(f_form, text="Kredi Türü Seçimi:", **lbl_style).pack(anchor="w", pady=(0, 8))
+        # A. Kredi Türü (Modern Chips)
+        tk.Label(f_form, text="KREDİ TÜRÜ:", **lbl_style).pack(anchor="w", pady=(0, 8))
         f_types = tk.Frame(f_form, bg=c.get_color("card_bg"))
-        f_types.pack(fill="x", pady=(0, 20))
+        f_types.pack(fill="x", pady=(0, 25))
         
         type_btns = []
         def select_type(btn, tip, data):
             self.k_tur.set(tip)
             self.k_oran.set(str(data["oran"]))
             for b in type_btns:
-                if b == btn: b.config(bg=c.get_color("btn_primary"), fg="white")
-                else: b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text"))
+                if b == btn: 
+                    b.config(bg=data["renk"], fg="white", font=("Segoe UI", 11, "bold"))
+                else: 
+                    b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), font=("Segoe UI", 11))
             hesapla()
             
         for tip, data in kredi_veriler.items():
-            b = tk.Button(f_types, text=tip, font=("Segoe UI", 10, "bold"), bd=1, relief="solid", cursor="hand2", padx=15, pady=8)
+            b = tk.Button(f_types, text=tip, bd=0, cursor="hand2", padx=15, pady=8)
             b.config(command=lambda btn=b, t=tip, d=data: select_type(btn, t, d))
-            b.pack(side="left", padx=(0, 5))
+            b.pack(side="left", padx=(0, 8))
             type_btns.append(b)
 
-        lbl_dynamic_input = tk.Label(f_form, text="Çekilecek Kredi Tutarı (TL):", **lbl_style)
-        lbl_dynamic_input.pack(anchor="w", pady=(10, 5))
-        e_dynamic = tk.Entry(f_form, textvariable=self.k_tutar_taksit, font=("Segoe UI", 18, "bold"), bg=c.get_color("input_bg"), fg=c.get_color("input_fg"), relief="solid", bd=1, justify="right")
-        e_dynamic.pack(fill="x", ipady=10, pady=(0, 20))
+        # B. Dinamik Tutar Girişi
+        lbl_dynamic_input = tk.Label(f_form, text="Çekilecek Kredi Tutarı (TL):", bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), font=("Segoe UI", 12, "bold"))
+        lbl_dynamic_input.pack(anchor="w", pady=(5, 5))
+        
+        f_tutar_bg = tk.Frame(f_form, bg="#eff6ff", bd=1, relief="solid", highlightthickness=0)
+        f_tutar_bg.pack(fill="x", pady=(0, 25))
+        
+        e_dynamic = tk.Entry(f_tutar_bg, textvariable=self.k_tutar_taksit, font=("Segoe UI", 24, "bold"), bg="#eff6ff", fg="#1e3a8a", relief="flat", justify="right", insertbackground="#1e3a8a")
+        e_dynamic.pack(fill="x", ipady=10, padx=15)
         e_dynamic.bind("<KeyRelease>", lambda e: [mask_para_birimi(e), hesapla()])
 
-        tk.Label(f_form, text="Vade (Ay):", **lbl_style).pack(anchor="w", pady=(10, 5))
-        f_vade = tk.Frame(f_form, bg=c.get_color("card_bg"))
-        f_vade.pack(fill="x", pady=(0, 20))
+        # C. Vade ve Faiz (Yan Yana)
+        f_vade_faiz = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_vade_faiz.pack(fill="x", pady=(0, 25))
+        
+        f_vade_left = tk.Frame(f_vade_faiz, bg=c.get_color("card_bg"))
+        f_vade_left.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        tk.Label(f_vade_left, text="VADE (AY):", **lbl_style).pack(anchor="w", pady=(0, 8))
+        f_vade_btns = tk.Frame(f_vade_left, bg=c.get_color("card_bg"))
+        f_vade_btns.pack(fill="x")
         
         vade_btns = []
         def select_vade(btn, val):
             self.k_vade.set(str(val))
             for b in vade_btns:
-                if b == btn: b.config(bg="#f59e0b", fg="white")
-                else: b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text"))
+                if b == btn: b.config(bg="#f59e0b", fg="white", font=("Segoe UI", 11, "bold"))
+                else: b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), font=("Segoe UI", 11))
             hesapla()
 
-        for m in [12, 24, 36, 48, 60]:
-            b = tk.Button(f_vade, text=f"{m} Ay", font=("Segoe UI", 10, "bold"), bd=1, relief="solid", cursor="hand2", padx=15, pady=8)
+        for m in [12, 24, 36, 48]:
+            b = tk.Button(f_vade_btns, text=f"{m}", bd=0, cursor="hand2", padx=12, pady=6)
             b.config(command=lambda btn=b, val=m: select_vade(btn, val))
             b.pack(side="left", padx=(0, 5))
             vade_btns.append(b)
             
-        e_vade = tk.Entry(f_vade, textvariable=self.k_vade, font=("Segoe UI", 13, "bold"), bg=c.get_color("input_bg"), fg=c.get_color("input_fg"), relief="solid", bd=1, justify="center")
-        e_vade.pack(side="left", fill="both", expand=True, ipady=8, padx=(10, 0))
-        e_vade.bind("<KeyRelease>", lambda e: [b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text")) for b in vade_btns] or hesapla())
+        e_vade = tk.Entry(f_vade_btns, textvariable=self.k_vade, font=("Segoe UI", 12, "bold"), bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), relief="solid", bd=1, justify="center", width=5)
+        e_vade.pack(side="left", fill="y", ipady=6, padx=(5, 0))
+        e_vade.bind("<KeyRelease>", lambda e: [b.config(bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), font=("Segoe UI", 11)) for b in vade_btns] or hesapla())
 
-        tk.Label(f_form, text="Aylık Faiz Oranı (%):", **lbl_style).pack(anchor="w", pady=(10, 5))
-        e_oran = tk.Entry(f_form, textvariable=self.k_oran, font=("Segoe UI", 16, "bold"), bg=c.get_color("input_bg"), fg=c.get_color("input_fg"), relief="solid", bd=1, justify="right")
-        e_oran.pack(fill="x", ipady=8, pady=(0, 20))
+        f_faiz_right = tk.Frame(f_vade_faiz, bg=c.get_color("card_bg"))
+        f_faiz_right.pack(side="right", fill="x", expand=True)
+        
+        tk.Label(f_faiz_right, text="AYLIK FAİZ (%):", **lbl_style).pack(anchor="w", pady=(0, 8))
+        e_oran = tk.Entry(f_faiz_right, textvariable=self.k_oran, font=("Segoe UI", 16, "bold"), bg="#fffbeb", fg="#b45309", relief="solid", bd=1, justify="center")
+        e_oran.pack(fill="x", ipady=7)
         e_oran.bind("<KeyRelease>", lambda e: hesapla())
 
+        # D. Masraf ve Sigorta
+        f_ekstra = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_ekstra.pack(fill="x")
+        f_ekstra.grid_columnconfigure(0, weight=1); f_ekstra.grid_columnconfigure(1, weight=1)
+
+        entry_style = {"font": ("Segoe UI", 11), "bg": c.get_color("input_bg"), "fg": c.get_color("fg_text"), "relief": "solid", "bd": 1, "insertbackground": c.get_color("fg_text")}
+
+        tk.Label(f_ekstra, text="Tahsis Masrafı (TL):", **lbl_style).grid(row=0, column=0, sticky="w", pady=(0,5))
+        e_masraf = tk.Entry(f_ekstra, **entry_style)
+        e_masraf.grid(row=1, column=0, sticky="we", padx=(0,10), ipady=5)
+        e_masraf.insert(0, "0")
+        e_masraf.bind("<KeyRelease>", lambda e: [mask_para_birimi(e), hesapla()])
+
+        tk.Label(f_ekstra, text="Sigorta Ücreti (TL):", **lbl_style).grid(row=0, column=1, sticky="w", pady=(0,5))
+        e_sigorta = tk.Entry(f_ekstra, **entry_style)
+        e_sigorta.grid(row=1, column=1, sticky="we", ipady=5)
+        e_sigorta.insert(0, "0")
+        e_sigorta.bind("<KeyRelease>", lambda e: [mask_para_birimi(e), hesapla()])
+
+        # =====================================================================
+        # 4. SAĞ KOLON: SONUÇLAR VE ÖRNEK ÖDEME PLANI
+        # =====================================================================
+        f_right_col = tk.Frame(split_frame, bg=c.get_color("bg_main"), width=550)
+        f_right_col.pack(side="right", fill="y")
+        f_right_col.pack_propagate(False)
+
+        # --- A. Özet Kartı ---
+        f_res = tk.Frame(f_right_col, bg="#0f172a", bd=0)
+        f_res.pack(side="top", fill="x", pady=(0, 15))
+
+        f_rainbow = tk.Frame(f_res, height=4)
+        f_rainbow.pack(fill="x", side="top")
+        tk.Frame(f_rainbow, bg="#3b82f6", width=130).pack(side="left", fill="y", expand=True) 
+        tk.Frame(f_rainbow, bg="#10b981", width=130).pack(side="left", fill="y", expand=True) 
+        tk.Frame(f_rainbow, bg="#f59e0b", width=130).pack(side="left", fill="y", expand=True) 
+        tk.Frame(f_rainbow, bg="#ef4444", width=130).pack(side="left", fill="y", expand=True) 
+
+        f_res_inner = tk.Frame(f_res, bg="#0f172a", padx=30, pady=25)
+        f_res_inner.pack(fill="x")
+
+        tk.Label(f_res_inner, text="HESAP ÖZETİ", font=("Segoe UI", 12, "bold"), bg="#0f172a", fg="#94a3b8").pack(anchor="w", pady=(0, 15))
+        
+        lbl_res_main_title = tk.Label(f_res_inner, text="Ödenecek Aylık Taksit Tutarı:", font=("Segoe UI", 11), bg="#0f172a", fg="#cbd5e1")
+        lbl_res_main_title.pack(anchor="w")
+        lbl_res_main_val = tk.Label(f_res_inner, text="0.00 ₺", font=("Segoe UI", 30, "bold"), bg="#0f172a", fg="#34d399")
+        lbl_res_main_val.pack(anchor="w", pady=(2, 15))
+
+        tk.Frame(f_res_inner, height=1, bg="#334155").pack(fill="x", pady=5)
+
+        def detail_row(parent, title):
+            row = tk.Frame(parent, bg="#0f172a")
+            row.pack(fill="x", pady=8)
+            tk.Label(row, text=title, font=("Segoe UI", 10), bg="#0f172a", fg="#94a3b8").pack(side="left")
+            val_lbl = tk.Label(row, text="0.00 ₺", font=("Segoe UI", 12, "bold"), bg="#0f172a", fg="white")
+            val_lbl.pack(side="right")
+            return val_lbl
+
+        lbl_res_masraf = detail_row(f_res_inner, "Masraf + Sigorta:")
+        lbl_res_faiz = detail_row(f_res_inner, "Toplam Faiz + Vergi:")
+        lbl_res_toplam = detail_row(f_res_inner, "Toplam Çıkacak Para:")
+
+        # --- B. Örnek Ödeme Planı Tablosu ---
+        f_tablo = tk.Frame(f_right_col, bg=c.get_color("card_bg"), bd=0, highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_tablo.pack(side="top", fill="both", expand=True)
+        
+        f_tablo_head = tk.Frame(f_tablo, bg=c.get_color("card_bg"))
+        f_tablo_head.pack(fill="x", padx=15, pady=10)
+        tk.Label(f_tablo_head, text="📅 Örnek Ödeme Planı", font=("Segoe UI", 11, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(side="left")
+
+        cols = ("AY", "TAKSİT", "ANA PARA", "FAİZ", "KALAN")
+        self.tree_plan = ttk.Treeview(f_tablo, columns=cols, show="headings")
+        
+        sc_tree = ttk.Scrollbar(f_tablo, orient="vertical", command=self.tree_plan.yview)
+        self.tree_plan.configure(yscroll=sc_tree.set)
+        sc_tree.pack(side="right", fill="y")
+        self.tree_plan.pack(fill="both", expand=True, padx=2, pady=(0,2))
+
+        # Sağ sütuna sığması için sütun genişlikleri ayarlandı (Toplam 550px'e göre)
+        self.tree_plan.heading("AY", text="Ay")
+        self.tree_plan.column("AY", width=40, anchor="center")
+        
+        self.tree_plan.heading("TAKSİT", text="Taksit")
+        self.tree_plan.column("TAKSİT", width=110, anchor="e")
+        
+        self.tree_plan.heading("ANA PARA", text="Ana Para")
+        self.tree_plan.column("ANA PARA", width=110, anchor="e")
+        
+        self.tree_plan.heading("FAİZ", text="Faiz+V.")
+        self.tree_plan.column("FAİZ", width=110, anchor="e")
+        
+        self.tree_plan.heading("KALAN", text="Kalan")
+        self.tree_plan.column("KALAN", width=110, anchor="e")
+
+        self.tree_plan.tag_configure("odd", background=c.get_color("card_bg"))
+        self.tree_plan.tag_configure("even", background=c.get_color("input_bg"))
+
+        # --- HESAPLAMA MOTORU ---
         def reset_results():
             lbl_res_main_val.config(text="0.00 ₺")
             lbl_res_toplam.config(text="0.00 ₺")
             lbl_res_faiz.config(text="0.00 ₺")
+            lbl_res_masraf.config(text="0.00 ₺")
+            for i in self.tree_plan.get_children(): self.tree_plan.delete(i)
 
         def hesapla(*args):
             try:
@@ -5743,43 +6884,75 @@ class EczaneAsistani:
                 tur = self.k_tur.get()
                 ham_faiz = float(self.k_oran.get().replace(",", "."))
                 
+                masraf = temizle_para(e_masraf.get())
+                sigorta = temizle_para(e_sigorta.get())
+                toplam_masraf = masraf + sigorta
+                
                 if n <= 0 or ham_faiz < 0: raise ValueError
                 
                 vergi_carpani = kredi_veriler[tur]["vergi_carpani"]
                 r = (ham_faiz / 100.0) * vergi_carpani
                 
+                P = val if self.hesap_modu.get() == "TUTAR" else 0
+                A = val if self.hesap_modu.get() == "TAKSIT" else 0
+
                 if self.hesap_modu.get() == "TUTAR":
-                    P = val
                     taksit = P * (r * (1 + r)**n) / ((1 + r)**n - 1) if r > 0 else P / n
                     toplam_odeme = taksit * n
                     toplam_faiz = toplam_odeme - P
                     
-                    lbl_res_main_title.config(text="Ödenecek Aylık Taksit Tutarı:")
-                    lbl_res_main_val.config(text=f"{taksit:,.2f} ₺")
+                    lbl_res_main_title.config(text="Ödenecek Aylık Taksit:")
+                    lbl_res_main_val.config(text=f"{taksit:,.2f} ₺", fg="#34d399")
                 else:
-                    A = val
                     P = A * ((1 + r)**n - 1) / (r * (1 + r)**n) if r > 0 else A * n
+                    taksit = A
                     toplam_odeme = A * n
                     toplam_faiz = toplam_odeme - P
                     
-                    lbl_res_main_title.config(text="Çekilebilecek Maksimum Kredi:")
-                    lbl_res_main_val.config(text=f"{P:,.2f} ₺")
+                    lbl_res_main_title.config(text="Maksimum Çekilebilir:")
+                    lbl_res_main_val.config(text=f"{P:,.2f} ₺", fg="#60a5fa")
                 
-                lbl_res_toplam.config(text=f"{toplam_odeme:,.2f} ₺")
+                lbl_res_masraf.config(text=f"{toplam_masraf:,.2f} ₺")
                 lbl_res_faiz.config(text=f"{toplam_faiz:,.2f} ₺")
+                lbl_res_toplam.config(text=f"{(toplam_odeme + toplam_masraf):,.2f} ₺")
+
+                # TABLOYU DOLDUR (Sağdaki alt kutu)
+                for i in self.tree_plan.get_children(): self.tree_plan.delete(i)
+                
+                kalan_borc = P
+                for i in range(1, n + 1):
+                    if r > 0:
+                        aylik_faiz = kalan_borc * r
+                        aylik_anapara = taksit - aylik_faiz
+                    else:
+                        aylik_faiz = 0
+                        aylik_anapara = taksit
+                        
+                    kalan_borc -= aylik_anapara
+                    if kalan_borc < 0.01: kalan_borc = 0.0
+                    
+                    tag = "odd" if i % 2 == 1 else "even"
+                    self.tree_plan.insert("", "end", values=(
+                        f"{i}", 
+                        f"{taksit:,.2f}", 
+                        f"{aylik_anapara:,.2f}", 
+                        f"{aylik_faiz:,.2f}", 
+                        f"{kalan_borc:,.2f}"
+                    ), tags=(tag,))
+
             except Exception:
                 reset_results()
 
         def set_mode(mod):
             self.hesap_modu.set(mod)
             if mod == "TUTAR":
-                btn_tutar.config(bg=c.get_color("btn_primary"), fg="white")
-                btn_taksit.config(bg=c.get_color("card_bg"), fg=c.get_color("fg_text"))
+                btn_tutar.config(bg="white", fg="#0f172a")
+                btn_taksit.config(bg=c.get_color("input_bg"), fg="#64748b")
                 lbl_dynamic_input.config(text="İhtiyacınız Olan Kredi Tutarı (TL):")
             else:
-                btn_taksit.config(bg=c.get_color("btn_primary"), fg="white")
-                btn_tutar.config(bg=c.get_color("card_bg"), fg=c.get_color("fg_text"))
-                lbl_dynamic_input.config(text="Aylık Ödeyebileceğiniz Maksimum Taksit (TL):")
+                btn_taksit.config(bg="white", fg="#0f172a")
+                btn_tutar.config(bg=c.get_color("input_bg"), fg="#64748b")
+                lbl_dynamic_input.config(text="Aylık Ödeyebileceğiniz Taksit (TL):")
             self.k_tutar_taksit.set("") 
             hesapla()
 
@@ -5801,10 +6974,7 @@ class EczaneAsistani:
         try:
             self.imlec_finans.execute("UPDATE odemeler SET aciklama = satir_notu, satir_notu = 'MANUEL_GIDER' WHERE satir_notu LIKE 'KREDI:%'")
             self.baglanti_finans.commit()
-            
-            # Gider sekmesinde anında görünmesi için "Depo Ödemeleri" sekmesini yenilemek isteyebiliriz
-            if hasattr(self, 'notebook'):
-                self.sekmeleri_guncelle()
+            if hasattr(self, 'notebook'): self.sekmeleri_guncelle()
         except: pass
 
         kredi_veriler = {
@@ -5817,30 +6987,34 @@ class EczaneAsistani:
         # --- ÜST BAŞLIK ---
         header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
         header.pack(fill="x", pady=(0, 15))
-        tk.Label(header, text="📂 Mevcut Kredilerim & Sisteme İşle", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(header, text="🏦 Mevcut Kredilerim & Sisteme İşle", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
 
         # --- ANA KONTEYNER (2 SÜTUNLU YAPI) ---
         main_container = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
 
         # =====================================================================
-        # SOL PANEL: KREDİ EKLEME FORMU (SABİT GENİŞLİK, ASLA BOZULMAZ)
+        # SOL PANEL: KREDİ EKLEME FORMU (MODERN ÇERÇEVE)
         # =====================================================================
-        f_left = tk.Frame(main_container, bg=c.get_color("card_bg"), width=440, bd=1, relief="solid", highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_left = tk.Frame(main_container, bg="white", width=440, bd=0, highlightbackground="#e2e8f0", highlightthickness=2)
         f_left.pack(side="left", fill="y", padx=(0, 15))
         f_left.pack_propagate(False) 
 
-        tk.Label(f_left, text="Krediyi Sisteme İşle", font=("Segoe UI", 14, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(pady=(25, 20))
+        # Form Başlığı
+        f_left_head = tk.Frame(f_left, bg="#f8fafc", padx=15, pady=15)
+        f_left_head.pack(fill="x")
+        tk.Frame(f_left_head, bg="#10b981", width=4).pack(side="left", fill="y", padx=(0, 10))
+        tk.Label(f_left_head, text="Krediyi Sisteme İşle", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#1e293b").pack(side="left")
 
         # --- FORM ELEMANLARI ---
-        f_form = tk.Frame(f_left, bg=c.get_color("card_bg"), padx=25)
+        f_form = tk.Frame(f_left, bg="white", padx=25, pady=15)
         f_form.pack(fill="both", expand=True)
 
-        lbl_style = {"bg": c.get_color("card_bg"), "fg": c.get_color("fg_text"), "font": ("Segoe UI", 9, "bold")}
-        entry_style = {"font": ("Segoe UI", 11), "bg": c.get_color("input_bg"), "fg": c.get_color("input_fg"), "insertbackground": c.get_color("input_fg"), "relief": "solid", "bd": 1}
+        lbl_style = {"bg": "white", "fg": "#64748b", "font": ("Segoe UI", 9, "bold")}
+        entry_style = {"font": ("Segoe UI", 11), "bg": "#f8fafc", "fg": "#0f172a", "insertbackground": "#0f172a", "relief": "solid", "bd": 1}
 
         def form_satir(parent, label_text):
-            f = tk.Frame(parent, bg=c.get_color("card_bg"))
+            f = tk.Frame(parent, bg="white")
             f.pack(fill="x", pady=(0, 12))
             tk.Label(f, text=label_text, **lbl_style).pack(anchor="w", pady=(0, 3))
             return f
@@ -5849,17 +7023,17 @@ class EczaneAsistani:
         e_ad = tk.Entry(f_ad, **entry_style)
         e_ad.pack(fill="x", ipady=4)
 
-        f_row2 = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_row2 = tk.Frame(f_form, bg="white")
         f_row2.pack(fill="x", pady=(0, 12))
 
-        f_tur = tk.Frame(f_row2, bg=c.get_color("card_bg"))
+        f_tur = tk.Frame(f_row2, bg="white")
         f_tur.pack(side="left", fill="x", expand=True, padx=(0, 5))
         tk.Label(f_tur, text="Kredi Türü:", **lbl_style).pack(anchor="w", pady=(0, 3))
         cmb_tur = ttk.Combobox(f_tur, values=list(kredi_veriler.keys()), state="readonly", font=("Segoe UI", 11))
         cmb_tur.pack(fill="x", ipady=3)
         cmb_tur.current(0)
 
-        f_vade = tk.Frame(f_row2, bg=c.get_color("card_bg"))
+        f_vade = tk.Frame(f_row2, bg="white")
         f_vade.pack(side="right", fill="x", expand=True, padx=(5, 0))
         tk.Label(f_vade, text="Vade (Ay):", **lbl_style).pack(anchor="w", pady=(0, 3))
         e_vade = tk.Entry(f_vade, **entry_style)
@@ -5870,10 +7044,10 @@ class EczaneAsistani:
         cmb_mod.pack(fill="x", ipady=3)
         cmb_mod.current(0)
 
-        f_row3 = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_row3 = tk.Frame(f_form, bg="white")
         f_row3.pack(fill="x", pady=(0, 12))
 
-        f_tutar = tk.Frame(f_row3, bg=c.get_color("card_bg"))
+        f_tutar = tk.Frame(f_row3, bg="white")
         f_tutar.pack(side="left", fill="x", expand=True, padx=(0, 5))
         lbl_tutar = tk.Label(f_tutar, text="Aylık Taksit Tutarı (TL):", **lbl_style)
         lbl_tutar.pack(anchor="w", pady=(0, 3))
@@ -5881,7 +7055,7 @@ class EczaneAsistani:
         e_tutar.pack(fill="x", ipady=4)
         e_tutar.bind("<KeyRelease>", mask_para_birimi)
 
-        f_faiz = tk.Frame(f_row3, bg=c.get_color("card_bg"))
+        f_faiz = tk.Frame(f_row3, bg="white")
         f_faiz.pack(side="right", fill="x", expand=True, padx=(5, 0))
         lbl_faiz = tk.Label(f_faiz, text="Aylık Faiz (%):", **lbl_style)
         lbl_faiz.pack(anchor="w", pady=(0, 3))
@@ -5896,16 +7070,16 @@ class EczaneAsistani:
                 e_faiz.config(state="disabled")
             else:
                 lbl_tutar.config(text="Çekilen Ana Para (TL):")
-                lbl_faiz.config(text="Aylık Faiz Oranı (%):", fg=c.get_color("fg_text"))
+                lbl_faiz.config(text="Aylık Faiz Oranı (%):", fg="#64748b")
                 e_faiz.config(state="normal")
 
         cmb_mod.bind("<<ComboboxSelected>>", mod_degisti)
         mod_degisti()
 
-        f_row4 = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_row4 = tk.Frame(f_form, bg="white")
         f_row4.pack(fill="x", pady=(0, 12))
 
-        f_masraf = tk.Frame(f_row4, bg=c.get_color("card_bg"))
+        f_masraf = tk.Frame(f_row4, bg="white")
         f_masraf.pack(side="left", fill="x", expand=True, padx=(0, 5))
         tk.Label(f_masraf, text="Tahsis Masrafı (TL):", **lbl_style).pack(anchor="w", pady=(0, 3))
         e_masraf = tk.Entry(f_masraf, **entry_style)
@@ -5913,7 +7087,7 @@ class EczaneAsistani:
         e_masraf.insert(0, "0")
         e_masraf.bind("<KeyRelease>", mask_para_birimi)
 
-        f_sigorta = tk.Frame(f_row4, bg=c.get_color("card_bg"))
+        f_sigorta = tk.Frame(f_row4, bg="white")
         f_sigorta.pack(side="right", fill="x", expand=True, padx=(5, 0))
         tk.Label(f_sigorta, text="Sigorta Ücreti (TL):", **lbl_style).pack(anchor="w", pady=(0, 3))
         e_sigorta = tk.Entry(f_sigorta, **entry_style)
@@ -5922,58 +7096,143 @@ class EczaneAsistani:
         e_sigorta.bind("<KeyRelease>", mask_para_birimi)
 
         f_tarih = form_satir(f_form, "İlk Taksit Ödeme Tarihi (YYYY-AA-GG):")
-        f_date_inner = tk.Frame(f_tarih, bg=c.get_color("card_bg"), bd=1, relief="solid")
+        f_date_inner = tk.Frame(f_tarih, bg="white", bd=1, relief="solid")
         f_date_inner.pack(fill="x")
-        e_tarih = tk.Entry(f_date_inner, font=("Segoe UI", 11), relief="flat", bg=c.get_color("input_bg"), fg=c.get_color("input_fg"), insertbackground=c.get_color("input_fg"))
+        e_tarih = tk.Entry(f_date_inner, font=("Segoe UI", 11), relief="flat", bg="#f8fafc", fg="#0f172a", insertbackground="#0f172a")
         e_tarih.pack(side="left", fill="both", expand=True, ipady=4, padx=2)
         e_tarih.insert(0, (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"))
         tarih_secici_bagla(f_date_inner, e_tarih)
         e_tarih.bind("<KeyRelease>", mask_tarih_otomatik)
 
-        f_btn_wrapper = tk.Frame(f_left, bg=c.get_color("card_bg"), pady=25)
+        f_btn_wrapper = tk.Frame(f_left, bg="white", pady=25)
         f_btn_wrapper.pack(side="bottom", fill="x")
         ModernButton(f_btn_wrapper, text="✅ KREDİYİ SİSTEME KAYDET", command=lambda: krediyi_kaydet(), bg_color="#10b981", width=340, height=45).pack(anchor="center")
 
         # =====================================================================
-        # SAĞ PANEL: SİSTEMDEKİ KREDİLER TABLOSU
+        # SAĞ PANEL: SİSTEMDEKİ KREDİLER (AKORDİYONLU MODERN YAPI)
         # =====================================================================
-        f_right = tk.Frame(main_container, bg=c.get_color("card_bg"), bd=1, relief="solid", highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_right = tk.Frame(main_container, bg="white", bd=0, highlightbackground="#e2e8f0", highlightthickness=2)
         f_right.pack(side="right", fill="both", expand=True)
 
-        f_right_top = tk.Frame(f_right, bg=c.get_color("card_bg"), pady=15, padx=20)
+        f_right_top = tk.Frame(f_right, bg="#f8fafc", pady=15, padx=20)
         f_right_top.pack(fill="x")
-        tk.Label(f_right_top, text="Sistemdeki Aktif Krediler", font=("Segoe UI", 14, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(side="left")
-        ModernButton(f_right_top, text="🗑️ Krediyi Sil", command=lambda: krediyi_sil(), bg_color=c.get_color("btn_danger"), width=150, height=35).pack(side="right")
+        tk.Label(f_right_top, text="Sistemdeki Aktif Krediler", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#1e293b").pack(side="left")
 
-        f_tree = tk.Frame(f_right, bg=c.get_color("card_bg"), padx=20, pady=5)
-        f_tree.pack(fill="both", expand=True, pady=(0, 20))
-
-        cols = ("KREDİ ADI", "KALAN İŞLEM", "AYLIK TUTAR", "KALAN TOPLAM BORÇ")
-        tree_krediler = ttk.Treeview(f_tree, columns=cols, show="headings", height=15)
-
-        tree_krediler.heading("KREDİ ADI", text="Banka / Kredi Adı")
-        tree_krediler.heading("KALAN İŞLEM", text="Kalan Taksit")
-        tree_krediler.heading("AYLIK TUTAR", text="Taksit Tutarı")
-        tree_krediler.heading("KALAN TOPLAM BORÇ", text="Kalan Toplam Borç")
-
-        tree_krediler.column("KREDİ ADI", width=250)
-        tree_krediler.column("KALAN İŞLEM", width=120, anchor="center")
-        tree_krediler.column("AYLIK TUTAR", width=130, anchor="e")
-        tree_krediler.column("KALAN TOPLAM BORÇ", width=150, anchor="e")
-
-        sc_kredi = ttk.Scrollbar(f_tree, orient="vertical", command=tree_krediler.yview)
-        tree_krediler.configure(yscroll=sc_kredi.set)
-        sc_kredi.pack(side="right", fill="y")
-        tree_krediler.pack(side="left", fill="both", expand=True)
+        # SCROLL ALTYAPISI
+        canvas_krediler = tk.Canvas(f_right, bg="white", highlightthickness=0)
+        sc_krediler = ttk.Scrollbar(f_right, orient="vertical", command=canvas_krediler.yview)
+        f_liste_container = tk.Frame(canvas_krediler, bg="white")
+        
+        f_liste_container.bind("<Configure>", lambda e: canvas_krediler.configure(scrollregion=canvas_krediler.bbox("all")))
+        w_id = canvas_krediler.create_window((0, 0), window=f_liste_container, anchor="nw")
+        canvas_krediler.bind("<Configure>", lambda e: canvas_krediler.itemconfig(w_id, width=e.width))
+        
+        canvas_krediler.configure(yscrollcommand=sc_krediler.set)
+        canvas_krediler.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        sc_krediler.pack(side="right", fill="y")
+        
+        self.mouse_scroll_ekle(canvas_krediler, f_liste_container)
 
         # =====================================================================
         # HESAPLAMA VE VERİTABANI İŞLEMLERİ
         # =====================================================================
-        def listeyi_guncelle():
-            for i in tree_krediler.get_children(): tree_krediler.delete(i)
+        def krediyi_sil(kredi_adi):
+            if messagebox.askyesno("Krediyi Sil", f"'{kredi_adi}' isimli krediyi sistemden tamamen silmek üzeresiniz.\n\nGeçmişte 'ÖDENDİ' olarak işaretlenenler dahil TÜM TAKSİTLER silinecektir.\nOnaylıyor musunuz?", parent=self.pencere):
+                try:
+                    self.imlec_finans.execute("DELETE FROM odemeler WHERE fatura_adi=? AND aciklama LIKE 'KREDI:%'", (kredi_adi,))
+                    self.baglanti_finans.commit()
+                    messagebox.showinfo("Silindi", "Krediye ait tüm taksitler sistemden başarıyla temizlendi.", parent=self.pencere)
+                    listeyi_guncelle()
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e), parent=self.pencere)
+
+        # --- YENİ EKLENEN: KREDİ DÜZENLEME POPUP'I ---
+        def kredi_duzenle_popup(eski_ad):
+            # Mevcut bilgileri veritabanından çek
+            self.imlec_finans.execute("SELECT tutar, aciklama FROM odemeler WHERE fatura_adi=? AND aciklama LIKE 'KREDI:%' LIMIT 1", (eski_ad,))
+            res = self.imlec_finans.fetchone()
+            if not res: return
             
-            # Hem toplam taksiti hem kalan taksiti hesaplayan gelişmiş SQL sorgusu
-            sorgu = """
+            eski_tutar = res[0]
+            try:
+                # "KREDI: TEB TİCARİ (1/36)" metninden toplam taksit sayısı olan 36'yı ayıklar
+                eski_toplam_taksit = res[1].split("(")[1].replace(")", "").split("/")[1].strip()
+            except:
+                eski_toplam_taksit = "12"
+
+            # Popup Penceresi
+            win = tk.Toplevel(self.pencere)
+            win.title("Krediyi Düzenle")
+            win.geometry("400x380")
+            win.configure(bg="#f8fafc")
+            win.transient(self.pencere)
+            win.grab_set()
+
+            x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 200
+            y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 190
+            win.geometry(f"+{x}+{y}")
+
+            tk.Label(win, text="Kredi Bilgilerini Düzenle", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#334155").pack(pady=(20, 10))
+
+            f_form = tk.Frame(win, bg="#f8fafc", padx=30)
+            f_form.pack(fill="both", expand=True)
+
+            tk.Label(f_form, text="Banka / Kredi Adı:", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(anchor="w")
+            e_ad = tk.Entry(f_form, font=("Segoe UI", 11), relief="solid", bd=1)
+            e_ad.pack(fill="x", pady=(0, 10), ipady=4)
+            e_ad.insert(0, eski_ad)
+
+            tk.Label(f_form, text="Aylık Taksit Tutarı (TL):", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(anchor="w")
+            e_tutar = tk.Entry(f_form, font=("Segoe UI", 11, "bold"), relief="solid", bd=1, fg="#1e3a8a", bg="#eff6ff")
+            e_tutar.pack(fill="x", pady=(0, 10), ipady=4)
+            e_tutar.insert(0, f"{eski_tutar:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            e_tutar.bind("<KeyRelease>", mask_para_birimi)
+
+            tk.Label(f_form, text="Toplam Taksit Sayısı:", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#64748b").pack(anchor="w")
+            e_taksit = tk.Entry(f_form, font=("Segoe UI", 11), relief="solid", bd=1)
+            e_taksit.pack(fill="x", pady=(0, 20), ipady=4)
+            e_taksit.insert(0, eski_toplam_taksit)
+
+            def kaydet():
+                yeni_ad = e_ad.get().strip().upper().replace("i", "İ").replace("ı", "I")
+                yeni_taksit = e_taksit.get().strip()
+                tutar_str = e_tutar.get().strip()
+
+                try:
+                    yeni_tutar = float(tutar_str.replace(".", "").replace(",", "."))
+                    if not yeni_ad or not yeni_taksit: raise Exception
+                except:
+                    messagebox.showwarning("Hata", "Lütfen bilgileri doğru formatta girin.", parent=win)
+                    return
+
+                # Tüm taksitleri bul ve güncelle
+                self.imlec_finans.execute("SELECT id, aciklama FROM odemeler WHERE fatura_adi=? AND aciklama LIKE 'KREDI:%'", (eski_ad,))
+                satirlar = self.imlec_finans.fetchall()
+
+                for r in satirlar:
+                    oid, ack = r
+                    try:
+                        # "(1/36)" kısmındaki "1"i (kaçıncı taksit olduğunu) koru, toplamı (36) değiştir
+                        mevcut_i = ack.split("(")[1].split("/")[0].strip()
+                        yeni_ack = f"KREDI: {yeni_ad} ({mevcut_i}/{yeni_taksit})"
+                    except:
+                        yeni_ack = f"KREDI: {yeni_ad}"
+
+                    self.imlec_finans.execute("UPDATE odemeler SET fatura_adi=?, tutar=?, aciklama=? WHERE id=?", (yeni_ad, yeni_tutar, yeni_ack, oid))
+
+                self.baglanti_finans.commit()
+                win.destroy()
+                listeyi_guncelle()
+                messagebox.showinfo("Başarılı", "Kredi bilgileri başarıyla güncellendi.")
+
+            ModernButton(f_form, text="KAYDET", command=kaydet, bg_color="#10b981", width=200, height=40).pack(anchor="center")
+
+
+        def listeyi_guncelle():
+            for w in f_liste_container.winfo_children(): w.destroy()
+            
+            # Kredilerin özetlerini çek
+            sorgu_ozet = """
                 SELECT 
                     fatura_adi, 
                     SUM(CASE WHEN durum='ODENMEDİ' THEN 1 ELSE 0 END) as kalan_taksit,
@@ -5987,18 +7246,200 @@ class EczaneAsistani:
                 ORDER BY kalan_borc DESC
             """
             try:
-                self.imlec_finans.execute(sorgu)
-                for row in self.imlec_finans.fetchall():
-                    kredi_adi = row[0]
-                    kalan_taksit = int(row[1]) if row[1] else 0
-                    toplam_taksit = int(row[2]) if row[2] else 0
-                    aylik_tutar = row[3] if row[3] else 0.0
-                    kalan_borc = row[4] if row[4] else 0.0
+                self.imlec_finans.execute(sorgu_ozet)
+                ozet_veriler = self.imlec_finans.fetchall()
+                
+                if not ozet_veriler:
+                    tk.Label(f_liste_container, text="Sistemde kayıtlı aktif kredi bulunmamaktadır.", font=("Segoe UI", 11), bg="white", fg="#94a3b8").pack(pady=30)
+                    return
+
+                def _scroll_canvas(event):
+                    try: canvas_krediler.yview_scroll(int(-1*(event.delta/120)), "units")
+                    except: pass
+
+                # --- SAĞ TIK MENÜSÜ ---
+                def sag_tik_menu(event, k_adi):
+                    menu = tk.Menu(self.pencere, tearoff=0, font=("Segoe UI", 10))
+                    menu.add_command(label="✏️ Düzenle", command=lambda: kredi_duzenle_popup(k_adi))
+                    menu.add_separator()
+                    menu.add_command(label="🗑️ Sil", command=lambda: krediyi_sil(k_adi))
+                    menu.tk_popup(event.x_root, event.y_root)
+
+                for row in ozet_veriler:
+                    kredi_adi, kalan_taksit, toplam_taksit, aylik_tutar, kalan_borc = row
                     
-                    # 8 / 13 formatında yazdırıyoruz
-                    taksit_metni = f"{kalan_taksit} / {toplam_taksit}"
+                    # Ana Kredi Kartı
+                    kredi_frame = tk.Frame(f_liste_container, bg="white", bd=1, relief="solid")
+                    kredi_frame.pack(fill="x", pady=8, padx=5)
                     
-                    tree_krediler.insert("", "end", values=(kredi_adi, taksit_metni, f"{aylik_tutar:,.2f} ₺", f"{kalan_borc:,.2f} ₺"))
+                    header = tk.Frame(kredi_frame, bg="#f8fafc", padx=15, pady=12, cursor="hand2")
+                    header.pack(fill="x")
+                    
+                    # Sol Vurgu
+                    tk.Frame(header, bg="#8b5cf6", width=4).pack(side="left", fill="y", padx=(0, 10))
+                    lbl_ok = tk.Label(header, text="❯", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#94a3b8")
+                    lbl_ok.pack(side="left", padx=(0, 10))
+                    
+                    lbl_kredi_baslik = tk.Label(header, text=kredi_adi, font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#1e293b")
+                    lbl_kredi_baslik.pack(side="left")
+                    
+                    # Sağ Taraftaki Özet ve Sil Butonu
+                    sag_alan = tk.Frame(header, bg="#f8fafc")
+                    sag_alan.pack(side="right")
+                    
+                    tk.Button(sag_alan, text="🗑️", fg="#ef4444", bg="#f8fafc", bd=0, relief="flat", cursor="hand2", command=lambda k=kredi_adi: krediyi_sil(k)).pack(side="right", padx=(15,0))
+                    
+                    tk.Label(sag_alan, text=f"Aylık: {aylik_tutar:,.2f} ₺", font=("Segoe UI", 10), bg="#f8fafc", fg="#64748b").pack(side="right", padx=10)
+                    
+                    lbl_kalan_taksit = tk.Label(sag_alan, text=f"Kalan: {kalan_taksit}/{toplam_taksit}", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#f59e0b")
+                    lbl_kalan_taksit.pack(side="right", padx=10)
+                    
+                    lbl_kalan_borc = tk.Label(sag_alan, text=f"Toplam Borç: {kalan_borc:,.2f} ₺", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#ef4444")
+                    lbl_kalan_borc.pack(side="right", padx=10)
+
+                    # --- SAĞ TIK OLAYLARINI BAĞLAMA ---
+                    for w in [header, lbl_ok, lbl_kredi_baslik, sag_alan] + sag_alan.winfo_children():
+                        w.bind("<Button-3>", lambda e, k=kredi_adi: sag_tik_menu(e, k))
+
+                    # Taksitler Tablosu (İçerik)
+                    content = tk.Frame(kredi_frame, bg="white", padx=10, pady=5)
+                    
+                    cols = ("ID", "TIK", "TAKST", "VADE", "TUTAR", "DURUM")
+                    tv = ttk.Treeview(content, columns=cols, show="headings", height=0)
+                    
+                    tv.heading("ID", text="ID"); tv.column("ID", width=0, stretch=False) # Gizli
+                    
+                    # Tümünü Seç/Kaldır Mekanizması
+                    tv.tumunu_sec_durum = False
+                    def tumunu_sec_toggle(tree_ref=tv):
+                        durum = getattr(tree_ref, "tumunu_sec_durum", False)
+                        yeni_durum = not durum
+                        setattr(tree_ref, "tumunu_sec_durum", yeni_durum)
+                        ikon = "☑" if yeni_durum else "☐"
+                        tree_ref.heading("TIK", text=ikon)
+                        for item in tree_ref.get_children():
+                            vals = list(tree_ref.item(item, "values"))
+                            vals[1] = ikon
+                            tree_ref.item(item, values=vals)
+
+                    tv.heading("TIK", text="☐", command=lambda t=tv: tumunu_sec_toggle(t))
+                    tv.column("TIK", width=40, anchor="center")
+                    
+                    tv.heading("TAKST", text="Taksit"); tv.column("TAKST", width=80, anchor="center")
+                    tv.heading("VADE", text="Ödeme Tarihi"); tv.column("VADE", width=120, anchor="center")
+                    tv.heading("TUTAR", text="Tutar (TL)"); tv.column("TUTAR", width=120, anchor="e")
+                    tv.heading("DURUM", text="Durum"); tv.column("DURUM", width=150, anchor="center")
+                    
+                    tv.tag_configure("odendi", background="#dcfce7", foreground="#166534", font=("Segoe UI", 10, "bold"))
+                    tv.tag_configure("odenmedi", background="#fee2e2", foreground="#991b1b")
+                    
+                    tv.pack(fill="x", pady=5)
+                    tv.bind('<MouseWheel>', _scroll_canvas)
+                    
+                    # Satıra tıklayınca Kutucuğu Değiştir
+                    def satir_tikla(event, tree_ref=tv):
+                        region = tree_ref.identify("region", event.x, event.y)
+                        if region == "cell":
+                            col = tree_ref.identify_column(event.x)
+                            if col == "#2": # TIK sütunu
+                                item = tree_ref.identify_row(event.y)
+                                if item:
+                                    vals = list(tree_ref.item(item, "values"))
+                                    vals[1] = "☑" if vals[1] == "☐" else "☐"
+                                    tree_ref.item(item, values=vals)
+                    tv.bind("<Button-1>", satir_tikla)
+
+                    # Bu krediye ait taksitleri çek
+                    sorgu_detay = """
+                        SELECT id, vade_tarihi, tutar, durum, aciklama
+                        FROM odemeler
+                        WHERE fatura_adi=? AND aciklama LIKE 'KREDI:%'
+                        ORDER BY vade_tarihi ASC
+                    """
+                    self.imlec_finans.execute(sorgu_detay, (kredi_adi,))
+                    detaylar = self.imlec_finans.fetchall()
+                    
+                    tv.configure(height=len(detaylar))
+                    for d in detaylar:
+                        v_id, vade, tutar, durum, ack = d
+                        try:
+                            taksit_no = ack.split("(")[1].replace(")", "")
+                        except:
+                            taksit_no = "-"
+                            
+                        vade_fmt = datetime.strptime(vade, "%Y-%m-%d").strftime("%d.%m.%Y") if vade else "-"
+                        tag = "odendi" if durum == "ODENDİ" else "odenmedi"
+                        durum_yazi = "✅ ÖDENDİ" if durum == "ODENDİ" else "❌ BEKLİYOR"
+                        
+                        tv.insert("", "end", values=(v_id, "☐", taksit_no, vade_fmt, f"{tutar:,.2f} ₺", durum_yazi), tags=(tag,))
+
+                    # --- CANLI (TİTREMESİZ) DURUM DEĞİŞTİRME BUTONLARI ---
+                    f_actions = tk.Frame(content, bg="white")
+                    f_actions.pack(fill="x", pady=(5, 5))
+
+                    def durum_degistir(yeni_durum, tree_ref, lbl_tak, lbl_borc, k_ad):
+                        secili_idler = [tree_ref.item(i)['values'][0] for i in tree_ref.get_children() if tree_ref.item(i)['values'][1] == "☑"]
+                        
+                        if not secili_idler:
+                            messagebox.showwarning("Uyarı", "Lütfen işlem yapmak için kutucukları (☑) işaretleyin.", parent=self.pencere)
+                            return
+                        
+                        # 1. Veritabanını Güncelle
+                        for sid in secili_idler:
+                            self.imlec_finans.execute("UPDATE odemeler SET durum=? WHERE id=?", (yeni_durum, sid))
+                        self.baglanti_finans.commit()
+                        
+                        # 2. EKRANI TİTRETMEDEN TABLOYU CANLI GÜNCELLE
+                        for item in tree_ref.get_children():
+                            vals = list(tree_ref.item(item, "values"))
+                            if vals[1] == "☑":
+                                vals[1] = "☐" # Tiki kaldır (İşlem bitince seçimleri sıfırla)
+                                vals[5] = "✅ ÖDENDİ" if yeni_durum == 'ODENDİ' else "❌ BEKLİYOR"
+                                tag = "odendi" if yeni_durum == 'ODENDİ' else "odenmedi"
+                                tree_ref.item(item, values=vals, tags=(tag,))
+                                
+                        # 3. Kalan Borç ve Taksit Yazılarını Canlı Güncelle
+                        self.imlec_finans.execute('''
+                            SELECT 
+                                SUM(CASE WHEN durum='ODENMEDİ' THEN 1 ELSE 0 END),
+                                COUNT(id),
+                                SUM(CASE WHEN durum='ODENMEDİ' THEN tutar ELSE 0 END)
+                            FROM odemeler WHERE aciklama LIKE 'KREDI:%' AND fatura_adi=?
+                        ''', (k_ad,))
+                        guncel = self.imlec_finans.fetchone()
+                        
+                        if guncel:
+                            y_kalan_tak = guncel[0] or 0
+                            y_top_tak = guncel[1] or 0
+                            y_kalan_borc = guncel[2] or 0.0
+                            
+                            lbl_tak.config(text=f"Kalan: {y_kalan_tak}/{y_top_tak}")
+                            lbl_borc.config(text=f"Toplam Borç: {y_kalan_borc:,.2f} ₺")
+                            
+                            # Eğer borç tamamen bittiyse (Yeşile Boya)
+                            if y_kalan_tak == 0:
+                                lbl_tak.config(fg="#10b981")
+                                lbl_borc.config(fg="#10b981")
+                            else:
+                                lbl_tak.config(fg="#f59e0b")
+                                lbl_borc.config(fg="#ef4444")
+                    
+                    # Butonlar
+                    tk.Button(f_actions, text="✅ SEÇİLENLERİ ÖDENDİ YAP", bg="#10b981", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", command=lambda t=tv, lt=lbl_kalan_taksit, lb=lbl_kalan_borc, ka=kredi_adi: durum_degistir('ODENDİ', t, lt, lb, ka)).pack(side="left", padx=(0, 5), ipady=3, ipadx=5)
+                    tk.Button(f_actions, text="❌ SEÇİLENLERİ BEKLİYOR YAP", bg="#ef4444", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", command=lambda t=tv, lt=lbl_kalan_taksit, lb=lbl_kalan_borc, ka=kredi_adi: durum_degistir('ODENMEDİ', t, lt, lb, ka)).pack(side="left", padx=5, ipady=3, ipadx=5)
+                    # ------------------------------------------------
+
+                    # Akordiyon (Aç/Kapat) Mantığı
+
+                    def toggle(f=content, i=lbl_ok):
+                        if f.winfo_viewable(): f.forget(); i.config(text="❯")
+                        else: f.pack(fill="x"); i.config(text="˅")
+                    
+                    for w in [header, lbl_ok, sag_alan] + header.winfo_children() + sag_alan.winfo_children():
+                        # Silme butonuna tıklayınca akordiyon açılıp kapanmasın
+                        if w.winfo_class() != "Button": 
+                            w.bind("<Button-1>", lambda e, f=content, i=lbl_ok: toggle(f, i))
+
             except Exception as e:
                 print("Kredi listeleme hatası:", e)
 
@@ -6052,7 +7493,7 @@ class EczaneAsistani:
                 if not messagebox.askyesno("Sisteme İşle", onay_metni, parent=self.pencere):
                     return
 
-                # Veritabanına Yazma İşlemi (satir_notu = MANUEL_GIDER yapılarak Depo'dan izole edildi)
+                # Veritabanına Yazma İşlemi 
                 for i in range(n):
                     yil = ilk_tarih.year + (ilk_tarih.month + i - 1) // 12
                     ay = (ilk_tarih.month + i - 1) % 12 + 1
@@ -6067,16 +7508,12 @@ class EczaneAsistani:
                     vade_str_db = vade_tarihi.strftime("%Y-%m-%d")
                     aciklama_str = f"KREDI: {ad} ({i+1}/{n})"
                     
-                    # --- AKILLI TARİH KONTROLÜ BAŞLANGICI ---
-                    # Eğer taksitin vade tarihi bugünden küçük veya eşitse, 
-                    # bu taksit geçmişte kalmıştır ve ödenmiş sayılmalıdır.
+                    # Geçmiş Taksitleri Otomatik "ÖDENDİ" Yap
                     if vade_tarihi <= date.today():
                         taksit_durumu = 'ODENDİ'
                     else:
                         taksit_durumu = 'ODENMEDİ'
-                    # -----------------------------------------
                     
-                    # 'ODENMEDİ' yazan yeri değişkene (taksit_durumu) bağladık
                     self.imlec_finans.execute("""
                         INSERT INTO odemeler (fatura_adi, vade_tarihi, tutar, aciklama, durum, alim_tarihi, satir_notu) 
                         VALUES (?, ?, ?, ?, ?, ?, 'MANUEL_GIDER')
@@ -6096,7 +7533,7 @@ class EczaneAsistani:
                     """, (ad, tar_str, sigorta, f"KREDI: {ad} (Sigorta)", date.today().strftime("%Y-%m-%d")))
 
                 self.baglanti_finans.commit()
-                messagebox.showinfo("Başarılı", "Kredi planı oluşturuldu ve Gider Takibi sayfasına aktarıldı.", parent=self.pencere)
+                messagebox.showinfo("Başarılı", "Kredi planı oluşturuldu ve sisteme aktarıldı.", parent=self.pencere)
                 
                 e_ad.delete(0, tk.END)
                 e_vade.delete(0, tk.END)
@@ -6112,28 +7549,8 @@ class EczaneAsistani:
             except Exception as e:
                 messagebox.showerror("Hata", str(e), parent=self.pencere)
 
-        def krediyi_sil():
-            sel = tree_krediler.selection()
-            if not sel:
-                messagebox.showwarning("Uyarı", "Lütfen listeden iptal etmek istediğiniz kredinin üzerine tıklayınız.", parent=self.pencere)
-                return
-            
-            item = tree_krediler.item(sel[0])
-            kredi_adi = item['values'][0]
-
-            # Mesaj güncellendi ve SQL sorgusundaki 'ODENMEDI' şartı KALDIRILDI!
-            if messagebox.askyesno("Krediyi Sil", f"'{kredi_adi}' isimli krediyi sistemden tamamen silmek üzeresiniz.\n\nGeçmişte 'ÖDENDİ' olarak işaretlenenler dahil TÜM TAKSİTLER silinecektir.\nOnaylıyor musunuz?", parent=self.pencere):
-                try:
-                    self.imlec_finans.execute("DELETE FROM odemeler WHERE fatura_adi=? AND aciklama LIKE 'KREDI:%'", (kredi_adi,))
-                    self.baglanti_finans.commit()
-                    messagebox.showinfo("Silindi", "Krediye ait tüm taksitler sistemden başarıyla temizlendi.", parent=self.pencere)
-                    listeyi_guncelle()
-                except Exception as e:
-                    messagebox.showerror("Hata", str(e), parent=self.pencere)
-
+        # Açılışta listeyi doldur
         listeyi_guncelle()
-
-
 
     def tema_uygula(self):
         c = TM
@@ -6163,19 +7580,27 @@ class EczaneAsistani:
         style.map("Treeview", background=[('selected', '#fee2e2')], foreground=[('selected', '#991b1b')])
         style.map("Treeview.Heading", background=[('active', c.get_color("btn_primary"))])
         
+        # ====================================================================
         # --- SEKMELER (NOTEBOOK) TASARIMI ---
+        # ====================================================================
         style.configure("TNotebook", background=bg_main, borderwidth=0)
-        style.configure("TNotebook.Tab", 
-                        background="#e5e7eb", 
-                        foreground="#6b7280", 
-                        padding=[20, 10], 
-                        font=FONT_BOLD,
-                        borderwidth=0)
         
+        # Sekmelerin ezilmesini engellemek için sabit ve rahat boşluklar (Küçültme yok)
+        style.configure("TNotebook.Tab", 
+                        background="#e2e8f0", 
+                        foreground="#64748b", 
+                        padding=[15, 8], # Standart ve geniş boşluk
+                        font=("Segoe UI", 10, "bold"),
+                        borderwidth=1,
+                        relief="solid")
+        
+        # Seçili sekme sadece yukarı çıksın (Yanlara genleşip diğerlerini ezmesin)
         style.map("TNotebook.Tab", 
                   background=[("selected", "white")], 
-                  foreground=[("selected", "#dc2626")],
-                  expand=[("selected", [1, 1, 1, 0])])
+                  foreground=[("selected", "#2563eb")], 
+                  padding=[("selected", [15, 10])], # Sadece dikeyde büyür
+                  expand=[("selected", [0, 4, 0, 0])]) # Sadece yukarı fırlat
+        # ====================================================================
                   
         if hasattr(self, 'content_area') and self.content_area.winfo_exists():
             self.content_area.configure(bg=bg_main)
@@ -6194,86 +7619,108 @@ class EczaneAsistani:
             winreg.CloseKey(key)
         except Exception as e: print(f"Registry Hatası: {e}")
 
+    # =========================================================================
+    # CANLI STOK SAYIM SEKMESİ (MODERN BEYAZ KART VE PASTEL TASARIM)
+    # =========================================================================
     def arayuz_sayim_modu(self):
         c = TM
+        for widget in self.content_area.winfo_children(): widget.destroy()
+        
         self.sayim_aktif_id = None
         self.sayim_aktif_adi = ""
 
-        # --- BAŞLIK VE BUTONLAR ---
+        # --- 1. ÜST BAŞLIK VE BUTONLAR ---
         header_frame = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        header_frame.pack(fill="x", pady=(0, 10))
+        header_frame.pack(fill="x", pady=(0, 15))
 
-        tk.Label(header_frame, text="📦 Canlı Stok Sayım ve Miad Kontrolü", font=FONT_HEAD, 
-                 bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(header_frame, text="📦 Canlı Stok Sayım ve Miad Kontrolü", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
 
-        # Üst Butonlar
         btn_bar = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        btn_bar.pack(fill="x", pady=(0, 10))
+        btn_bar.pack(fill="x", pady=(0, 15))
         
-        # Sol Grup
-        ModernButton(btn_bar, text="TEMİZLE (YENİ)", command=self.sayim_temizle, bg_color="#64748b", width=120).pack(side="left", padx=2)
-        ModernButton(btn_bar, text="📂 KAYITLI LİSTELER", command=self.kayitli_listeleri_ac_dialog, bg_color="#34495e", width=160).pack(side="left", padx=2)
-        
-        # Sağ Grup
-        ModernButton(btn_bar, text="💾 KAYDET", command=self.sayim_kaydet_yoneticisi, bg_color=c.get_color("btn_success"), width=120).pack(side="right", padx=2)
-        ModernButton(btn_bar, text="🚀 TOPLU EKLEME", command=self.toplu_sayim_penceresi, bg_color="#8e44ad", width=140).pack(side="right", padx=2)
+        btn_style_ana = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 6}
 
-        # --- EKRANI İKİYE BÖLME ---
-        paned = tk.PanedWindow(self.content_area, orient=tk.HORIZONTAL, sashwidth=6, bg=c.get_color("border"))
+        # Sol Grup Butonları (Pastel Gri ve Mavi)
+        tk.Button(btn_bar, text="🧹 TEMİZLE (YENİ)", command=self.sayim_temizle, bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style_ana).pack(side="left", padx=(0, 5))
+        tk.Button(btn_bar, text="📂 KAYITLI LİSTELER", command=self.kayitli_listeleri_ac_dialog, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style_ana).pack(side="left", padx=5)
+        
+        # Sağ Grup Butonları (Pastel Mor ve Yeşil)
+        tk.Button(btn_bar, text="🚀 TOPLU EKLEME", command=self.toplu_sayim_penceresi, bg="#faf5ff", fg="#9333ea", activebackground="#f3e8ff", activeforeground="#7e22ce", **btn_style_ana).pack(side="right", padx=(5, 0))
+        tk.Button(btn_bar, text="💾 SİSTEME KAYDET", command=self.sayim_kaydet_yoneticisi, bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style_ana).pack(side="right", padx=5)
+
+        # --- EKRANI İKİYE BÖLME (PANED WINDOW) ---
+        paned = tk.PanedWindow(self.content_area, orient=tk.HORIZONTAL, sashwidth=6, bg=c.get_color("bg_main"), bd=0)
         paned.pack(fill="both", expand=True)
 
-        # ---------------- SOL TARAF: HAM LİSTE (AKIS) ----------------
-        f_left = tk.Frame(paned, bg=c.get_color("bg_main"))
-        paned.add(f_left, width=500) 
+        f_left_container = tk.Frame(paned, bg=c.get_color("bg_main"), padx=5)
+        paned.add(f_left_container, width=500) 
 
-        # Okuyucu Input
-        f_inp = tk.LabelFrame(f_left, text="Karekod Okutun", bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), font=FONT_BOLD)
-        f_inp.pack(fill="x", pady=(0, 10))
-        self.ent_sayim = tk.Entry(f_inp, font=("Consolas", 14), bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), insertbackground=c.get_color("fg_text"))
-        self.ent_sayim.pack(fill="x", padx=10, pady=10, ipady=5)
+        f_right_container = tk.Frame(paned, bg=c.get_color("bg_main"), padx=5)
+        paned.add(f_right_container)
+
+        # ---------------- SOL TARAF: HAM LİSTE KARTI (AKIS) ----------------
+        f_left = tk.Frame(f_left_container, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=15)
+        f_left.pack(fill="both", expand=True)
+
+        # Okuyucu Input (Modern Çerçeveli)
+        f_inp_header = tk.Frame(f_left, bg="white")
+        f_inp_header.pack(fill="x", pady=(0, 5))
+        tk.Label(f_inp_header, text="Karekod Okutun:", font=("Segoe UI", 11, "bold"), bg="white", fg="#3b82f6").pack(side="left")
+
+        self.ent_sayim = tk.Entry(f_left, font=("Consolas", 14, "bold"), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        self.ent_sayim.pack(fill="x", pady=(0, 20), ipady=8, padx=2)
         self.ent_sayim.bind("<Return>", self.sayim_ekle_satir)
         self.ent_sayim.focus_set()
 
-        tk.Label(f_left, text="📄 Okutulan Karekod Listesi", font=("Segoe UI", 10, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w")
+        f_table_header_l = tk.Frame(f_left, bg="white")
+        f_table_header_l.pack(fill="x", pady=(0, 5))
+        tk.Label(f_table_header_l, text="📄 Okutulan Karekod Listesi", font=("Segoe UI", 11, "bold"), bg="white", fg="#1e293b").pack(side="left")
 
         # Sol Tablo
+        f_tree_left = tk.Frame(f_left, bg="white")
+        f_tree_left.pack(fill="both", expand=True)
         cols_raw = ("NO", "İLAÇ ADI", "KAREKOD")
-        self.tree_sayim = ttk.Treeview(f_left, columns=cols_raw, show="headings", height=15)
-        sc_l = ttk.Scrollbar(f_left, orient="vertical", command=self.tree_sayim.yview)
+        self.tree_sayim = ttk.Treeview(f_tree_left, columns=cols_raw, show="headings", height=15)
+        sc_l = ttk.Scrollbar(f_tree_left, orient="vertical", command=self.tree_sayim.yview)
         self.tree_sayim.configure(yscroll=sc_l.set); sc_l.pack(side="right", fill="y")
-        self.tree_sayim.pack(fill="both", expand=True)
+        self.tree_sayim.pack(side="left", fill="both", expand=True)
         
         self.tree_sayim.heading("NO", text="NO"); self.tree_sayim.column("NO", width=40, anchor="center")
         self.tree_sayim.heading("İLAÇ ADI", text="İLAÇ ADI"); self.tree_sayim.column("İLAÇ ADI", width=250)
         self.tree_sayim.heading("KAREKOD", text="KAREKOD"); self.tree_sayim.column("KAREKOD", width=200)
         
-        ModernButton(f_left, text="SEÇİLİ SATIRI SİL", command=self.sayim_satir_sil, bg_color=c.get_color("btn_danger"), width=150, height=30).pack(pady=5)
+        tk.Button(f_left, text="🗑️ SEÇİLİ SATIRI SİL", command=self.sayim_satir_sil, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style_ana).pack(anchor="e", pady=(10, 0))
 
-        # ---------------- SAĞ TARAF: DETAYLI MİAD ÖZETİ ----------------
-        f_right = tk.Frame(paned, bg=c.get_color("card_bg"))
-        paned.add(f_right)
+        # ---------------- SAĞ TARAF: DETAYLI MİAD ÖZETİ KARTI ----------------
+        f_right = tk.Frame(f_right_container, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=15)
+        f_right.pack(fill="both", expand=True)
 
-        tk.Label(f_right, text="📊 Stok ve Miad Analizi", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(pady=10)
+        f_right_header = tk.Frame(f_right, bg="white")
+        f_right_header.pack(fill="x", pady=(0, 15))
+        tk.Frame(f_right_header, bg="#f59e0b", width=4).pack(side="left", fill="y", padx=(0, 10))
+        tk.Label(f_right_header, text="📊 Stok ve Miad Analizi", font=("Segoe UI", 14, "bold"), bg="white", fg="#1e293b").pack(side="left")
 
-        # Sağ Tablo (Sütunlar Güncellendi)
+        # Sağ Tablo
+        f_tree_right = tk.Frame(f_right, bg="white")
+        f_tree_right.pack(fill="both", expand=True)
         cols_sum = ("İLAÇ ADI", "SKT", "ADET")
-        self.tree_ozet = ttk.Treeview(f_right, columns=cols_sum, show="headings")
-        sc_r = ttk.Scrollbar(f_right, orient="vertical", command=self.tree_ozet.yview)
+        self.tree_ozet = ttk.Treeview(f_tree_right, columns=cols_sum, show="headings")
+        sc_r = ttk.Scrollbar(f_tree_right, orient="vertical", command=self.tree_ozet.yview)
         self.tree_ozet.configure(yscroll=sc_r.set); sc_r.pack(side="right", fill="y")
-        self.tree_ozet.pack(fill="both", expand=True, padx=10, pady=(0,10))
+        self.tree_ozet.pack(side="left", fill="both", expand=True)
 
         self.tree_ozet.heading("İLAÇ ADI", text="İLAÇ ADI"); self.tree_ozet.column("İLAÇ ADI", width=300)
         self.tree_ozet.heading("SKT", text="MİAD"); self.tree_ozet.column("SKT", width=100, anchor="center")
         self.tree_ozet.heading("ADET", text="TOPLAM"); self.tree_ozet.column("ADET", width=80, anchor="center")
 
-        # RENKLER (Kritik Miadlar İçin)
-        self.tree_ozet.tag_configure("kirmizi", background="#ef4444", foreground="white") # < 3 Ay
-        self.tree_ozet.tag_configure("turuncu", background="#f97316", foreground="black") # < 1 Yıl
-        self.tree_ozet.tag_configure("normal", background=c.get_color("input_bg"), foreground=c.get_color("fg_text"))
+        # RENKLER (Miad Tablosu İçin Daha Soft/Pastel Vurgular)
+        self.tree_ozet.tag_configure("kirmizi", background="#fee2e2", foreground="#991b1b") # < 3 Ay (Açık Kırmızı)
+        self.tree_ozet.tag_configure("turuncu", background="#ffedd5", foreground="#c2410c") # < 1 Yıl (Açık Turuncu)
+        self.tree_ozet.tag_configure("normal", background="white", foreground="#0f172a")
 
-        # Toplam Sayaç
-        self.lbl_toplam_sayim = tk.Label(f_right, text="Toplam Okutulan: 0", font=("Segoe UI", 11, "bold"), bg="#f1c40f", fg="black", padx=10, pady=5)
-        self.lbl_toplam_sayim.pack(pady=10, fill="x")
+        # Toplam Sayaç (Alt kısımdaki büyük etiket)
+        self.lbl_toplam_sayim = tk.Label(f_right, text="Toplam Okutulan: 0", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#334155", padx=10, pady=10, relief="solid", bd=1)
+        self.lbl_toplam_sayim.pack(pady=(15, 0), fill="x")
 
     def sayim_ekle_satir(self, event=None):
         raw = self.ent_sayim.get().strip()
@@ -6368,7 +7815,7 @@ class EczaneAsistani:
     def sayim_temizle(self, onay_sorma=True):
         if onay_sorma and self.tree_sayim.get_children():
             if not messagebox.askyesno("Temizle", "Tüm sayım verileri silinecek?"): return
-        for i in self.tree_sayim.get_children(): self.tree_sayim.delete(i)
+        self.tree_sayim.delete(*self.tree_sayim.get_children())
         self.ozeti_guncelle() 
         self.sayim_aktif_id = None
         self.sayim_aktif_adi = ""
@@ -6472,43 +7919,102 @@ class EczaneAsistani:
         ModernButton(f_btn, text="EKRANA YÜKLE", command=yukle, bg_color=TM.get_color("btn_success"), width=150).pack(side="right", padx=10)
 
     def toplu_sayim_penceresi(self):
+        c = TM
         top = tk.Toplevel(self.pencere)
-        top.title("Toplu Karekod Aktarım ve Miad Analizi")
-        top.geometry("1200x650") 
-        top.configure(bg=TM.get_color("bg_main"))
-        x = self.pencere.winfo_x() + 20; y = self.pencere.winfo_y() + 20
+        top.title("🚀 Toplu Karekod Aktarım ve Miad Analizi")
+        # Pencere yüksekliği 650'den 750'ye çıkarıldı
+        top.geometry("1400x850") 
+        top.configure(bg=c.get_color("bg_main"))
+        
+        # Pencereyi tam ortalayarak aç
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 600
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 375
         top.geometry(f"+{x}+{y}")
+        top.transient(self.pencere)
+        top.grab_set()
 
-        paned = tk.PanedWindow(top, orient=tk.HORIZONTAL, sashwidth=5, bg=TM.get_color("border"))
-        paned.pack(fill="both", expand=True, padx=10, pady=10)
+        # --- ÜST BAŞLIK ---
+        header = tk.Frame(top, bg=c.get_color("bg_main"), pady=15, padx=20)
+        header.pack(side="top", fill="x")
+        tk.Label(header, text="🚀 Toplu Aktarım & Akıllı Miad Analizi", font=("Segoe UI", 16, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
 
-        f_left = tk.Frame(paned, bg=TM.get_color("bg_main"))
-        paned.add(f_left, width=400)
-        tk.Label(f_left, text="1. Karekodları Buraya Yapıştırın:", font=("Segoe UI", 11, "bold"), bg=TM.get_color("bg_main"), fg=TM.get_color("fg_text")).pack(anchor="w", pady=(0, 5))
-        frame_txt = tk.Frame(f_left); frame_txt.pack(fill="both", expand=True)
-        sc_txt = tk.Scrollbar(frame_txt); sc_txt.pack(side="right", fill="y")
-        txt_input = tk.Text(frame_txt, bg=TM.get_color("input_bg"), fg=TM.get_color("fg_text"), font=("Consolas", 10), yscrollcommand=sc_txt.set)
-        txt_input.pack(side="left", fill="both", expand=True); sc_txt.config(command=txt_input.yview)
-        f_analiz_btn = tk.Frame(f_left, bg=TM.get_color("bg_main"), pady=10); f_analiz_btn.pack(fill="x")
+        # =====================================================================
+        # ÖNEMLİ DÜZELTME: ALT BUTONU ÖNCE YERLEŞTİR (Aşağı kaybolmasını önler)
+        # =====================================================================
+        btn_style_yeni = {"font": ("Segoe UI", 11, "bold"), "relief": "flat", "cursor": "hand2", "pady": 12}
+        
+        f_bot = tk.Frame(top, bg=c.get_color("bg_main"), pady=15, padx=20)
+        f_bot.pack(side="bottom", fill="x") # Önce aşağıya yapıştır!
+        
+        btn_kaydet = tk.Button(f_bot, text="✅ KAYDET VE ANA LİSTEYE AKTAR", 
+                  bg="#10b981", fg="white", activebackground="#059669", activeforeground="white", **btn_style_yeni)
+        btn_kaydet.pack(fill="x")
 
-        f_right = tk.Frame(paned, bg=TM.get_color("card_bg"))
+        # --- ANA BÖLME (PANED WINDOW) ---
+        paned = tk.PanedWindow(top, orient=tk.HORIZONTAL, sashwidth=6, bg=c.get_color("bg_main"), bd=0)
+        paned.pack(side="top", fill="both", expand=True, padx=20, pady=(0, 10))
+
+        # =====================================================================
+        # SOL KART (GİRİŞ EKRANI)
+        # =====================================================================
+        f_left = tk.Frame(paned, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=15)
+        paned.add(f_left, width=450)
+        
+        # Emojiler düzeltildi (Yazı binmesi sorunu çözüldü)
+        tk.Label(f_left, text="📝 1. Karekodları Buraya Yapıştırın:", font=("Segoe UI", 11, "bold"), bg="white", fg="#3b82f6").pack(anchor="w", pady=(0, 10))
+        
+        frame_txt = tk.Frame(f_left, bg="white")
+        frame_txt.pack(fill="both", expand=True)
+        sc_txt = ttk.Scrollbar(frame_txt)
+        sc_txt.pack(side="right", fill="y")
+        
+        txt_input = tk.Text(frame_txt, bg="#f8fafc", fg="#0f172a", font=("Consolas", 10), relief="solid", bd=1, yscrollcommand=sc_txt.set, padx=10, pady=10)
+        txt_input.pack(side="left", fill="both", expand=True)
+        sc_txt.config(command=txt_input.yview)
+        
+        f_analiz_btn = tk.Frame(f_left, bg="white", pady=15)
+        f_analiz_btn.pack(fill="x", side="bottom") # Sol alt köşeye sabitle
+
+        tk.Button(f_analiz_btn, text="⚡ ANALİZ ET (Miad Kontrol)", 
+                  bg="#fff7ed", fg="#ea580c", activebackground="#ffedd5", activeforeground="#c2410c", **btn_style_yeni).pack(fill="x")
+
+        # =====================================================================
+        # SAĞ KART (ANALİZ EKRANI)
+        # =====================================================================
+        f_right = tk.Frame(paned, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=15)
         paned.add(f_right)
-        tk.Label(f_right, text="2. Miad ve Stok Analizi:", font=("Segoe UI", 11, "bold"), bg=TM.get_color("card_bg"), fg=TM.get_color("fg_text")).pack(anchor="w", pady=(0, 5), padx=10)
+        
+        # Emojiler düzeltildi
+        tk.Label(f_right, text="📊 2. Miad ve Stok Analizi:", font=("Segoe UI", 11, "bold"), bg="white", fg="#10b981").pack(anchor="w", pady=(0, 10))
+        
+        f_tree_container = tk.Frame(f_right, bg="white")
+        f_tree_container.pack(fill="both", expand=True)
+        
         cols = ("İLAÇ ADI", "SKT", "ADET")
-        tree_analiz = ttk.Treeview(f_right, columns=cols, show="headings")
-        sc_tree = ttk.Scrollbar(f_right, orient="vertical", command=tree_analiz.yview)
-        tree_analiz.configure(yscroll=sc_tree.set); sc_tree.pack(side="right", fill="y"); tree_analiz.pack(fill="both", expand=True, padx=10)
+        tree_analiz = ttk.Treeview(f_tree_container, columns=cols, show="headings")
+        sc_tree = ttk.Scrollbar(f_tree_container, orient="vertical", command=tree_analiz.yview)
+        tree_analiz.configure(yscroll=sc_tree.set)
+        sc_tree.pack(side="right", fill="y")
+        tree_analiz.pack(side="left", fill="both", expand=True)
+        
         tree_analiz.heading("İLAÇ ADI", text="İLAÇ ADI"); tree_analiz.column("İLAÇ ADI", width=350)
         tree_analiz.heading("SKT", text="MİAD (SKT)"); tree_analiz.column("SKT", width=120, anchor="center")
         tree_analiz.heading("ADET", text="ADET"); tree_analiz.column("ADET", width=80, anchor="center")
-        tree_analiz.tag_configure("kirmizi", background="#ef4444", foreground="white")
-        tree_analiz.tag_configure("turuncu", background="#f97316", foreground="black")
-        tree_analiz.tag_configure("normal", background=TM.get_color("input_bg"), foreground=TM.get_color("fg_text"))
-        lbl_bilgi = tk.Label(f_right, text="Analiz bekleniyor...", bg=TM.get_color("card_bg"), fg="#f39c12", font=("Segoe UI", 10, "bold")); lbl_bilgi.pack(pady=5)
+        
+        # Pastel Uyarı Renkleri
+        tree_analiz.tag_configure("kirmizi", background="#fee2e2", foreground="#991b1b")
+        tree_analiz.tag_configure("turuncu", background="#ffedd5", foreground="#c2410c")
+        tree_analiz.tag_configure("normal", background="white", foreground="#0f172a")
+        
+        lbl_bilgi = tk.Label(f_right, text="Analiz bekleniyor...", bg="white", fg="#f59e0b", font=("Segoe UI", 11, "bold"))
+        lbl_bilgi.pack(side="bottom", pady=(15, 0))
 
         gecerli_karekodlar = []
 
-        def analiz_et():
+        # =====================================================================
+        # HİÇ DOKUNULMAMIŞ ARKA PLAN FONKSİYONLARI
+        # =====================================================================
+        def analiz_et(event=None):
             nonlocal gecerli_karekodlar; gecerli_karekodlar = []
             for i in tree_analiz.get_children(): tree_analiz.delete(i)
             raw_text = txt_input.get("1.0", tk.END).strip()
@@ -6542,8 +8048,11 @@ class EczaneAsistani:
                     elif gun < 365: tag = "turuncu"
                 tree_analiz.insert("", "end", values=(ad, skt_s, f"{adet}"), tags=(tag,))
             msg = f"Toplam {len(gecerli_karekodlar)} karekod."
-            if kritik > 0: msg += f" ⚠️ {kritik} KRİTİK MİAD!"
-            lbl_bilgi.config(text=msg)
+            if kritik > 0: 
+                msg += f" ⚠️ {kritik} KRİTİK MİAD!"
+                lbl_bilgi.config(text=msg, fg="#ef4444")
+            else:
+                lbl_bilgi.config(text=msg, fg="#10b981")
 
         def aktar_ve_kapat():
             if not gecerli_karekodlar: return
@@ -6563,9 +8072,9 @@ class EczaneAsistani:
             if atlanan > 0: msg += f"\n\n⚠️ {atlanan} karekod zaten listede olduğu için EKLENMEDİ."
             messagebox.showinfo("Aktarım Sonucu", msg, parent=top); top.destroy()
 
-        ModernButton(f_analiz_btn, text="⚡ ANALİZ ET (Miad Kontrol)", command=analiz_et, bg_color="#e67e22", width=250).pack(pady=5)
-        f_bot = tk.Frame(top, bg=TM.get_color("bg_main"), pady=15); f_bot.pack(fill="x")
-        ModernButton(f_bot, text="✅ KAYDET VE LİSTEYE EKLE", command=aktar_ve_kapat, bg_color=TM.get_color("btn_success"), width=300).pack()
+        # Buton Komutlarını Bağla
+        f_analiz_btn.winfo_children()[0].config(command=analiz_et) # Analiz Butonu
+        btn_kaydet.config(command=aktar_ve_kapat) # Alt Kaydet Butonu
 
     # =========================================================================
     # 6. SON KULLANMA TARİHİ TAKİP 
@@ -6613,11 +8122,8 @@ class EczaneAsistani:
             self.listeyi_guncelle(yukleme_filtresi=secilen_id)
         else:
             # Seçim yoksa boşalt
-            for i in self.tablo_stok.get_children(): self.tablo_stok.delete(i)
+            self.tablo_stok.delete(*self.tablo_stok.get_children())
 
-    # =========================================================================
-    # SIKINTILI SKT ANALİZİ (ID KONTROLÜ + YEŞİL [ NEW ] KUTUSU)
-    # =========================================================================
     def ac_sikintili_skt_penceresi(self):
         # 1. En Son Yüklenen Listeyi Bul
         self.imlec.execute("SELECT id, dosya_adi, tarih FROM yuklemeler ORDER BY id DESC LIMIT 1")
@@ -6637,14 +8143,19 @@ class EczaneAsistani:
         c = TM
         top.configure(bg=c.get_color("bg_main"))
 
-        # --- ÜST BUTON PANELI ---
-        f_top_btns = tk.Frame(top, bg=c.get_color("header_bg"), pady=10, padx=10)
-        f_top_btns.pack(fill="x")
+        # --- MODERN ÜST BİLGİ VE BUTON KARTI ---
+        f_top_btns = tk.Frame(top, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=20, pady=15)
+        f_top_btns.pack(fill="x", padx=10, pady=(10, 15))
 
-        # Bilgi Etiketi
-        info_text = "GÖSTERGE: 🆕  yazanlar bu listeyle ilk kez stoğa girenlerdir.\nHESAP: Kısa girenler için 60 gün, normal girenler için 1 yıl iade kuralı uygulanır."
-        tk.Label(f_top_btns, text=info_text, bg=c.get_color("header_bg"), fg="#f1c40f", 
-                 font=("Segoe UI", 9), justify="left").pack(side="left")
+        # Sol tarafa şık bir mavi vurgu çizgisi
+        tk.Frame(f_top_btns, bg="#3b82f6", width=4).pack(side="left", fill="y", padx=(0, 15))
+        
+        f_info = tk.Frame(f_top_btns, bg="white")
+        f_info.pack(side="left")
+        
+        tk.Label(f_info, text=f"Akıllı İade ve SKT Yönetimi", font=("Segoe UI", 14, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 2))
+        info_text = "GÖSTERGE: 🆕 yazanlar ilk kez girenlerdir. | HESAP: Kısa miadlılar 60 gün, normaller 1 yıl iade kuralına tabidir."
+        tk.Label(f_info, text=info_text, bg="white", fg="#64748b", font=("Segoe UI", 9)).pack(anchor="w")
 
         # --- AKILLI HESAPLAMA MOTORU ---
         def motor_hesapla(skt_str, kayit_tarihi_str):
@@ -6725,7 +8236,7 @@ class EczaneAsistani:
                 html_body += f"<tr><td style='color:{renk};font-weight:bold'>{item[6]}</td><td>{item[0]}</td><td>{item[1]}</td><td>{item[2]}</td><td>{item[3]}</td><td style='color:red'><b>{item[5]}</b></td></tr>"
             html_body += "</table></body></html>"
 
-            self.basit_mail_gonder(f"🚨 İADE LİSTESİ ({len(kritik_liste)} Kalem)", html_body, is_html=True)
+            self.basit_mail_gonder(f"[ECZACI DEFTERİ] 🚨 İADE LİSTESİ ({len(kritik_liste)} Kalem)", html_body, is_html=True)
             messagebox.showinfo("Mail Gönderildi", f"{len(kritik_liste)} adet ürün için uyarı maili gönderildi.")
 
         def secilenleri_kopyala():
@@ -6739,15 +8250,22 @@ class EczaneAsistani:
                 messagebox.showinfo("Kopyalandı", f"{len(satirlar)} satır kopyalandı.")
             else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
 
-        ModernButton(f_top_btns, text="📋 SEÇİLİLERİ KOPYALA", command=secilenleri_kopyala, bg_color="#3498db", width=250, height=35).pack(side="right", padx=5)
-        ModernButton(f_top_btns, text="🚨 KRİTİK ÜRÜNLERİ MAİL AT", command=akilli_mail_gonder, bg_color="#e74c3c", width=250, height=35).pack(side="right", padx=10)
+        # --- ŞIK PASTEL BUTONLAR ---
+        btn_style_yeni = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 6}
+
+        tk.Button(f_top_btns, text="🚨 KRİTİK ÜRÜNLERİ MAİL AT", command=akilli_mail_gonder, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style_yeni).pack(side="right", padx=(5, 0))
+        tk.Button(f_top_btns, text="📋 SEÇİLİLERİ KOPYALA", command=secilenleri_kopyala, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style_yeni).pack(side="right", padx=5)
 
         # --- SEKMELER ---
         notebook = ttk.Notebook(top)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # =========================================================
+        # DÜZELTME: SEKMELER 3'E ÇIKARILDI (MİADI GEÇENLER AYRILDI)
+        # =========================================================
         sekmeler = [
-            ("🔴 12 AYDAN KISA (İadesi Yakın/Geçmiş)", -9999, 365), 
+            ("❌ MİADI GEÇENLER (İmhaya/Çöpe Gidecekler)", -99999, 0), 
+            ("🔴 İADESİ YAKLAŞANLAR (12 Aydan Kısa)", 0, 365), 
             ("🟠 12-15 AY ARASI (Takipte)", 365, 455)
         ]
 
@@ -6781,7 +8299,7 @@ class EczaneAsistani:
                     vals = list(tree.item(item, "values")); vals[1] = ikon; tree.item(item, values=vals)
 
             tree.heading("NO", text="NO"); tree.column("NO", width=40, anchor="center")
-            tree.heading("TIK", text="☐", command=tumunu_sec_toggle); tree.column("TIK", width=20, anchor="center")
+            tree.heading("TIK", text="☐", command=tumunu_sec_toggle); tree.column("TIK", width=30, anchor="center")
             
             # DURUM sütununa tıklayınca sıralama yapması için command parametresi eklendi
             tree.heading("DURUM", text="DURUM", command=lambda: treeview_sort_column(tree, "DURUM", False))
@@ -6802,10 +8320,11 @@ class EczaneAsistani:
                         vals = list(tree.item(item, "values")); vals[1] = "☑" if vals[1] == "☐" else "☐"; tree.item(item, values=vals)
             tree.bind("<Button-1>", satir_tikla)
 
-            # RENK TANIMLAMALARI
+            # RENK TANIMLAMALARI (MİADI GEÇENLER İÇİN YENİ RENK)
             tree.tag_configure("normal", background="white", foreground="black")
             tree.tag_configure("yeni_giris_style", background="#d1fae5", foreground="#065f46") # Açık Yeşil (New)
             tree.tag_configure("kritik", background="#fee2e2", foreground="#c0392b") # Kırmızı (Süre az)
+            tree.tag_configure("suresi_dolmus", background="#7f1d1d", foreground="white", font=("Segoe UI", 10, "bold")) # Bordo/Koyu Kırmızı (Geçmiş)
             
             # Verileri Çek
             self.imlec.execute("""
@@ -6822,13 +8341,14 @@ class EczaneAsistani:
                 
                 skt_kalan_gun = (skt_dt - bugun).days
                 if skt_kalan_gun > 455: continue 
+                
+                # O an çizilen sekmeye ait mi (0'ın altındakiler miadı geçenlere vs. düşecek)
                 if not (min_g <= skt_kalan_gun < max_g): continue
                 
                 son_iade_dt, iadeye_kalan, kural_tipi, mail_tetik = motor_hesapla(skt_str, k_tar)
                 son_iade_str = son_iade_dt.strftime("%d.%m.%Y")
                 
                 # --- ID KARŞILAŞTIRMA (YENİ Mİ?) ---
-                # Eğer ilacın 'yukleme_id'si == 'aktif_id' ise bu yeni gelmiştir.
                 if yuk_id == aktif_id:
                     yeni_ikon = "🆕"
                     satir_tag = "yeni_giris_style"
@@ -6836,14 +8356,21 @@ class EczaneAsistani:
                     yeni_ikon = ""
                     satir_tag = "normal"
 
-                # Süre Kritikse Rengi Kırmızıya Çevir (New olsa bile kritiklik daha önemlidir)
-                # Ancak [NEW] yazısı kalmalı.
-                if iadeye_kalan <= 10 or mail_tetik:
-                    satir_tag = "kritik"
+                # =========================================================
+                # GÖRSEL DÜZELTME: SÜRESİ DOLMUŞ İLAÇLARIN YAZILARI
+                # =========================================================
+                if skt_kalan_gun < 0:
+                    satir_tag = "suresi_dolmus"
+                    sayac_str = "MİADI DOLDU (ÇÖP/İMHA)"
+                    son_iade_str = "-"
+                    kural_tipi = "SÜRE GEÇTİ"
+                else:
+                    if iadeye_kalan <= 10 or mail_tetik:
+                        satir_tag = "kritik"
 
-                sayac_str = f"{iadeye_kalan} Gün"
-                if iadeye_kalan < 0: sayac_str = "SÜRE GEÇTİ!"
-                elif mail_tetik: sayac_str = f"⚠️ {iadeye_kalan} GÜN!"
+                    sayac_str = f"{iadeye_kalan} Gün"
+                    if iadeye_kalan < 0: sayac_str = "İADE SÜRESİ GEÇTİ!"
+                    elif mail_tetik: sayac_str = f"⚠️ {iadeye_kalan} GÜN!"
 
                 g_pr = str(gtin).replace('.0','').zfill(14)
                 try: qr = f"01{g_pr}21{str(sn).replace('.0','')}17{skt_dt.strftime('%y%m%d')}10{str(bn).replace('.0','')}"
@@ -6878,8 +8405,8 @@ class EczaneAsistani:
         tk.Label(top, text="Kayıtlı Excel Listeleri", font=("Segoe UI", 14, "bold"), 
                  bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(pady=15)
 
-        # Tablo Alanı
-        frame_table = tk.Frame(top, bg=c.get_color("card_bg"))
+        # Tablo Alanı (Modern Çerçeve)
+        frame_table = tk.Frame(top, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1)
         frame_table.pack(fill="both", expand=True, padx=20, pady=10)
 
         # Sütunlar: TIK kutusu eklendi
@@ -6921,7 +8448,7 @@ class EczaneAsistani:
         tree.bind("<Button-1>", satir_tiklama_yonetici)
 
         def verileri_tazele():
-            for i in tree.get_children(): tree.delete(i)
+            tree.delete(*tree.get_children())
             self.imlec.execute("SELECT id, tarih, dosya_adi FROM yuklemeler ORDER BY id DESC")
             for r in self.imlec.fetchall():
                 try: tarih_fmt = datetime.strptime(r[1], "%Y-%m-%d").strftime("%d.%m.%Y")
@@ -6974,138 +8501,166 @@ class EczaneAsistani:
                 self.listeyi_guncelle()
             top.destroy()
 
-        # Alt Butonlar
+        # --- MODERN ALT BUTONLAR ---
         f_btn = tk.Frame(top, bg=c.get_color("bg_main"))
         f_btn.pack(fill="x", padx=20, pady=20)
 
-        ModernButton(f_btn, text="🗑️ SEÇİLENLERİ SİL", command=secilenleri_sil, bg_color="#e74c3c", width=200).pack(side="left")
-        ModernButton(f_btn, text="💾 KAPAT", command=kapat_ve_guncelle, bg_color="#2ecc71", width=150).pack(side="right")
+        # Pastel Buton Stili
+        btn_style = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "padx": 20, "pady": 8}
+
+        tk.Button(f_btn, text="🗑️ SEÇİLENLERİ SİL", command=secilenleri_sil, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style).pack(side="left", padx=5)
+        
+        tk.Button(f_btn, text="💾 KAPAT VE GÜNCELLE", command=kapat_ve_guncelle, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style).pack(side="right", padx=5)
 
         top.protocol("WM_DELETE_WINDOW", kapat_ve_guncelle)
 
     # =========================================================================
-    # ARAYÜZ (FİNAL: HIZLI EKLE KUTUSU DARALTILDI)
+    # ARAYÜZ (FİNAL: MODERN KART VE PASTEL BUTON TASARIMI)
     # =========================================================================
     def arayuz_stok_takip(self):
-        # Önce ekranı temizle
         for widget in self.content_area.winfo_children(): widget.destroy()
         c = TM
         
         # --- 1. SATIR: BAŞLIK (SOL) ve ANALİZ BUTONU (SAĞ) ---
         row1 = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        row1.pack(fill="x", pady=(0, 10))
+        row1.pack(fill="x", pady=(0, 15))
         
-        tk.Label(row1, text="Son Kullanma Tarihi Takip", font=FONT_HEAD, 
-                 bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        tk.Label(row1, text="📅 Son Kullanma Tarihi Takip", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
         
-        # Genişlik 320 yapıldı, metin tam sığacak
-        ModernButton(row1, text="⚠️ TAKİP EDİLMESİ GEREKENLER", command=self.ac_sikintili_skt_penceresi, 
-                     bg_color="#e74c3c", width=320, height=40).pack(side="right", padx=10)
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "padx": 20, "pady": 8}
+        
+        # 1. Pastel Kırmızı Uyarı Butonu
+        tk.Button(row1, text="⚠️ TAKİP EDİLMESİ GEREKENLER", command=self.ac_sikintili_skt_penceresi, 
+                  bg="#fef2f2", fg="#ef4444", **btn_style_ana).pack(side="right", padx=10)
 
-        # --- 2. SATIR: BUTON GRUPLARI ---
-        row2 = tk.Frame(self.content_area, bg=c.get_color("card_bg"), padx=5, pady=10)
-        row2.pack(fill="x", pady=(0, 10))
+        # 3. YENİ: İTS Portalı Butonu (Sağ üste, harika bir mavi tonuyla eklendi)
+        def its_portali_ac():
+            import webbrowser
+            webbrowser.open("https://paydas.its.gov.tr/hesap_yonetimi/giris")
+            
+        tk.Button(row1, text="🌐 İTS PORTALI", command=its_portali_ac, 
+                  bg="#e0f2fe", fg="#0369a1", activebackground="#bae6fd", activeforeground="#075985", **btn_style_ana).pack(side="right", padx=5)
+
+
+        # --- 2. SATIR: İŞLEM MENÜSÜ (BEYAZ KART İÇİNDE) ---
+        row2 = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=12)
+        row2.pack(fill="x", pady=(0, 15))
         
-        # Ortak Buton Boyutları
-        BTN_W = 115
-        BTN_H = 32
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 6}
 
         # --- SOL GRUP ---
-        f_left_group = tk.Frame(row2, bg=c.get_color("card_bg"))
+        f_left_group = tk.Frame(row2, bg="white")
         f_left_group.pack(side="left")
-
-        tk.Label(f_left_group, text="📂 Liste:", font=FONT_BOLD, bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(side="left")
-        self.cb_yuklemeler = ttk.Combobox(f_left_group, state="readonly", width=25, font=FONT_NORM)
-        self.cb_yuklemeler.pack(side="left", padx=(5, 5))
         
-        ModernButton(f_left_group, text="📂 YÜKLE", command=self.excel_yukle_stok, 
-                     bg_color=c.get_color("btn_success"), width=BTN_W, height=BTN_H).pack(side="left", padx=4)
+        tk.Label(f_left_group, text="📂 Liste Seçimi:", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(side="left", padx=(0, 10))
+        self.cb_yuklemeler = ttk.Combobox(f_left_group, state="readonly", width=25, font=("Segoe UI", 10))
+        self.cb_yuklemeler.pack(side="left", padx=(0, 10), ipady=3)
         
-        ModernButton(f_left_group, text="⚙️ DÜZENLE", command=self.ac_yukleme_yoneticisi, 
-                     bg_color="#95a5a6", width=BTN_W, height=BTN_H).pack(side="left", padx=4)
+        tk.Button(f_left_group, text="📂 YÜKLE", command=self.excel_yukle_stok, bg="#dcfce7", fg="#10b981", **btn_style).pack(side="left", padx=4)
+        tk.Button(f_left_group, text="⚙️ DÜZENLE", command=self.ac_yukleme_yoneticisi, bg="#f1f5f9", fg="#64748b", **btn_style).pack(side="left", padx=4)
 
-        # --- YENİ EKLENEN: BİLGİLENDİRME LİNKİ VE POPUP ---
         def stok_nasil_yuklenir(event=None):
-            bilgi = (
-                "İTS'den Stok Yükleme Adımları:\n\n"
-                "1. İlaç Takip Sistemi (İTS) portalına eczane şifrenizle giriş yapın.\n"
-                "2. 'Stok İşlemleri' bölümünden güncel karekod/stok listenizi bulun.\n"
-                "3. Listeyi bilgisayarınıza 'Excel (.xlsx)' formatında indirin.\n"
-                "4. İndirdiğiniz dosyada GTIN, Seri No (SN), Parti No (BN) ve SKT sütunlarının olduğuna emin olun.\n"
-                "5. Yandaki '📂 YÜKLE' butonuna basarak bilgisayarınıza inen bu dosyayı seçin.\n\n"
-                "Sistem akıllı okuyucusuyla dosyayı tarayacak ve tüm miadları otomatik renklendirecektir."
-            )
-            messagebox.showinfo("İTS Stok Dosyası Nasıl Yüklenir?", bilgi)
+            help_win = tk.Toplevel(self.pencere)
+            help_win.title("❓ İTS Stok Dosyası Nasıl Yüklenir?")
+            help_win.geometry("600x500") 
+            help_win.configure(bg=c.get_color("bg_main"))
+            help_win.transient(self.pencere)
+            help_win.grab_set()
 
-        lbl_nasil = tk.Label(f_left_group, text="❓ Nasıl Yüklenir?", font=("Segoe UI", 9, "underline", "bold"), bg=c.get_color("card_bg"), fg="#3b82f6", cursor="hand2")
+            # Pencereyi tam ekrana ortala
+            hx = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 300
+            hy = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 250
+            help_win.geometry(f"+{hx}+{hy}")
+
+            lbl_title = tk.Label(help_win, text="📖 İTS Stok Yükleme Rehberi", font=("Segoe UI", 15, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text"), pady=15)
+            lbl_title.pack(fill="x")
+
+            txt_frame = tk.Frame(help_win, bg=c.get_color("bg_main"), padx=20)
+            txt_frame.pack(fill="both", expand=True, pady=(0, 20))
+
+            scrollbar = tk.Scrollbar(txt_frame)
+            scrollbar.pack(side="right", fill="y")
+
+            txt = tk.Text(txt_frame, font=("Segoe UI", 11), bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), wrap="word", yscrollcommand=scrollbar.set, bd=1, relief="solid", padx=20, pady=20)
+            txt.pack(side="left", fill="both", expand=True)
+            scrollbar.config(command=txt.yview)
+
+            # Özel Metin Stilleri (Tagler)
+            txt.tag_configure("bilgi_baslik", font=("Segoe UI", 12, "bold"), foreground="#3b82f6", spacing1=10, spacing3=5)
+            txt.tag_configure("madde", font=("Segoe UI", 11), foreground=c.get_color("fg_text"), lmargin1=15, lmargin2=30, spacing1=6)
+            txt.tag_configure("vurgu", font=("Segoe UI", 11, "bold"), foreground="#10b981", spacing1=15)
+
+            # Metinleri İçeri Aktar
+            txt.insert(tk.END, "📌 İTS'DEN STOK YÜKLEME ADIMLARI\n", "bilgi_baslik")
+            txt.insert(tk.END, "• İlaç Takip Sistemi (İTS) portalına eczane şifrenizle giriş yapın.\n", "madde")
+            txt.insert(tk.END, "• 'Stok İşlemleri' bölümünden güncel karekod/stok listenizi bulun.\n", "madde")
+            txt.insert(tk.END, "• Listeyi bilgisayarınıza 'Excel (.xlsx)' formatında indirin.\n", "madde")
+            txt.insert(tk.END, "• İndirdiğiniz dosyada GTIN, Seri No (SN), Parti No (BN) ve SKT sütunlarının olduğuna emin olun.\n", "madde")
+            txt.insert(tk.END, "• Son olarak yandaki '📂 YÜKLE' butonuna basarak bilgisayarınıza inen bu dosyayı seçin.\n", "madde")
+            
+            txt.insert(tk.END, "\n✨ SONUÇ:\n", "bilgi_baslik")
+            txt.insert(tk.END, "Sistem akıllı okuyucusuyla dosyayı saniyeler içinde tarayacak, eski stoklarınızla karşılaştıracak ve tüm miadları otomatik renklendirecektir.", "vurgu")
+
+            txt.config(state="disabled")
+
+        lbl_nasil = tk.Label(f_left_group, text="❓ Nasıl Yüklenir?", font=("Segoe UI", 9, "underline", "bold"), bg="white", fg="#3b82f6", cursor="hand2")
         lbl_nasil.pack(side="left", padx=(10, 5))
         lbl_nasil.bind("<Button-1>", stok_nasil_yuklenir)
 
         # --- SAĞ GRUP ---
-        f_right_group = tk.Frame(row2, bg=c.get_color("card_bg"))
+        f_right_group = tk.Frame(row2, bg="white")
         f_right_group.pack(side="right")
 
-        # Görünüm butonunun ilk halini belirliyoruz
         baslangic_txt = "👁️ GİZLE" if getattr(self, 'detayli_gorunum', True) else "🔲 GÖSTER"
-        baslangic_renk = "#2c3e50" if getattr(self, 'detayli_gorunum', True) else "#95a5a6"
+        baslangic_bg = "#f1f5f9" if getattr(self, 'detayli_gorunum', True) else "#eff6ff"
+        baslangic_fg = "#64748b" if getattr(self, 'detayli_gorunum', True) else "#3b82f6"
 
-        self.btn_mod = ModernButton(f_right_group, text=baslangic_txt, command=self.mod_degistir, 
-                                    bg_color=baslangic_renk, width=BTN_W, height=BTN_H)
+        self.btn_mod = tk.Button(f_right_group, text=baslangic_txt, command=self.mod_degistir, bg=baslangic_bg, fg=baslangic_fg, **btn_style)
         self.btn_mod.pack(side="left", padx=4)
 
-        ModernButton(f_right_group, text="📋 KOPYALA", command=self.stok_karekodlari_kopyala, 
-                     bg_color="#8b5cf6", width=BTN_W, height=BTN_H).pack(side="left", padx=4)
+        tk.Button(f_right_group, text="📋 KOPYALA", command=self.stok_karekodlari_kopyala, bg="#faf5ff", fg="#9333ea", **btn_style).pack(side="left", padx=4)
+        tk.Button(f_right_group, text="🗑️ SİL", command=self.ilac_sil, bg="#fef2f2", fg="#ef4444", **btn_style).pack(side="left", padx=4)
         
-        ModernButton(f_right_group, text="🗑️ SİL", command=self.ilac_sil, 
-                     bg_color=c.get_color("btn_danger"), width=BTN_W, height=BTN_H).pack(side="left", padx=4)
-        
-        self.menubtn_mail = tk.Menubutton(f_right_group, text="📧 MAİL ▼", width=11, bg="#e11d48", fg="white", 
-                                          font=FONT_BOLD, relief="flat", activebackground="#be123c", 
-                                          activeforeground="white", pady=5, padx=5)
-        self.menu_mail = tk.Menu(self.menubtn_mail, tearoff=0, bg=c.get_color("card_bg"), fg=c.get_color("fg_text"))
+        self.menubtn_mail = tk.Menubutton(f_right_group, text="📧 MAİL ▼", bg="#fff7ed", fg="#d97706", font=("Segoe UI", 9, "bold"), relief="flat", activebackground="#fef3c7", activeforeground="#d97706", pady=6, padx=10, cursor="hand2")
+        self.menu_mail = tk.Menu(self.menubtn_mail, tearoff=0, bg="white", fg="#0f172a", font=("Segoe UI", 10))
         self.menu_mail.add_command(label="📄 Sadece Karekodları Gönder", command=lambda: self.ozel_mail_gonder("karekod"))
         self.menu_mail.add_command(label="📊 Tablo Olarak Gönder (Adet)", command=lambda: self.ozel_mail_gonder("tablo"))
         self.menubtn_mail["menu"] = self.menu_mail
-        self.menubtn_mail.pack(side="left", padx=(0, 5))
+        self.menubtn_mail.pack(side="left", padx=(5, 0))
 
 
         # --- 3. SATIR: ORTA BÖLME (ARAMA GENİŞ - HIZLI EKLE DAR) ---
         row3 = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        row3.pack(fill="x", pady=(0, 10))
+        row3.pack(fill="x", pady=(0, 15))
 
-        # SOL YARI: ARAMA (expand=True ile kalan tüm alanı kaplar)
-        f_search_area = tk.LabelFrame(row3, text="🔍 İlaç Arama", bg=c.get_color("card_bg"), 
-                                      fg=c.get_color("fg_text"), font=FONT_BOLD, padx=10, pady=5)
-        f_search_area.pack(side="left", fill="both", expand=True, padx=(0, 10)) 
+        # SOL YARI: ARAMA KARTI
+        f_search_area = tk.Frame(row3, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=10)
+        f_search_area.pack(side="left", fill="both", expand=True, padx=(0, 15)) 
 
-        self.ent_search = tk.Entry(f_search_area, font=FONT_NORM, bg=c.get_color("input_bg"), 
-                                   fg=c.get_color("fg_text"), insertbackground=c.get_color("fg_text"))
-        self.ent_search.pack(side="left", fill="x", expand=True, padx=5, ipady=3)
+        tk.Label(f_search_area, text="🔍 İlaç Arama:", font=("Segoe UI", 10, "bold"), bg="white", fg="#334155").pack(side="left", padx=(0, 10))
+        
+        self.ent_search = tk.Entry(f_search_area, font=("Segoe UI", 11), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        self.ent_search.pack(side="left", fill="x", expand=True, padx=5, ipady=4)
         self.ent_search.bind("<Return>", lambda e: self.listeyi_guncelle(query=self.ent_search.get()))
         
-        ModernButton(f_search_area, text="BUL", command=lambda: self.listeyi_guncelle(query=self.ent_search.get()), 
-                     width=70, height=20).pack(side="left", padx=2)
-        ModernButton(f_search_area, text="SIFIRLA", command=lambda: [self.ent_search.delete(0,tk.END), self.stok_filtre_degisti()], 
-                     bg_color="#64748b", width=70, height=20).pack(side="left", padx=2)
+        tk.Button(f_search_area, text="BUL", command=lambda: self.listeyi_guncelle(query=self.ent_search.get()), bg="#eff6ff", fg="#3b82f6", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", padx=15, pady=4).pack(side="left", padx=4)
+        tk.Button(f_search_area, text="SIFIRLA", command=lambda: [self.ent_search.delete(0,tk.END), self.stok_filtre_degisti()], bg="#f1f5f9", fg="#64748b", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", padx=10, pady=4).pack(side="left", padx=4)
 
-        # SAĞ YARI: HIZLI EKLEME (expand=False ve sabit width ile dar kalır)
-        f_quick_add = tk.LabelFrame(row3, text="⚡ Hızlı Ekle", bg=c.get_color("card_bg"), 
-                                    fg="#27ae60", font=FONT_BOLD, padx=10, pady=5)
-        f_quick_add.pack(side="right", fill="y", expand=False) # Sağa yasla, genişleme
+        # SAĞ YARI: HIZLI EKLE KARTI
+        f_quick_add = tk.Frame(row3, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=10)
+        f_quick_add.pack(side="right", fill="y", expand=False)
 
-        # Entry genişliği kutuyu belirler (30 karakter genişliği yeterli)
-        self.ent_qr_input = tk.Entry(f_quick_add, font=("Consolas", 11), width=30, bg=c.get_color("input_bg"), 
-                                     fg=c.get_color("fg_text"), insertbackground=c.get_color("fg_text"))
-        self.ent_qr_input.pack(fill="x", ipady=3, padx=5)
+        tk.Label(f_quick_add, text="⚡ Hızlı Ekle:", font=("Segoe UI", 10, "bold"), bg="white", fg="#10b981").pack(side="left", padx=(0, 10))
+        
+        self.ent_qr_input = tk.Entry(f_quick_add, font=("Consolas", 11), width=30, bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        self.ent_qr_input.pack(side="left", fill="x", ipady=4, padx=5)
         self.ent_qr_input.bind("<Return>", self.karekod_parse_ekle)
-        # Placeholder niyetine etiket
-        tk.Label(f_quick_add, text="(Karekod Okutunuz)", font=("Segoe UI", 8), bg=c.get_color("card_bg"), fg="grey").pack()
+        tk.Label(f_quick_add, text="(Karekod Okutunuz)", font=("Segoe UI", 8), bg="white", fg="#94a3b8").pack(side="left", padx=(5,0))
         
         # --- 4. RENK FİLTRELERİ (ÇOKLU SEÇİM - CHECKBOX MANTIĞI) ---
         ops = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        ops.pack(fill="x", pady=(0,5))
+        ops.pack(fill="x", pady=(0, 10))
         
-        # Filtre durumlarını hafızada tut (İlk açılışta hepsi seçili gelsin)
         if not hasattr(self, 'aktif_renk_filtreleri'):
             self.aktif_renk_filtreleri = {"kirmizi": True, "turuncu": True, "sari": True, "yesil": True}
 
@@ -7116,9 +8671,8 @@ class EczaneAsistani:
 
         def filtre_kutusu_olustur(f_parent, color, tag, text):
             f_box = tk.Frame(f_parent, bg=c.get_color("bg_main"), cursor="hand2")
-            f_box.pack(side="left", padx=(0, 25)) # Kutular arası boşluk
+            f_box.pack(side="left", padx=(0, 25))
 
-            # Başlangıç ikonunu belirle
             ikon = "☑" if self.aktif_renk_filtreleri[tag] else "☐"
             fg_ikon = "#10b981" if self.aktif_renk_filtreleri[tag] else c.get_color("fg_text")
 
@@ -7132,72 +8686,55 @@ class EczaneAsistani:
             lbl_text.pack(side="left")
 
             def toggle_filtre(event=None):
-                # Durumu tersine çevir
-                mevcut_durum = self.aktif_renk_filtreleri[tag]
-                self.aktif_renk_filtreleri[tag] = not mevcut_durum
-                
-                # İkonu ve rengi güncelle
+                self.aktif_renk_filtreleri[tag] = not self.aktif_renk_filtreleri[tag]
                 yeni_ikon = "☑" if self.aktif_renk_filtreleri[tag] else "☐"
                 yeni_renk = "#10b981" if self.aktif_renk_filtreleri[tag] else c.get_color("fg_text")
                 lbl_check.config(text=yeni_ikon, fg=yeni_renk)
-                
-                # Tabloyu yenile
                 self.listeyi_guncelle()
 
-            # Kutu içindeki herhangi bir şeye tıklayınca filtre değişsin
             for w in (f_box, lbl_check, lbl_color, lbl_text):
                 w.bind("<Button-1>", toggle_filtre)
 
-        # Filtreleri ekrana bas
         for color, tag, label_text in filters:
             filtre_kutusu_olustur(ops, color, tag, label_text)
 
 
         # --- 5. TABLO ---
-        tf = tk.Frame(self.content_area, bg=c.get_color("card_bg")); tf.pack(fill="both", expand=True)
+        tf = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1)
+        tf.pack(fill="both", expand=True)
         self.tablo_stok = ttk.Treeview(tf, show="headings", selectmode="extended", height=15)
         sc = ttk.Scrollbar(tf, orient="vertical", command=self.tablo_stok.yview)
-        self.tablo_stok.configure(yscroll=sc.set); sc.pack(side="right", fill="y"); self.tablo_stok.pack(fill="both", expand=True)
-        self.tablo_stok.bind('<ButtonRelease-1>', self.satir_tiklama)
-        # --- 3. MADDE: SAĞ TIK MENÜSÜ VE KLAVYE KISAYOLLARI ---
+        self.tablo_stok.configure(yscroll=sc.set)
+        sc.pack(side="right", fill="y")
+        self.tablo_stok.pack(fill="both", expand=True, padx=2, pady=2)
         
-        # Sağ Tık Menüsünü Oluştur
-        self.sag_tik_menusu = tk.Menu(self.pencere, tearoff=0, bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), font=FONT_NORM)
+        self.tablo_stok.bind('<ButtonRelease-1>', self.satir_tiklama)
+        
+        # Sağ Tık Menüsü
+        self.sag_tik_menusu = tk.Menu(self.pencere, tearoff=0, bg="white", fg="#0f172a", font=FONT_NORM)
         self.sag_tik_menusu.add_command(label="📋 Seçilileri Kopyala", command=self.stok_karekodlari_kopyala)
+        self.sag_tik_menusu.add_separator()
         self.sag_tik_menusu.add_command(label="🗑️ Seçilileri Sil", command=self.ilac_sil)
 
         def sag_tik_goster(event):
-            # Tıklanan satırı bul
             iid = self.tablo_stok.identify_row(event.y)
             if iid:
-                # Satırı seçili hale getir
                 self.tablo_stok.selection_set(iid)
-                
-                # Eğer tıklanan satır tikli değilse, otomatik tik at (İşlem yapması kolay olsun diye)
                 vals = list(self.tablo_stok.item(iid, "values"))
                 if vals[1] == "☐":
                     vals[1] = "☑"
                     self.tablo_stok.item(iid, values=vals)
-                    
-                # Menüyü farenin ucunda aç
                 self.sag_tik_menusu.tk_popup(event.x_root, event.y_root)
 
-        # Tabloya sağ tık (<Button-3>) özelliğini bağla
         self.tablo_stok.bind("<Button-3>", sag_tik_goster)
-        
-        # Klavye Kısayolları
-        # Tabloda "Delete" tuşuna basınca silme işlemi başlar
         self.tablo_stok.bind("<Delete>", lambda e: self.ilac_sil())
         
-        # "Ctrl + F" basınca doğrudan arama kutusuna yazar
         self.pencere.bind_all("<Control-f>", lambda e: self.ent_search.focus_set())
         self.pencere.bind_all("<Control-F>", lambda e: self.ent_search.focus_set())
-        # -------------------------------------------------------------------------
         
         for t, co in [("kirmizi", "#fee2e2"), ("turuncu", "#ffedd5"), ("sari", "#fef9c3"), ("yesil", "#dcfce7")]:
             self.tablo_stok.tag_configure(t, background=co, foreground="black") 
             
-        # --- AÇILIŞ İŞLEMLERİ ---
         en_guncel_id = self.yukleme_listesini_doldur()
         self.cb_yuklemeler.bind("<<ComboboxSelected>>", self.stok_filtre_degisti)
         
@@ -7206,18 +8743,25 @@ class EczaneAsistani:
             self.listeyi_guncelle(yukleme_filtresi=en_guncel_id)
         else:
             self.listeyi_guncelle()
+       
 
-    # --- GÜNCELLENEN FONKSİYON: SADECE SEÇİLİLERİ KOPYALA ---
+    def mod_degistir(self):
+        self.detayli_gorunum = not self.detayli_gorunum
+        txt = "👁️ GİZLE" if self.detayli_gorunum else "🔲 GÖSTER"
+        col_bg = "#f1f5f9" if self.detayli_gorunum else "#eff6ff"
+        col_fg = "#64748b" if self.detayli_gorunum else "#3b82f6"
+        self.btn_mod.config(text=txt, bg=col_bg, fg=col_fg)
+        self.listeyi_guncelle()
+
     def stok_karekodlari_kopyala(self):
         # Eğer detaylı görünümde değilse (karekodlar görünmüyorsa) uyar
-        if not self.detayli_gorunum:
+        if not getattr(self, 'detayli_gorunum', True):
             messagebox.showwarning("Uyarı", "Karekodları kopyalamak için lütfen 'KAREKODLARI GÖSTER' moduna geçiniz.")
             return
 
         karekodlar = []
         # Tablodaki tüm satırları gez
         for child in self.tablo_stok.get_children():
-            # Satır verisini al
             vals = self.tablo_stok.item(child, "values")
             # vals[1] -> TIK Sütunu ( "☐" veya "☑" )
             # vals[-1] -> KAREKOD Sütunu (En sonda)
@@ -7231,15 +8775,7 @@ class EczaneAsistani:
             self.pencere.clipboard_append("\n".join(karekodlar))
             messagebox.showinfo("Başarılı", f"Seçilen {len(karekodlar)} adet karekod panoya kopyalandı.")
         else:
-            messagebox.showwarning("Seçim Yok", "Lütfen kopyalamak için listeden seçim (☑) yapınız.")
-
-    def mod_degistir(self):
-        self.detayli_gorunum = not self.detayli_gorunum
-        txt = "👁️ GİZLE" if self.detayli_gorunum else "🔲 GÖSTER"
-        col = "#2c3e50" if self.detayli_gorunum else "#95a5a6"
-        self.btn_mod.update_color(col)
-        self.btn_mod.itemconfig(self.btn_mod.find_withtag("text"), text=txt)
-        self.listeyi_guncelle()
+            messagebox.showwarning("Seçim Yok", "Lütfen kopyalamak için listeden seçim (☑) yapınız.")    
 
     def listeyi_guncelle(self, filtre="tumu", query=None, yukleme_filtresi=None):
         if not hasattr(self, 'tablo_stok'): return
@@ -7377,44 +8913,59 @@ class EczaneAsistani:
             elif sayfa_kodu == "KULLANICI YÖNETİMİ": self.render_kullanici_ayarlari()
             elif sayfa_kodu == "AĞ & VERİTABANI": self.render_ag_ayarlari()
             elif sayfa_kodu == "İŞLEM GEÇMİŞİ": self.render_log_ayarlari()
-            elif sayfa_kodu == "AĞ & VERİTABANI": self.render_ag_ayarlari()
+            elif sayfa_kodu == "ÇAPRAZ SATIŞ": self.render_capraz_satis()
+            
 
         # --- ALT MENÜ BUTONLARI ---
         btn_list = []
+        is_yonetici = (self.aktif_rol == "Yönetici")
         
-        # Buton 1: Mail
-        b1 = ModernButton(sub_sidebar, text="GENEL & MAİL", width=180, height=40, 
-                          command=lambda: icerik_yukle("GENEL & MAİL"), bg_color=c.get_color("bg_sidebar"))
-        b1.pack(pady=5)
-        btn_list.append(b1)
-        # YENİ BUTON: Özet Ekranı
+        if is_yonetici:
+            # Buton 1: Mail
+            b1 = ModernButton(sub_sidebar, text="GENEL & MAİL", width=180, height=40, 
+                              command=lambda: icerik_yukle("GENEL & MAİL"), bg_color=c.get_color("bg_sidebar"))
+            b1.pack(pady=5)
+            btn_list.append(b1)
+
+        # Özet Ekranı (Herkes görebilir, sadece butonları değiştirebilirler)
         b_ozet = ModernButton(sub_sidebar, text="ÖZET EKRANI", width=180, height=40, 
                               command=lambda: icerik_yukle("ÖZET EKRANI"), bg_color=c.get_color("bg_sidebar"))
         b_ozet.pack(pady=5)
         btn_list.append(b_ozet)
 
-        # Buton 2: Yedekleme
-        b2 = ModernButton(sub_sidebar, text="YEDEKLEME", width=180, height=40, 
-                          command=lambda: icerik_yukle("YEDEKLEME"), bg_color=c.get_color("bg_sidebar"))
-        b2.pack(pady=5)
-        btn_list.append(b2)
-        # Buton 3: Kullanıcı Yönetimi
-        b_kullanici = ModernButton(sub_sidebar, text="KULLANICI YÖNETİMİ", width=180, height=40, 
-                                   command=lambda: icerik_yukle("KULLANICI YÖNETİMİ"), bg_color=c.get_color("bg_sidebar"))
-        b_kullanici.pack(pady=5)
-        btn_list.append(b_kullanici)
+        if is_yonetici:
+            # Buton 2: Yedekleme
+            b2 = ModernButton(sub_sidebar, text="YEDEKLEME", width=180, height=40, 
+                              command=lambda: icerik_yukle("YEDEKLEME"), bg_color=c.get_color("bg_sidebar"))
+            b2.pack(pady=5)
+            btn_list.append(b2)
+            # Buton 3: Kullanıcı Yönetimi
+            b_kullanici = ModernButton(sub_sidebar, text="KULLANICI YÖNETİMİ", width=180, height=40, 
+                                       command=lambda: icerik_yukle("KULLANICI YÖNETİMİ"), bg_color=c.get_color("bg_sidebar"))
+            b_kullanici.pack(pady=5)
+            btn_list.append(b_kullanici)
 
-        # Buton 4: Ağ ve Veritabanı
-        b_ag = ModernButton(sub_sidebar, text="AĞ & VERİTABANI", width=180, height=40, 
-                            command=lambda: icerik_yukle("AĞ & VERİTABANI"), bg_color=c.get_color("bg_sidebar"))
-        b_ag.pack(pady=5)
-        btn_list.append(b_ag)
+            # Buton 4: Ağ ve Veritabanı
+            b_ag = ModernButton(sub_sidebar, text="AĞ & VERİTABANI", width=180, height=40, 
+                                command=lambda: icerik_yukle("AĞ & VERİTABANI"), bg_color=c.get_color("bg_sidebar"))
+            b_ag.pack(pady=5)
+            btn_list.append(b_ag)
 
-        # Buton 5: İşlem Geçmişi
-        b_log = ModernButton(sub_sidebar, text="İŞLEM GEÇMİŞİ (LOG)", width=180, height=40, 
-                            command=lambda: icerik_yukle("İŞLEM GEÇMİŞİ"), bg_color=c.get_color("bg_sidebar"))
-        b_log.pack(pady=5)
-        btn_list.append(b_log)
+            # Buton 6: Çapraz Satış (Yapay Zeka)
+            b_cs = ModernButton(sub_sidebar, text="ÇAPRAZ SATIŞ (Y.Z.)", width=180, height=40, 
+                                command=lambda: icerik_yukle("ÇAPRAZ SATIŞ"), bg_color=c.get_color("bg_sidebar"))
+            b_cs.pack(pady=5)
+            btn_list.append(b_cs)
+            
+            # İşlem Geçmişi
+            b_log = ModernButton(sub_sidebar, text="İŞLEM GEÇMİŞİ", width=180, height=40, 
+                                command=lambda: icerik_yukle("İŞLEM GEÇMİŞİ"), bg_color=c.get_color("bg_sidebar"))
+            b_log.pack(pady=5)
+            btn_list.append(b_log)
+
+        
+
+        
 
         # --- SAĞ TARAFTAKİ EKRANLAR ---
 
@@ -7440,18 +8991,52 @@ class EczaneAsistani:
             tk.Label(f_pass, text="Gmail Uygulama Şifresi:", **lbl_style).pack(side="left")
             
             def sifre_nasil_alinir_goster(event=None):
-                bilgi_metni = (
-                    "Gmail Uygulama Şifresi Almak İçin Adımlar:\n\n"
-                    "1. Gönderici olarak kullanacağınız Gmail hesabıyla Google'a giriş yapın.\n"
-                    "2. Sağ üstten profil resminize tıklayıp 'Google Hesabınızı yönetin' seçeneğine girin.\n"
-                    "3. Sol menüden 'Güvenlik' sekmesine tıklayın.\n"
-                    "4. Eğer kapalıysa, '2 Adımlı Doğrulama'yı mutlaka açın. (Bu şarttır!)\n"
-                    "5. Arama çubuğuna (sayfanın üstünde) 'Uygulama şifreleri' yazın ve tıklayın.\n"
-                    "6. Uygulama adına 'Eczane Asistanı' yazın ve Oluştur butonuna basın.\n"
-                    "7. Ekranda size 16 harfli (örn: abcd efgh ijkl mnop) bir şifre verecek.\n"
-                    "8. O şifreyi kopyalayıp aşağıdaki alana yapıştırın ve KAYDET deyin."
-                )
-                messagebox.showinfo("Uygulama Şifresi Nasıl Alınır?", bilgi_metni)
+                help_win = tk.Toplevel(self.pencere)
+                help_win.title("❓ Gmail Uygulama Şifresi Nasıl Alınır?")
+                help_win.geometry("650x450") 
+                help_win.configure(bg=c.get_color("bg_main"))
+                help_win.transient(self.pencere)
+                help_win.grab_set()
+
+                # Pencereyi tam ortala
+                hx = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 325
+                hy = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 225
+                help_win.geometry(f"+{hx}+{hy}")
+
+                lbl_title = tk.Label(help_win, text="🔑 Gmail Uygulama Şifresi Alma Rehberi", font=("Segoe UI", 15, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text"), pady=15)
+                lbl_title.pack(fill="x")
+
+                txt_frame = tk.Frame(help_win, bg=c.get_color("bg_main"), padx=20)
+                txt_frame.pack(fill="both", expand=True, pady=(0, 20))
+
+                scrollbar = tk.Scrollbar(txt_frame)
+                scrollbar.pack(side="right", fill="y")
+
+                txt = tk.Text(txt_frame, font=("Segoe UI", 11), bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), wrap="word", yscrollcommand=scrollbar.set, bd=1, relief="solid", padx=20, pady=20)
+                txt.pack(side="left", fill="both", expand=True)
+                scrollbar.config(command=txt.yview)
+
+                # Özel Metin Stilleri
+                txt.tag_configure("bilgi_baslik", font=("Segoe UI", 12, "bold"), foreground="#3b82f6", spacing1=10, spacing3=5)
+                txt.tag_configure("madde", font=("Segoe UI", 11), foreground=c.get_color("fg_text"), lmargin1=15, lmargin2=35, spacing1=6)
+                txt.tag_configure("uyari", font=("Segoe UI", 11, "bold"), foreground="#ef4444")
+                txt.tag_configure("vurgu", font=("Segoe UI", 11, "bold"), foreground="#10b981")
+
+                # Metinleri İçeri Aktar
+                txt.insert(tk.END, "📌 ADIM ADIM ŞİFRE ALMA\n", "bilgi_baslik")
+                txt.insert(tk.END, "1. Gönderici olarak kullanacağınız Gmail hesabıyla Google'a giriş yapın.\n", "madde")
+                txt.insert(tk.END, "2. Sağ üstten profil resminize tıklayıp 'Google Hesabınızı yönetin' seçeneğine girin.\n", "madde")
+                txt.insert(tk.END, "3. Sol menüden 'Güvenlik' sekmesine tıklayın.\n", "madde")
+                txt.insert(tk.END, "4. Eğer kapalıysa, '2 Adımlı Doğrulama'yı mutlaka açın. ", "madde")
+                txt.insert(tk.END, "(Bu şarttır!)\n", "uyari")
+                txt.insert(tk.END, "5. Arama çubuğuna (sayfanın en üstünde) 'Uygulama şifreleri' yazın ve çıkan sonuca tıklayın.\n", "madde")
+                txt.insert(tk.END, "6. Uygulama adına 'Eczane Asistanı' yazın ve Oluştur butonuna basın.\n", "madde")
+                txt.insert(tk.END, "7. Ekranda size 16 harfli (örn: abcd efgh ijkl mnop) bir şifre verecektir.\n", "madde")
+                txt.insert(tk.END, "8. O şifreyi kopyalayıp sistemdeki alana yapıştırın ve ", "madde")
+                txt.insert(tk.END, "KAYDET", "vurgu")
+                txt.insert(tk.END, " butonuna basın.\n", "madde")
+
+                txt.config(state="disabled")
 
             lbl_help = tk.Label(f_pass, text=" ❓ Nasıl Alınır? ", bg="#e67e22", fg="white", cursor="hand2", font=("Segoe UI", 9, "bold"))
             lbl_help.pack(side="left", padx=10)
@@ -7475,8 +9060,18 @@ class EczaneAsistani:
                                  selectcolor=c.get_color("input_bg"), activebackground=c.get_color("card_bg"))
             chk.pack(anchor="w")
 
+            card1.var_oto_mail = tk.BooleanVar()
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='oto_mail_aktif'")
+            res_oto = self.imlec.fetchone()
+            card1.var_oto_mail.set(True if not res_oto or res_oto[0] == '1' else False) # Varsayılan olarak açık gelsin
 
-            # --- 2. OTOMATİK ÖDEME ONAY KARTI (YENİ EKLENEN BÖLÜM) ---
+            chk_oto_mail = tk.Checkbutton(card1, text="Ay başı ve ortasında otomatik Finans/Miad raporu gönder", 
+                                 variable=card1.var_oto_mail, **lbl_style, 
+                                 selectcolor=c.get_color("input_bg"), activebackground=c.get_color("card_bg"))
+            chk_oto_mail.pack(anchor="w", pady=(5,0))
+
+
+            # --- 2. OTOMATİK ÖDEME ONAY KARTI ---
             card2 = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=30, pady=20, 
                             highlightbackground=c.get_color("border"), highlightthickness=1)
             card2.pack(fill="x", anchor="n", pady=(0, 15))
@@ -7486,6 +9081,7 @@ class EczaneAsistani:
 
             card2.var_oto_depo = tk.BooleanVar()
             card2.var_oto_kart = tk.BooleanVar()
+            card2.var_oto_kredi = tk.BooleanVar() # YENİ EKLENDİ
 
             # Veritabanından mevcut finans otomatik ödeme ayarlarını çek
             try:
@@ -7496,6 +9092,11 @@ class EczaneAsistani:
                 self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi='oto_odeme_kart'")
                 res_kart = self.imlec_finans.fetchone()
                 card2.var_oto_kart.set(True if res_kart and res_kart[0] == '1' else False)
+                
+                # YENİ EKLENDİ
+                self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi='oto_odeme_kredi'")
+                res_kredi = self.imlec_finans.fetchone()
+                card2.var_oto_kredi.set(True if res_kredi and res_kredi[0] == '1' else False)
             except Exception as e:
                 pass
 
@@ -7508,6 +9109,12 @@ class EczaneAsistani:
                                  variable=card2.var_oto_kart, **lbl_style, 
                                  selectcolor=c.get_color("input_bg"), activebackground=c.get_color("card_bg"))
             chk_kart.pack(anchor="w", pady=2)
+            
+            # YENİ EKLENDİ
+            chk_kredi = tk.Checkbutton(card2, text="🏦 Kredi Taksitleri için günü geçenleri otomatik ÖDENDİ yap", 
+                                 variable=card2.var_oto_kredi, **lbl_style, 
+                                 selectcolor=c.get_color("input_bg"), activebackground=c.get_color("card_bg"))
+            chk_kredi.pack(anchor="w", pady=2)
 
             # Verileri Yükle (Mail)
             try:
@@ -7527,13 +9134,17 @@ class EczaneAsistani:
                     self.imlec.execute("UPDATE ayarlar SET deger=? WHERE anahtar='uygulama_sifresi'", (e2.get().strip(),))
                     self.imlec.execute("UPDATE ayarlar SET deger=? WHERE anahtar='alici_mail'", (e3.get().strip(),))
                     self.imlec.execute("UPDATE ayarlar SET deger=? WHERE anahtar='pc_acilis_baslat'", ('1' if card1.var_startup.get() else '0',))
-                    self.baglanti_skt.commit() 
+                    self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('oto_mail_aktif', ?)", ('1' if card1.var_oto_mail.get() else '0',))
+                    self.baglanti_skt.commit()
 
                     # Oto Ödeme ayarlarını FİNANS veritabanına kaydet
                     val_depo = '1' if card2.var_oto_depo.get() else '0'
                     val_kart = '1' if card2.var_oto_kart.get() else '0'
+                    val_kredi = '1' if card2.var_oto_kredi.get() else '0' # YENİ EKLENDİ
+                    
                     self.imlec_finans.execute("INSERT OR REPLACE INTO program_ayarlari (ayar_adi, deger) VALUES ('oto_odeme_depo', ?)", (val_depo,))
                     self.imlec_finans.execute("INSERT OR REPLACE INTO program_ayarlari (ayar_adi, deger) VALUES ('oto_odeme_kart', ?)", (val_kart,))
+                    self.imlec_finans.execute("INSERT OR REPLACE INTO program_ayarlari (ayar_adi, deger) VALUES ('oto_odeme_kredi', ?)", (val_kredi,)) # YENİ EKLENDİ
                     self.baglanti_finans.commit()
 
                     # KAYDEDİLDİĞİ ANDA SİSTEMİ ÇALIŞTIR (Geçmişleri Anında Yeşile Çevirsin)
@@ -7662,18 +9273,17 @@ class EczaneAsistani:
                 "stok_kritik": "Kritik Miad (0-3 Ay) 🔴",
                 "stok_uyari": "Yaklaşan Miad (3-6 Ay) 🟠",
                 "stok_dikkat": "Dikkat Miad (6-12 Ay) 🟡",
-                "finans_borc": "Toplam Açık Borç",
                 "finans_gelecek_ay": "Gelecek Ayki Toplam Borç",
                 "finans_bakiye": "Aylık Net Bakiye",
                 "kasa_bugun_giris": "Bugünkü Kasa Girişi",
                 "kasa_bugun_cikis": "Bugünkü Kasa Çıkışı",
                 "finans_giris": "Bu Ay Kasa Girişi",
                 "finans_cikis": "Bu Ay Kasa Çıkışı",
-                "kasa_kk_giris": "Bu Ay POS/Kart Çekimi",
                 "finans_depo": "Bu Ayki Depo Ödemesi",
                 "finans_kart": "Bu Ayki Kart Ödemesi",
                 "finans_kredi": "Bu Ayki Kredi Taksitleri",
-                "finans_sgk": "Bekleyen Kurum Geliri"
+                "finans_sgk": "Bekleyen Kurum Geliri",
+                "finans_gelecek_kredi": "Gelecek Ay Kredi Taksitleri"
             }
 
             self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='dashboard_kard_ayarlari'")
@@ -7726,15 +9336,27 @@ class EczaneAsistani:
                 
                 try:
                     self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('dashboard_kard_ayarlari', ?)", (str(yeni_liste),))
-                    self.baglanti_skt.commit() # DÜZELTİLDİ: baglanti_skt yapıldı
-                    messagebox.showinfo("Başarılı", "Özet ekranı ayarlarınız kaydedildi!\nAna sayfaya döndüğünüzde değişiklikleri görebilirsiniz.")
+                    self.baglanti_skt.commit() 
+                    
+                    # === ÇÖZÜM BURADA: Eski Ana Sayfa çizimini hafızadan siliyoruz ===
+                    if hasattr(self, 'sayfa_katmanlari') and 0 in self.sayfa_katmanlari:
+                        try:
+                            self.sayfa_katmanlari[0].destroy()
+                            del self.sayfa_katmanlari[0]
+                        except: pass
+                    # =================================================================
+                    
+                    messagebox.showinfo("Başarılı", "Özet ekranı ayarlarınız kaydedildi!\nAna sayfaya döndüğünüzde yeni kutu düzenini anında görebilirsiniz.")
                 except Exception as e:
                     messagebox.showerror("Hata", str(e))
 
             ModernButton(self.settings_content_frame, text="KUTU DÜZENİNİ KAYDET", command=kaydet_ayarlar, bg_color=c.get_color("btn_success"), width=250).pack(pady=20, anchor="w")
        
         # Varsayılan olarak ilk sekmeyi aç
-        icerik_yukle("GENEL & MAİL")
+        if is_yonetici:
+            icerik_yukle("GENEL & MAİL")
+        else:
+            icerik_yukle("ÖZET EKRANI")
 
     def render_kullanici_ayarlari(self):
             c = TM 
@@ -7821,7 +9443,7 @@ class EczaneAsistani:
             tree.pack(fill="x", pady=5)
 
             def liste_guncelle():
-                for row in tree.get_children(): tree.delete(row)
+                tree.delete(*tree.get_children())
                 self.imlec_kullanici.execute("SELECT id, k_adi, rol FROM kullanicilar")
                 for veri in self.imlec_kullanici.fetchall():
                     tree.insert("", "end", values=veri)
@@ -7851,29 +9473,109 @@ class EczaneAsistani:
         c = TM  
         for w in self.settings_content_frame.winfo_children(): w.destroy()
         
-        tk.Label(self.settings_content_frame, text="Ortak Veritabanı ve Ağ Ayarları", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 20))
+        tk.Label(self.settings_content_frame, text="Ağ, Veritabanı ve Entegrasyon Ayarları", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 20))
         
-        card = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=30, pady=20, highlightbackground=c.get_color("border"), highlightthickness=1)
-        card.pack(fill="x", anchor="n")
+        # --- 1. AĞ VE VERİTABANI KARTI ---
+        card_db = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=30, pady=20, highlightbackground=c.get_color("border"), highlightthickness=1)
+        card_db.pack(fill="x", anchor="n", pady=(0, 15))
         
-        tk.Label(card, text="Ağ Yolu veya IP Adresi", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 5))
+        tk.Label(card_db, text="Ağ Yolu veya IP Adresi", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 5))
+        bilgi_metni = "Eğer Ana Bilgisayardaysanız klasör seçin. Diğer bilgisayardaysanız ana bilgisayarın IP adresini yazın."
+        tk.Label(card_db, text=bilgi_metni, font=("Segoe UI", 10), bg=c.get_color("card_bg"), fg="#64748b", justify="left").pack(anchor="w", pady=(0, 15))
         
-        bilgi_metni = (
-            "📌 Eğer Ana Bilgisayardaysanız: Yandaki 'KLASÖR SEÇ' butonuna basarak veritabanı klasörünü seçin.\n"
-            "📌 Eğer Diğer Bilgisayardaysanız: Kutunun içindekileri silip ana bilgisayarın IP adresini klavyeden yazın:\n"
-            "👉 Örnek IP Formatı: \\\\192.168.1.50\\EczaneOrtakVeri"
-        )
-        tk.Label(card, text=bilgi_metni, font=("Segoe UI", 10), bg=c.get_color("card_bg"), fg="#64748b", justify="left").pack(anchor="w", pady=(0, 15))
+        # --- YENİ EKLENEN: OTOMATİK IP BULUCU VE REHBER ---
+        import socket
+        try:
+            # Bilgisayarın ağdaki geçerli yerel IP adresini bulur
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            benim_ip = s.getsockname()[0]
+            s.close()
+        except:
+            benim_ip = "Bulunamadı"
+
+        f_ip_info = tk.Frame(card_db, bg=c.get_color("card_bg"))
+        f_ip_info.pack(fill="x", pady=(0, 15))
         
-        f_path = tk.Frame(card, bg=c.get_color("card_bg"))
+        tk.Label(f_ip_info, text=f"Bu Bilgisayarın Ağ IP Adresi: {benim_ip}", font=("Consolas", 12, "bold"), bg="#f0fdf4", fg="#166534", padx=10, pady=5, relief="solid", bd=1).pack(side="left")
+        
+        def ip_nasil_bulunur():
+            help_win = tk.Toplevel(self.pencere)
+            help_win.title("❓ Veritabanı ve Ağ Kurulum Rehberi")
+            help_win.geometry("750x800") 
+            help_win.configure(bg=c.get_color("bg_main"))
+            help_win.transient(self.pencere)
+            help_win.grab_set()
+            
+            hx = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 375
+            hy = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 400
+            help_win.geometry(f"+{hx}+{hy}")
+
+            tk.Label(help_win, text="🗄️ Veritabanı Yönetimi ve Çoklu Kullanım Rehberi", font=("Segoe UI", 16, "bold"), bg=c.get_color("bg_main"), fg="#3b82f6", pady=20).pack(fill="x")
+            
+            txt_frame = tk.Frame(help_win, bg=c.get_color("bg_main"), padx=25)
+            txt_frame.pack(fill="both", expand=True, pady=(0, 20))
+            
+            txt = tk.Text(txt_frame, font=("Segoe UI", 10), bg="white", fg="#0f172a", wrap="word", bd=1, relief="solid", padx=20, pady=20)
+            txt.pack(fill="both", expand=True)
+            
+            # Etiket Stilleri
+            txt.tag_configure("baslik", font=("Segoe UI", 12, "bold"), foreground="#1e3a8a")
+            txt.tag_configure("uyari", font=("Segoe UI", 10, "bold"), foreground="#ef4444")
+            txt.tag_configure("vurgu", background="#fef08a", font=("Consolas", 10, "bold"))
+            txt.tag_configure("mavi", foreground="#2563eb", font=("Segoe UI", 10, "bold"))
+            
+            # --- İÇERİK ---
+            txt.insert(tk.END, "1. MEVCUT VERİLERİNİZİ KORUYARAK DEVAM ETMEK\n", "baslik")
+            txt.insert(tk.END, "Programınız şu ana kadar tüm kayıtları ")
+            txt.insert(tk.END, "'EczaneAsistani_Veri'", "vurgu")
+            txt.insert(tk.END, " isimli klasöre kaydetti. Eğer verilerinizin kaybolmasını istemiyorsanız:\n")
+            txt.insert(tk.END, "• 'KLASÖR SEÇ' butonuna basarak bilgisayarınızdaki mevcut ")
+            txt.insert(tk.END, "EczaneAsistani_Veri", "vurgu")
+            txt.insert(tk.END, " klasörünü bulup seçiniz.\n")
+            txt.insert(tk.END, "• Bu işlemden sonra 'KAYDET VE UYGULA' butonuna basmanız yeterlidir.\n\n")
+
+            txt.insert(tk.END, "2. SIFIRDAN BİR VERİTABANI OLUŞTURMAK\n", "baslik")
+            txt.insert(tk.END, "Eğer tüm kayıtları temizleyip tertemiz bir başlangıç yapmak istiyorsanız:\n")
+            txt.insert(tk.END, "• 'KLASÖR SEÇ' diyerek bilgisayarınızda istediğiniz bir yerde (Masaüstü, D: Diski vb.) ")
+            txt.insert(tk.END, "yeni ve boş bir klasör", "mavi")
+            txt.insert(tk.END, " oluşturun.\n")
+            txt.insert(tk.END, "• Bu boş klasörü seçip kaydettiğinizde, program otomatik olarak içine yeni veritabanı dosyalarını oluşturacaktır.\n\n")
+
+            txt.insert(tk.END, "3. AĞ KURULUMU (DİĞER BİLGİSAYARLARI BAĞLAMA)\n", "baslik")
+            txt.insert(tk.END, "Programı eczanedeki tüm bilgisayarlarda aynı anda kullanmak için:\n\n")
+            txt.insert(tk.END, "A) ANA BİLGİSAYARDA (SERVER):\n", "mavi")
+            txt.insert(tk.END, f"• Bu bilgisayarın IP adresi: ")
+            txt.insert(tk.END, f"{benim_ip}\n", "vurgu")
+            txt.insert(tk.END, "• Veritabanı klasörüne (EczaneAsistani_Veri) sağ tıklayıp ")
+            txt.insert(tk.END, "Özellikler > Paylaşım > Paylaş", "mavi")
+            txt.insert(tk.END, " diyerek 'Everyone' (Herkes) kullanıcısına 'Okuma/Yazma' yetkisi verin.\n\n")
+            
+            txt.insert(tk.END, "B) DİĞER BİLGİSAYARLARDA (CLIENT):\n", "mavi")
+            txt.insert(tk.END, "• Diğer bilgisayarlardaki programda 'Ağ Yolu' kutusuna şu adresi yazın:\n")
+            txt.insert(tk.END, f"\\\\{benim_ip}\\EczaneAsistani_Veri\n", "vurgu")
+            txt.insert(tk.END, "• Ardından 'KAYDET VE UYGULA' diyerek bağlantıyı tamamlayın.\n\n")
+
+            txt.insert(tk.END, "⚠️ ÖNEMLİ NOTLAR:\n", "baslik")
+            txt.insert(tk.END, "• Klasör seçerken yanlış bir yer seçerseniz program boş açılır. Eski verileriniz silinmez ancak program onları göremez. Tekrar eski klasörü seçerseniz verileriniz geri gelir.\n", "uyari")
+            txt.insert(tk.END, "• Tüm bilgisayarların aynı modeme bağlı olduğundan emin olun.\n", "uyari")
+
+            txt.config(state="disabled")
+            
+            tk.Button(help_win, text="ANLADIM, KAPAT", font=("Segoe UI", 10, "bold"), bg="#4b5563", fg="white", command=help_win.destroy, relief="flat", pady=10).pack(fill="x", padx=25, pady=10)
+
+        lbl_help = tk.Label(f_ip_info, text="❓ Ağa Nasıl Bağlanırım? (Rehberi Oku)", bg=c.get_color("card_bg"), fg="#3b82f6", font=("Segoe UI", 10, "underline", "bold"), cursor="hand2")
+        lbl_help.pack(side="left", padx=20)
+        lbl_help.bind("<Button-1>", lambda e: ip_nasil_bulunur())
+        # --------------------------------------------------------
+
+        f_path = tk.Frame(card_db, bg=c.get_color("card_bg"))
         f_path.pack(fill="x", pady=(0, 15))
         
         mevcut_yol = yerel_db_yolunu_getir()
-        
-        # Kullanıcının buraya yazı yazabileceğini belli etmek için yazıyı büyüttük ve belirginleştirdik
-        ent_path = tk.Entry(f_path, font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#2563eb", relief="solid", bd=1, insertbackground="#2563eb")
+        ent_path = tk.Entry(f_path, font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#2563eb", relief="solid", bd=1, insertbackground="#2563eb")
         ent_path.insert(0, mevcut_yol)
-        ent_path.pack(side="left", fill="x", expand=True, ipady=8)
+        ent_path.pack(side="left", fill="x", expand=True, ipady=6)
         
         def sec_klasor():
             klasor = filedialog.askdirectory(title="Ortak Veritabanı Klasörünü Seçin")
@@ -7881,17 +9583,19 @@ class EczaneAsistani:
                 ent_path.delete(0, tk.END)
                 ent_path.insert(0, klasor)
         
-        ModernButton(f_path, text="📂 KLASÖR SEÇ", command=sec_klasor, bg_color="#f59e0b", width=140, height=40).pack(side="left", padx=(10, 0))
-        
+        ModernButton(f_path, text="📂 KLASÖR SEÇ", command=sec_klasor, bg_color="#f59e0b", width=140, height=35).pack(side="left", padx=(10, 0))
+
         def kaydet():
             yeni_yol = ent_path.get().strip()
+
             if not yeni_yol:
-                messagebox.showwarning("Uyarı", "Lütfen geçerli bir yol veya IP adresi girin.")
+                messagebox.showwarning("Uyarı", "Lütfen geçerli bir ağ yolu girin.")
                 return
+            
             yerel_db_yolunu_kaydet(yeni_yol)
-            messagebox.showinfo("Başarılı", "Ağ IP/Bağlantı yolu başarıyla kaydedildi!\n\nDeğişikliklerin aktif olması için lütfen programı KAPATIP YENİDEN AÇIN.", parent=self.pencere)
+            messagebox.showinfo("Başarılı", "Ağ ayarları başarıyla kaydedildi!", parent=self.pencere)
         
-        ModernButton(card, text="✅ KAYDET VE UYGULA", command=kaydet, bg_color="#10b981", width=250, height=45).pack(anchor="w", pady=(10,0))
+        ModernButton(self.settings_content_frame, text="✅ KAYDET VE UYGULA", command=kaydet, bg_color="#10b981", width=250, height=45).pack(anchor="w", pady=(10,0))
     
     # --- DİĞER MODÜLLER ---
     def veritabani_kur(self):
@@ -8004,22 +9708,24 @@ class EczaneAsistani:
             c_qr = self.find_column(cols, ['KAREKOD'])
 
             if c_g:
-                for idx, r in df.iterrows():
+                # YENİ NESİL HIZLANDIRMA: iterrows yerine to_dict
+                records = df.to_dict('records')
+                for idx, r in enumerate(records):
                     try:
-                        g = str(r[c_g]).replace(".0", "").strip().zfill(14)
+                        g = str(r.get(c_g, "")).replace(".0", "").strip().zfill(14)
                         if not g or len(g) < 13 or g == "00000000000000":
                             atlanan_satirlar.append(f"Satır {idx+2}: Geçersiz GTIN")
                             continue 
 
-                        sn = str(r[c_sn]).replace(".0", "").strip() if c_sn else ""
-                        bn = str(r[c_bn]).replace(".0", "").strip() if c_bn else ""
-                        ad = str(r[c_ad]).strip() if c_ad else "Bilinmeyen İlaç"
-                        raw_qr = str(r[c_qr]).strip() if c_qr else ""
+                        sn = str(r.get(c_sn, "")).replace(".0", "").replace(";", "").strip() if c_sn else ""
+                        bn = str(r.get(c_bn, "")).replace(".0", "").replace(";", "").strip() if c_bn else ""
+                        ad = str(r.get(c_ad, "")).replace(";", "").strip() if c_ad else "Bilinmeyen İlaç"
+                        raw_qr = str(r.get(c_qr, "")).strip() if c_qr else ""
 
                         skt_str = "2026-01-01" 
                         tarih_bulundu = False
                         if c_sk:
-                            raw_skt = str(r[c_sk]).strip()
+                            raw_skt = str(r.get(c_sk, "")).strip()
                             if len(raw_skt) > 5:
                                 try:
                                     ts = pd.to_datetime(raw_skt)
@@ -8241,191 +9947,303 @@ class EczaneAsistani:
 
         tk.Button(top, text="ANLAŞILDI, KAPAT", command=top.destroy, bg="#e67e22", fg="white", font=("Segoe UI", 10, "bold"), height=2).pack(fill="x", padx=20, pady=10)
 
+    # =========================================================================
+    # İLAÇ KARTLARI SEKMESİ (MODERN - SIRA NO VE TÜMÜNÜ SEÇ ÖZELLİĞİ)
+    # =========================================================================
     def arayuz_ilac_kartlari(self):
+        for widget in self.content_area.winfo_children(): widget.destroy()
         c = TM
-        # Başlık
-        tk.Label(self.content_area, text="İlaç Kartları (Ana Veritabanı)", font=FONT_HEAD, 
-                 bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 10))
 
-        # Arama Paneli
-        fr_ara = tk.Frame(self.content_area, bg=c.get_color("card_bg"), padx=10, pady=10)
-        fr_ara.pack(fill="x", pady=5)
+        # --- 1. SATIR: BAŞLIK VE ANA BUTON ---
+        row1 = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        row1.pack(fill="x", pady=(0, 15))
+
+        tk.Label(row1, text="🗂️ İlaç Kartları Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "padx": 20, "pady": 8}
+        tk.Button(row1, text="➕ YENİ İLAÇ KARTI EKLE", command=lambda: self.ilac_karti_ekle_duzenle(), 
+                  bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style_ana).pack(side="right", padx=10)
+
+        # --- 2. SATIR: ARAMA VE İŞLEM KARTI ---
+        row2 = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=12)
+        row2.pack(fill="x", pady=(0, 15))
+
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 6}
+
+        f_search = tk.Frame(row2, bg="white")
+        f_search.pack(side="left", fill="x", expand=True)
+
+        tk.Label(f_search, text="🔍 Kart Ara:", font=("Segoe UI", 10, "bold"), bg="white", fg="#64748b").pack(side="left", padx=(0, 10))
         
-        tk.Label(fr_ara, text="🔍 Kart Ara:", bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), font=FONT_BOLD).pack(side="left")
-        self.ent_ara = tk.Entry(fr_ara, font=FONT_NORM, bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), insertbackground=c.get_color("fg_text"))
-        self.ent_ara.pack(side="left", padx=10, fill="x", expand=True, ipady=3)
-        self.ent_ara.bind("<KeyRelease>", self.kart_ara)
+        ent_kart_ara = tk.Entry(f_search, font=("Segoe UI", 11), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        ent_kart_ara.pack(side="left", fill="x", expand=True, padx=(0, 10), ipady=4)
+        ent_kart_ara.bind("<Return>", lambda e: ilac_kartlari_listele(ent_kart_ara.get()))
 
-        # Üst Butonlar
-        fr_btn = tk.Frame(self.content_area, bg=c.get_color("bg_main"), padx=10)
-        fr_btn.pack(fill="x", pady=5)
-        
-        # Standart Buton Boyutları
-        BTN_W = 155
-        BTN_H = 32
-        
-        # 1. Kopyala Butonu
-        ModernButton(fr_btn, text="📋 KOPYALA", command=self.kart_kopyala, 
-                     bg_color="#8b5cf6", width=BTN_W, height=BTN_H).pack(side="left", padx=(0, 5))
+        tk.Button(f_search, text="BUL", command=lambda: ilac_kartlari_listele(ent_kart_ara.get()), bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style).pack(side="left", padx=4)
+        tk.Button(f_search, text="SIFIRLA", command=lambda: [ent_kart_ara.delete(0, tk.END), ilac_kartlari_listele()], bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style).pack(side="left", padx=4)
 
-        # 2. Manuel Ekle Butonu
-        ModernButton(fr_btn, text="➕ MANUEL EKLE", command=self.manuel_kart_ekle_dialog, 
-                     bg_color=c.get_color("btn_success"), width=BTN_W, height=BTN_H).pack(side="left", padx=5)
+        f_actions = tk.Frame(row2, bg="white")
+        f_actions.pack(side="right", padx=(15, 0))
 
-        # --- TABLO YAPISI ---
-        cols = ("NO", "TİK", "GTIN", "İLAÇ ADI", "SON GÜNCELLEME")
-        widths = [35, 30, 115, 500, 120]
-        stretches = [False, False, False, True, False]
+        tk.Button(f_actions, text="✏️ SEÇİLENİ DÜZENLE", command=lambda: ilac_karti_duzenle_buton(), bg="#fff7ed", fg="#ea580c", activebackground="#ffedd5", activeforeground="#c2410c", **btn_style).pack(side="left", padx=4)
+        tk.Button(f_actions, text="🗑️ SEÇİLENLERİ SİL", command=lambda: ilac_karti_sil_buton(), bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style).pack(side="left", padx=4)
 
-        self.tree_kart = ttk.Treeview(self.content_area, columns=cols, show="headings", height=25)
-        
-        sc = ttk.Scrollbar(self.content_area, orient="vertical", command=self.tree_kart.yview)
-        self.tree_kart.configure(yscroll=sc.set)
+        # --- 3. SATIR: TABLO KARTI VE SÜTUNLAR ---
+        tf = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1)
+        tf.pack(fill="both", expand=True)
+
+        # SÜTUNLAR GÜNCELLENDİ (SIRA NO EKLENDİ)
+        cols = ("ID", "SIRA", "TIK", "GTIN / BARKOD", "İLAÇ ADI")
+        tree_kartlar = ttk.Treeview(tf, columns=cols, show="headings", height=15)
+        sc = ttk.Scrollbar(tf, orient="vertical", command=tree_kartlar.yview)
+        tree_kartlar.configure(yscroll=sc.set)
         sc.pack(side="right", fill="y")
-        self.tree_kart.pack(fill="both", expand=True)
+        tree_kartlar.pack(fill="both", expand=True, padx=2, pady=2)
 
-        for col, w, s in zip(cols, widths, stretches):
-            if col == "TİK":
-                self.tree_kart.heading(col, text="☐", command=self.kart_tumu_sec)
-                self.tree_kart.column(col, width=w, anchor="center", stretch=False)
-            else:
-                self.tree_kart.heading(col, text=col, anchor="w")
-                align = "center" if col in ["NO", "GTIN", "SON GÜNCELLEME"] else "w"
-                self.tree_kart.column(col, width=w, anchor=align, stretch=s)
+        # Tümünü Seç/Bırak Değişkeni
+        self.tumunu_sec_durumu = False
 
-        self.tree_kart.bind('<ButtonRelease-1>', self.kart_satir_tikla)
-        self.kartlari_listele()
+        def tumunu_sec_toggle():
+            self.tumunu_sec_durumu = not self.tumunu_sec_durumu
+            yeni_ikon = "☑" if self.tumunu_sec_durumu else "☐"
+            
+            # Sütun Başlığını da Güncelle
+            baslik_metni = "Tümünü Kaldır" if self.tumunu_sec_durumu else "Tümünü Seç"
+            tree_kartlar.heading("TIK", text=baslik_metni)
 
-    def manuel_kart_ekle_dialog(self):
-        # Yeni bir pencere (Popup) oluştur
-        top = tk.Toplevel(self.pencere)
-        top.title("Manuel İlaç Tanımla")
-        top.geometry("400x300")
-        top.configure(bg=TM.get_color("card_bg"))
-        
-        # Ekranın ortasında açılması için
-        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 200
-        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 150
-        top.geometry(f"+{x}+{y}")
+            for item in tree_kartlar.get_children():
+                vals = list(tree_kartlar.item(item, "values"))
+                vals[2] = yeni_ikon # 2. index = TIK sütunu
+                tree_kartlar.item(item, values=vals)
 
-        # Başlık
-        tk.Label(top, text="Yeni İlaç Kartı Oluştur", font=("Segoe UI", 12, "bold"), 
-                 bg=TM.get_color("card_bg"), fg=TM.get_color("fg_text")).pack(pady=(20, 15))
+        tree_kartlar.heading("ID", text="ID"); tree_kartlar.column("ID", width=0, stretch=False)
+        tree_kartlar.heading("SIRA", text="Sıra"); tree_kartlar.column("SIRA", width=50, anchor="center")
+        # Başlığa Tıklama Komutu (Tümünü Seç) Eklendi
+        tree_kartlar.heading("TIK", text="Tümünü Seç", command=tumunu_sec_toggle); tree_kartlar.column("TIK", width=90, anchor="center")
+        tree_kartlar.heading("GTIN / BARKOD", text="GTIN / BARKOD"); tree_kartlar.column("GTIN / BARKOD", width=180, anchor="center")
+        tree_kartlar.heading("İLAÇ ADI", text="İLAÇ ADI"); tree_kartlar.column("İLAÇ ADI", width=600)
 
-        # Giriş Alanları
-        lbl_style = {"bg": TM.get_color("card_bg"), "fg": TM.get_color("fg_text"), "font": ("Segoe UI", 10)}
-        entry_style = {"bg": TM.get_color("input_bg"), "fg": TM.get_color("fg_text"), "relief": "solid", "bd": 1, "font": ("Segoe UI", 11)}
+        # --- FONKSİYONLAR ---
+        # --- FONKSİYONLAR ---
+        def ilac_kartlari_listele(query=""):
+            for i in tree_kartlar.get_children(): tree_kartlar.delete(i)
+            # Liste yenilendiğinde "Tümünü Seç" durumunu sıfırla
+            self.tumunu_sec_durumu = False
+            tree_kartlar.heading("TIK", text="Tümünü Seç")
+            
+            try:
+                if query:
+                    # 1. ADIM: Arama kutusuna yazılanı standart İngilizce karakterlere çevir
+                    q_temiz = query.replace('i','I').replace('İ','I').replace('ı','I').replace('ş','S').replace('Ş','S') \
+                                   .replace('ğ','G').replace('Ğ','G').replace('ü','U').replace('Ü','U') \
+                                   .replace('ö','O').replace('Ö','O').replace('ç','C').replace('Ç','C').upper()
+                    
+                    # 2. ADIM: Veritabanındaki 'ad' sütununu da anlık olarak İngilizce karakterlere çeviren SQL Zırhı
+                    sql_ad_temiz = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(UPPER(ad), 'İ', 'I'), 'Ş', 'S'), 'Ğ', 'G'), 'Ü', 'U'), 'Ö', 'O'), 'Ç', 'C')"
+                    
+                    # 3. ADIM: İki tertemiz İngilizce veriyi birbiriyle eşleştir
+                    self.imlec.execute(f"SELECT rowid, gtin, ad FROM ilac_kartlari WHERE {sql_ad_temiz} LIKE ? OR gtin LIKE ? ORDER BY ad ASC", (f"%{q_temiz}%", f"%{q_temiz}%"))
+                else:
+                    self.imlec.execute("SELECT rowid, gtin, ad FROM ilac_kartlari ORDER BY ad ASC LIMIT 300")
+                
+                veriler = self.imlec.fetchall()
+                for idx, r in enumerate(veriler, 1):
+                    # r[0]: ID, idx: SIRA, "☐": TIK, r[1]: BARKOD, r[2]: AD
+                    tree_kartlar.insert("", "end", values=(r[0], f"{idx}.", "☐", r[1], r[2]))
+            except Exception as e:
+                messagebox.showerror("Tablo Hatası", f"Veriler çekilirken hata oluştu:\n{str(e)}")
 
-        # 1. Barkod/GTIN
-        tk.Label(top, text="Barkod / GTIN (13 veya 14 Hane):", **lbl_style).pack(anchor="w", padx=30)
-        e_gtin = tk.Entry(top, **entry_style)
-        e_gtin.pack(fill="x", padx=30, pady=(0, 10), ipady=3)
-        e_gtin.focus_set()
+        def kutucuk_isaretle(event):
+            region = tree_kartlar.identify_region(event.x, event.y)
+            if region == "cell":
+                column = tree_kartlar.identify_column(event.x)
+                if column == '#3':  # 3. Sütun "TIK" sütunudur (ID, SIRA, TIK)
+                    row_id = tree_kartlar.identify_row(event.y)
+                    if row_id:
+                        vals = list(tree_kartlar.item(row_id, "values"))
+                        vals[2] = "☑" if vals[2] == "☐" else "☐"
+                        tree_kartlar.item(row_id, values=vals)
 
-        # 2. İlaç Adı
-        tk.Label(top, text="İlaç Adı:", **lbl_style).pack(anchor="w", padx=30)
-        e_ad = tk.Entry(top, **entry_style)
-        e_ad.pack(fill="x", padx=30, pady=(0, 20), ipady=3)
+        def ilac_karti_sil_buton():
+            # SADECE TİKLİ (☑) OLANLARI BUL (Mavi seçimi iptal ettik)
+            secili_idler = [tree_kartlar.item(i)['values'][0] for i in tree_kartlar.get_children("") if tree_kartlar.item(i)['values'][2] == "☑"]
+            
+            if not secili_idler:
+                messagebox.showwarning("Uyarı", "Lütfen silmek için yandaki kutucuğu (☑) işaretleyin.")
+                return
+                
+            mesaj = f"İşaretli {len(secili_idler)} ilaç kartını kalıcı olarak silmek istiyor musunuz?" if len(secili_idler) > 1 else "Bu ilaç kartını kalıcı olarak silmek istiyor musunuz?"
+            
+            if messagebox.askyesno("Sil", mesaj):
+                for k_id in secili_idler:
+                    self.imlec.execute("DELETE FROM ilac_kartlari WHERE rowid=?", (k_id,))
+                self.baglanti_skt.commit()
+                ilac_kartlari_listele()
 
-        # Kaydetme Mantığı
-        def kaydet():
-            gtin = e_gtin.get().strip()
-            ad = e_ad.get().strip()
-
-            if not gtin or not ad:
-                messagebox.showwarning("Eksik Bilgi", "Lütfen barkod ve ilaç adını giriniz.", parent=top)
+        def ilac_karti_duzenle_buton():
+            # SADECE TİKLİ (☑) OLANLARI BUL (Mavi seçimi iptal ettik)
+            secili_idler = [tree_kartlar.item(i)['values'][0] for i in tree_kartlar.get_children("") if tree_kartlar.item(i)['values'][2] == "☑"]
+            
+            if not secili_idler:
+                messagebox.showwarning("Uyarı", "Lütfen düzenlemek için kutucuğu (☑) işaretleyin.")
                 return
             
-            # Otomatik 14 haneye tamamlama (İsteğe bağlı, standart için iyi olur)
-            if len(gtin) < 14 and gtin.isdigit():
-                gtin = gtin.zfill(14)
-
-            try:
-                # Veritabanına Ekle (Varsa güncelle, yoksa ekle)
-                self.ilac_karti_ekle_guncelle(gtin, ad)
+            if len(secili_idler) > 1:
+                messagebox.showwarning("Uyarı", "Aynı anda sadece 1 kaydı düzenleyebilirsiniz. Lütfen diğer işaretleri kaldırın.")
+                return
                 
-                messagebox.showinfo("Başarılı", f"{ad}\nKartlara eklendi.", parent=top)
-                self.kartlari_listele() # Listeyi yenile
-                top.destroy() # Pencereyi kapat
-            except Exception as e:
-                messagebox.showerror("Hata", str(e), parent=top)
+            k_id = secili_idler[0]
+            self.ilac_karti_ekle_duzenle(k_id)
 
-        # Kaydet Butonu
-        tk.Button(top, text="KAYDET", command=kaydet, bg=TM.get_color("btn_success"), 
-                  fg="white", font=("Segoe UI", 10, "bold"), relief="flat", pady=5).pack(fill="x", padx=30, pady=10)
+        # Mause tıklamasıyla sadece kutucuk işaretlenecek. Çift tıklama iptal edildi.
+        tree_kartlar.bind('<ButtonRelease-1>', kutucuk_isaretle)
+        
+        ilac_kartlari_listele()
 
-    def kartlari_listele(self, filtre=""):
-        for i in self.tree_kart.get_children(): self.tree_kart.delete(i)
-        q = "SELECT gtin, ad, guncelleme_tarihi FROM ilac_kartlari"
-        if filtre: q += f" WHERE ad LIKE '%{filtre}%' OR gtin LIKE '%{filtre}%'"
-        self.imlec.execute(q + " ORDER BY ad ASC")
-        for idx, r in enumerate(self.imlec.fetchall(), 1): self.tree_kart.insert("", "end", values=(idx, "☐", r[0], r[1], r[2]))
-    
-    def kart_ara(self, e): self.kartlari_listele(self.ent_ara.get())
-    
-    def kart_satir_tikla(self, e):
-        if self.tree_kart.identify_column(e.x) == "#2":
-            i = self.tree_kart.identify_row(e.y); 
-            if i: v = list(self.tree_kart.item(i, "values")); v[1] = "☐" if v[1]=="☑" else "☑"; self.tree_kart.item(i, values=v)
-    
-    def kart_tumu_sec(self): pass
-    
-    def kart_kopyala(self):
-        s = [self.tree_kart.item(i, "values") for i in self.tree_kart.get_children() if self.tree_kart.item(i, "values")[1] == "☑"]
-        if s: self.pencere.clipboard_clear(); self.pencere.clipboard_append("\n".join(["\t".join(map(str, r[2:])) for r in s])); messagebox.showinfo("OK","Kopyalandı")
-
-    def arayuz_karekod_olusturucu(self):
+    # =========================================================================
+    # İLAÇ KARTI EKLE / DÜZENLE PENCERESİ (MODERN)
+    # =========================================================================
+    def ilac_karti_ekle_duzenle(self, kart_id=None):
         c = TM
-        # Başlık
-        tk.Label(self.content_area, text="Karekod Üretici", font=FONT_HEAD, 
-                 bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="top", anchor="w", pady=(0, 20))
+        win = tk.Toplevel(self.pencere)
+        baslik = "✏️ İlaç Kartı Düzenle" if kart_id else "➕ Yeni İlaç Kartı Ekle"
+        win.title(baslik)
+        win.geometry("450x380")
+        win.configure(bg=c.get_color("bg_main"))
+        win.transient(self.pencere)
+        win.grab_set()
 
-        # Ana Panel
-        f = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        f.pack(fill="both", expand=True)
+        # Pencereyi Ekrana Ortala
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 190
+        win.geometry(f"+{x}+{y}")
 
-        # --- ÜST BUTONLAR ---
-        f_top = tk.Frame(f, bg=c.get_color("bg_main"))
-        f_top.pack(fill="x", pady=(0, 10))
+        # Beyaz İç Kart
+        f_main = tk.Frame(win, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=25, pady=25)
+        f_main.pack(fill="both", expand=True, padx=15, pady=15)
 
-        ModernButton(f_top, text="📂 EXCEL LİSTESİ YÜKLE", command=self.karekod_dosya_yukle, 
-                     bg_color=c.get_color("btn_warning"), width=250, height=35).pack(side="left", padx=(0, 10))
+        tk.Label(f_main, text=baslik, font=("Segoe UI", 15, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 20))
 
-        # --- TABLO (TREEVIEW) ---
-        # Sütunlar SKT Modülüyle eşitlendi
+        entry_style = {"font": ("Segoe UI", 11), "bg": "#f8fafc", "fg": "#0f172a", "relief": "solid", "bd": 1, "insertbackground": "#0f172a"}
+
+        tk.Label(f_main, text="GTIN / Barkod Numarası:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+        ent_gtin = tk.Entry(f_main, **entry_style)
+        ent_gtin.pack(fill="x", ipady=5, pady=(2, 15))
+
+        tk.Label(f_main, text="İlaç veya Ürün Adı:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+        ent_ad = tk.Entry(f_main, **entry_style)
+        ent_ad.pack(fill="x", ipady=5, pady=(2, 25))
+
+        # Eğer düzenleme ise mevcut verileri kutulara doldur
+        if kart_id:
+            try:
+                # DÜZELTME: id yerine rowid kullanıldı
+                self.imlec.execute("SELECT gtin, ad FROM ilac_kartlari WHERE rowid=?", (kart_id,))
+                kayit = self.imlec.fetchone()
+                if kayit:
+                    ent_gtin.insert(0, kayit[0])
+                    ent_ad.insert(0, kayit[1])
+            except: pass
+
+        def kaydet():
+            y_gtin = ent_gtin.get().strip()
+            y_ad = ent_ad.get().strip().upper()
+            
+            if not y_gtin or not y_ad:
+                messagebox.showwarning("Uyarı", "Lütfen Barkod ve İlaç Adı alanlarını doldurun.", parent=win)
+                return
+            
+            try:
+                if kart_id:
+                    # DÜZELTME: id yerine rowid kullanıldı
+                    self.imlec.execute("UPDATE ilac_kartlari SET gtin=?, ad=? WHERE rowid=?", (y_gtin, y_ad, kart_id))
+                else:
+                    self.imlec.execute("INSERT INTO ilac_kartlari (gtin, ad) VALUES (?, ?)", (y_gtin, y_ad))
+                
+                self.baglanti_skt.commit()
+                win.destroy()
+                self.arayuz_ilac_kartlari() # Tabloyu anında yenile
+                mesaj_metni = "Güncelleme Başarılı!" if kart_id else "Yeni İlaç Kaydedildi!"
+                messagebox.showinfo("Başarılı", mesaj_metni, parent=self.pencere)
+            except Exception as e:
+                messagebox.showerror("Hata", f"Veritabanı hatası:\n{str(e)}", parent=win)
+
+        tk.Button(f_main, text="💾 KAYDET VE UYGULA", command=kaydet, font=("Segoe UI", 11, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=10).pack(fill="x", side="bottom")
+
+    # =========================================================================
+    # KAREKOD ÜRETİCİ SEKMESİ (MODERN KART VE PASTEL TASARIM)
+    # =========================================================================
+    def arayuz_karekod_olusturucu(self):
+        for widget in self.content_area.winfo_children(): widget.destroy()
+        c = TM
+
+        # --- 1. SATIR: BAŞLIK VE ANA BUTON ---
+        row1 = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        row1.pack(fill="x", pady=(0, 15))
+
+        tk.Label(row1, text="🔲 Akıllı Karekod Üretici", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "padx": 20, "pady": 8}
+        
+        # Pastel Turuncu Yükle Butonu
+        tk.Button(row1, text="📂 EXCEL LİSTESİ YÜKLE", command=self.karekod_dosya_yukle, 
+                  bg="#fff7ed", fg="#ea580c", activebackground="#ffedd5", activeforeground="#c2410c", **btn_style_ana).pack(side="right", padx=10)
+
+        # --- 2. ANA KART (BEYAZ ÇERÇEVE) ---
+        card_main = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=20, pady=20)
+        card_main.pack(fill="both", expand=True)
+
+        # Tablo Başlığı
+        f_tablo_ust = tk.Frame(card_main, bg="white")
+        f_tablo_ust.pack(fill="x", pady=(0, 10))
+        tk.Label(f_tablo_ust, text="Üretilen Karekod Listesi", font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b").pack(side="left")
+
+        # --- TABLO (TREEVIEW) ALANI ---
+        f_tree_container = tk.Frame(card_main, bg="white")
+        f_tree_container.pack(fill="both", expand=True)
+
         cols = ("NO", "TIK", "GTIN", "SN", "BN", "İLAÇ ADI", "SKT", "KAREKOD")
-        widths = [35, 30, 115, 110, 80, 350, 100, 250]
+        widths = [40, 80, 130, 110, 80, 400, 100, 300]
         
-        self.tree_qr = ttk.Treeview(f, columns=cols, show="headings", height=20)
+        self.tree_qr = ttk.Treeview(f_tree_container, columns=cols, show="headings", height=15)
         
-        # Scrollbar
-        sc = ttk.Scrollbar(f, orient="vertical", command=self.tree_qr.yview)
+        sc = ttk.Scrollbar(f_tree_container, orient="vertical", command=self.tree_qr.yview)
         self.tree_qr.configure(yscroll=sc.set)
         sc.pack(side="right", fill="y")
-        self.tree_qr.pack(fill="both", expand=True)
+        self.tree_qr.pack(fill="both", expand=True, padx=(0, 2))
 
-        # Başlık Ayarları
+        # Sütun Başlıkları ve Genişlikleri
         for col, w in zip(cols, widths):
             if col == "TIK":
-                self.tree_qr.heading(col, text="☐", command=self.qr_tumu_sec)
+                self.tree_qr.heading(col, text="Tümünü Seç", command=self.qr_tumu_sec)
                 self.tree_qr.column(col, width=w, anchor="center", stretch=False)
             else:
                 self.tree_qr.heading(col, text=col, anchor="w")
                 align = "center" if col in ["NO", "GTIN", "SKT"] else "w"
-                # İlaç adı ve Karekod esnek olsun, diğerleri sabit
+                # İlaç adı ve Karekod sütunları esnesin, diğerleri sabit kalsın
                 stretch_col = True if col in ["İLAÇ ADI", "KAREKOD"] else False
                 self.tree_qr.column(col, width=w, anchor=align, stretch=stretch_col)
 
-        # Satır Tıklama (Tikleme) Olayı
+        # Satıra tıklanınca kutucuğu (☑) işaretleme fonksiyonuna bağla
         self.tree_qr.bind('<ButtonRelease-1>', self.qr_satir_tiklama)
 
-        # --- ALT İŞLEM BUTONLARI ---
-        f_bot = tk.Frame(f, bg=c.get_color("bg_main"), pady=15, padx=5)
-        f_bot.pack(fill="x")
+        # --- 3. ALT İŞLEM BUTONLARI ---
+        f_bot = tk.Frame(card_main, bg="white")
+        f_bot.pack(fill="x", pady=(15, 0))
 
-        ModernButton(f_bot, text="📋 KOPYALA", command=self.qr_secili_kopyala, bg_color="#3b82f6", width=160, height=35).pack(side="left", padx=5)
-        ModernButton(f_bot, text="💾 STOĞA KAYDET", command=self.qr_secili_kaydet, bg_color=c.get_color("btn_success"), width=180, height=35).pack(side="left", padx=5)
-        ModernButton(f_bot, text="📧 MAİL GÖNDER", command=lambda: self.mail_gonder_tetikle(True, tip="karekod"), bg_color="#8b5cf6", width=180, height=35).pack(side="right", padx=5)
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 8}
+
+        # Pastel Mavi: Kopyala
+        tk.Button(f_bot, text="📋 SEÇİLİLERİ KOPYALA", command=self.qr_secili_kopyala, 
+                  bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style).pack(side="left", padx=(0, 5))
+                  
+        # Pastel Yeşil: Kaydet
+        tk.Button(f_bot, text="💾 SEÇİLİLERİ STOĞA KAYDET", command=self.qr_secili_kaydet, 
+                  bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style).pack(side="left", padx=5)
+                  
+        # Pastel Mor: Mail Gönder
+        tk.Button(f_bot, text="📧 LİSTEYİ MAİL GÖNDER", command=lambda: self.mail_gonder_tetikle(True, tip="karekod"), 
+                  bg="#faf5ff", fg="#9333ea", activebackground="#f3e8ff", activeforeground="#7e22ce", **btn_style).pack(side="right", padx=5)
         
         self.karekod_temp_data = []
 
@@ -8479,21 +10297,22 @@ class EczaneAsistani:
             
             basarili_sayisi = 0
 
-            # 3. Verileri İşle ve Temizle
-            for idx, row in df.iterrows():
+            # 3. Verileri İşle ve Temizle (HIZLANDIRILDI)
+            records = df.to_dict('records')
+            for idx, row in enumerate(records):
                 try:
                     # GTIN Temizliği (;; ve .0 gibi hataları siler)
-                    raw_gtin = str(row[c_gtin]).replace(".0", "").replace(";", "").strip()
+                    raw_gtin = str(row.get(c_gtin, "")).replace(".0", "").replace(";", "").strip()
                     if not raw_gtin or raw_gtin.lower() == "nan": continue
                     gtin = raw_gtin.zfill(14)
                     
                     # Diğer Verilerin Temizliği
-                    sn = str(row[c_sn]).replace(".0", "").replace(";", "").strip()
-                    bn = str(row[c_bn]).replace(".0", "").replace(";", "").strip()
-                    ad = str(row[c_ad]).replace(";", "").strip() if c_ad else "Bilinmeyen İlaç"
+                    sn = str(row.get(c_sn, "")).replace(".0", "").replace(";", "").strip() if c_sn else ""
+                    bn = str(row.get(c_bn, "")).replace(".0", "").replace(";", "").strip() if c_bn else ""
+                    ad = str(row.get(c_ad, "")).replace(";", "").strip() if c_ad else "Bilinmeyen İlaç"
                     
                     # Tarih (SKT) İşleme
-                    raw_skt = str(row[c_sk]).replace(";", "").strip()
+                    raw_skt = str(row.get(c_sk, "")).replace(";", "").strip() if c_sk else ""
                     try:
                         # Pandas ile tarihi akıllıca tanı (2028-01-20 veya 20.01.2028 fark etmez)
                         ts = pd.to_datetime(raw_skt, dayfirst=True)
@@ -8609,7 +10428,7 @@ class EczaneAsistani:
         if not g or not p or not a:
             if manuel: messagebox.showwarning("Hata", "Mail ayarları eksik."); return
         try:
-            msg = MIMEMultipart(); msg['From'] = g; msg['To'] = a; msg['Subject'] = f"Rapor {tip}"; msg.attach(MIMEText("Ek.", "plain"))
+            msg = MIMEMultipart(); msg['From'] = f"ECZACI DEFTERİ <{g}>"; msg['To'] = a; msg['Subject'] = f"Rapor {tip}"; msg.attach(MIMEText("Ek.", "plain"))
             data = "Test verisi"
             part = MIMEBase('application', "octet-stream"); part.set_payload(data.encode('utf-8')); encoders.encode_base64(part)
             part.add_header('Content-Disposition', f'attachment; filename="{tip}.txt"'); msg.attach(part)
@@ -8638,6 +10457,12 @@ class EczaneAsistani:
         su_anki_donem_anahtari = f"{bugun.strftime('%Y-%m')}-{donem_kodu}"
 
         try:
+            # Ayarlardan Otomatik Mail kapalıysa hiç işlem yapma
+            yerel_imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='oto_mail_aktif'")
+            res_aktif = yerel_imlec.fetchone()
+            if res_aktif and res_aktif[0] == '0':
+                return
+
             # self.imlec YERİNE ARTIK yerel_imlec KULLANIYORUZ
             yerel_imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='son_otomatik_mail_donemi'")
             res = yerel_imlec.fetchone()
@@ -8647,12 +10472,11 @@ class EczaneAsistani:
             if su_anki_donem_anahtari != son_gonderilen_anahtar:
                 print("Otomatik mail gönderimi tetiklendi...")
                 
-                # 1. Stok Hatırlatma Maili
-                if donem_kodu == "1":
-                    konu_hatirlatma = f"⚠️ Stok Güncelleme Hatırlatması - {bugun.strftime('%B %Y')}"
-                    mesaj_hatirlatma = "Sayın Eczacı,\n\nYeni dönem başladı. Lütfen İTS üzerindeki güncel stok listenizi sisteme yükleyip analiz ediniz."
-                    try: self.basit_mail_gonder(konu_hatirlatma, mesaj_hatirlatma)
-                    except: pass
+                # 1. Stok Hatırlatma Maili (Her 2 dönemde de atacak)
+                konu_hatirlatma = f"⚠️ Stok Güncelleme Hatırlatması - {bugun.strftime('%d.%m.%Y')}"
+                mesaj_hatirlatma = "Sayın Eczacı,\n\nYeni dönem başladı. Lütfen İTS üzerindeki güncel stok listenizi sisteme yükleyip analiz ediniz."
+                try: self.basit_mail_gonder(konu_hatirlatma, mesaj_hatirlatma)
+                except: pass
 
                 # 2. Miad Raporu
                 try:
@@ -8728,33 +10552,42 @@ class EczaneAsistani:
         bugun = date.today()
         sinir_3 = (bugun + timedelta(days=90)).strftime('%Y-%m-%d')
         sinir_6 = (bugun + timedelta(days=180)).strftime('%Y-%m-%d')
+        
+        # YENİ: Arka plan işlemi için ana imleçle (cursor) çakışmayan yepyeni bir imleç oluşturuyoruz.
+        imlec_mail = self.baglanti_skt.cursor()
+        
         def veri_getir(tarih_siniri):
-            self.imlec.execute("""SELECT ad, skt, COUNT(*) as adet FROM ilaclar WHERE skt <= ? AND skt > ? GROUP BY ad, skt ORDER BY skt ASC""", (tarih_siniri, bugun.strftime('%Y-%m-%d')))
-            return self.imlec.fetchall()
+            imlec_mail.execute("""SELECT ad, skt, COUNT(*) as adet FROM ilaclar WHERE skt <= ? AND skt > ? GROUP BY ad, skt ORDER BY skt ASC""", (tarih_siniri, bugun.strftime('%Y-%m-%d')))
+            return imlec_mail.fetchall()
+            
         rapor_3 = veri_getir(sinir_3)
         rapor_6 = veri_getir(sinir_6)
+        
         html_icerik = "<h3>🚨 Kritik Miad Raporu (Aylık Otomatik)</h3>"
         for baslik, veriler in [("🔴 3 Aydan Az Kalanlar", rapor_3), ("🟠 3-6 Ay Arası Kalanlar", rapor_6)]:
             html_icerik += f"<h4>{baslik}</h4><table border='1' cellpadding='5' style='border-collapse:collapse;'><tr><th>İlaç Adı</th><th>SKT</th><th>Adet</th></tr>"
             for r in veriler: html_icerik += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]} Kutu</td></tr>"
             if not veriler: html_icerik += "<tr><td colspan='3'>Bu kategoride ürün bulunmamaktadır.</td></tr>"
             html_icerik += "</table><br>"
-        self.basit_mail_gonder(f"📋 Aylık Miad Takip Raporu - {bugun.strftime('%d.%m.%Y')}", html_icerik, is_html=True)
+            
+        self.basit_mail_gonder(f"[ECZACI DEFTERİ] 📋 Aylık Miad Takip Raporu - {bugun.strftime('%d.%m.%Y')}", html_icerik, is_html=True)
 
     def basit_mail_gonder(self, konu, icerik, is_html=False):
         self.imlec.execute("SELECT anahtar, deger FROM ayarlar"); ayar_dict = dict(self.imlec.fetchall())
         g = ayar_dict.get('gonderen_mail'); p = ayar_dict.get('uygulama_sifresi'); a = ayar_dict.get('alici_mail')
         if not g or not p or not a: return
         try:
+            from email.utils import formataddr
             msg = MIMEMultipart()
-            msg['From'], msg['To'], msg['Subject'] = g, a, konu
+            msg['From'] = formataddr(('ECZACI DEFTERİ', g))
+            msg['To'] = a
+            msg['Subject'] = konu
             msg.attach(MIMEText(icerik, 'html' if is_html else 'plain'))
             with smtplib.SMTP('smtp.gmail.com', 587) as server:
                 server.starttls(); server.login(g, p); server.send_message(msg)
                 self.sisteme_bildirim_ekle(f"📧 E-Posta gönderildi: {konu}")
         except Exception as e: print(f"Otomatik mail hatası: {e}")
-
-               
+           
     
     def ozel_mail_gonder(self, tur):
         # 1. Mail Ayarlarını Kontrol Et
@@ -8778,8 +10611,9 @@ class EczaneAsistani:
             return
 
         try:
+            from email.utils import formataddr
             msg = MIMEMultipart()
-            msg['From'] = g
+            msg['From'] = formataddr(('ECZACI DEFTERİ', g))
             msg['To'] = a
             tarih = datetime.now().strftime("%d.%m.%Y %H:%M")
             
@@ -8888,60 +10722,274 @@ class EczaneAsistani:
             print(f"Kart güncelleme hatası: {e}")
 
     # =========================================================================
-    # 7. TOPLU İŞLEM VE KARŞILAŞTIRMA MODÜLÜ (KARŞILAŞTIRMA ÖZELLİĞİ EKLENDİ)
+    # 7. TOPLU KAREKOD YÖNETİMİ SEKMESİ (MODERN BEYAZ KART TASARIMI VE TAM MOTOR)
     # =========================================================================
     def arayuz_toplu_karekod(self):
+        for widget in self.content_area.winfo_children(): widget.destroy()
         c = TM
-        for w in self.content_area.winfo_children(): w.destroy()
 
-        # --- ÜST BAŞLIK VE BUTON ---
-        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        header.pack(fill="x", pady=(0, 10))
-        tk.Label(header, text="🚀 Toplu Karekod Yönetimi", font=FONT_HEAD, 
-                 bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+        # --- 1. ÜST BAŞLIK VE ANA BUTON ---
+        row1 = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        row1.pack(fill="x", pady=(0, 15))
+
+        tk.Label(row1, text="🚀 Toplu Karekod Yönetimi", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "padx": 20, "pady": 8}
         
-        # ✨ YENİ EKLENEN KARŞILAŞTIR BUTONU ✨
-        ModernButton(header, text="⚖️ LİSTELERİ KARŞILAŞTIR", command=self.karekodlari_karsilastir, 
-                     bg_color="#9b59b6", width=250, height=40).pack(side="right", padx=10)
+        tk.Button(row1, text="⚖️ LİSTELERİ KARŞILAŞTIR", command=self.karekodlari_karsilastir, 
+                  bg="#faf5ff", fg="#9333ea", activebackground="#f3e8ff", activeforeground="#7e22ce", **btn_style_ana).pack(side="right", padx=10)
 
-        # --- ANA YATAY PANEL ---
-        paned_main = tk.PanedWindow(self.content_area, orient=tk.HORIZONTAL, sashwidth=8, bg=c.get_color("border"))
-        paned_main.pack(fill="both", expand=True)
+        # --- ANA KONTEYNER (3 SÜTUNLU YAPI) ---
+        f_main = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        f_main.pack(fill="both", expand=True)
 
-        # SOL BLOK (ESKİ | YENİ)
-        paned_left = tk.PanedWindow(paned_main, orient=tk.HORIZONTAL, sashwidth=8, bg=c.get_color("border"))
-        paned_main.add(paned_left, stretch="always") 
+        btn_style = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 10, "pady": 6}
+        tree_bg_style = {"bg": "white", "highlightbackground": c.get_color("border"), "highlightthickness": 1}
 
-        # 1. Eski
-        self.frame_eski = tk.Frame(paned_left, bg=c.get_color("bg_main"))
-        paned_left.add(self.frame_eski, width=650) 
-        self.tree_eski = self._panel_olustur(self.frame_eski, "📄 ESKİ KAREKODLAR (Referans)", "eski")
+        # ======================================================
+        # SOL BÖLÜM: ESKİ KAREKODLAR KARTI
+        # ======================================================
+        f_eski = tk.Frame(f_main, **tree_bg_style)
+        f_eski.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
-        # 2. Yeni
-        self.frame_yeni = tk.Frame(paned_left, bg=c.get_color("bg_main"))
-        paned_left.add(self.frame_yeni, width=550) 
-        self.tree_yeni = self._panel_olustur(self.frame_yeni, "✨ YENİ KAREKODLAR (Çalışma)", "yeni")
+        tk.Label(f_eski, text="📄 ESKİ KAREKODLAR (Referans)", font=("Segoe UI", 11, "bold"), bg="white", fg="#1e293b", pady=10).pack(anchor="w", padx=15)
 
-        # SAĞ BLOK (KAYITLI LİSTELER)
-        frame_kayitlar = tk.Frame(paned_main, bg=c.get_color("card_bg"))
-        paned_main.add(frame_kayitlar, width=280, stretch="never") 
+        self.txt_eski = tk.Text(f_eski, height=3, font=("Consolas", 10), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        self.txt_eski.pack(fill="x", padx=15, pady=(0, 10))
+        self.txt_eski.insert("1.0", "Karekod yapıştır (Ctrl+V)...")
 
-        lbl_baslik = tk.Label(frame_kayitlar, text="💾 KAYITLI LİSTELER", font=("Segoe UI", 11, "bold"), 
-                 bg="#2c3e50", fg="white", pady=8)
-        lbl_baslik.pack(fill="x")
-        
-        self.lb_kayitlar = tk.Listbox(frame_kayitlar, bg=c.get_color("input_bg"), fg=c.get_color("fg_text"), 
-                                      font=("Segoe UI", 10), bd=0, highlightthickness=0, selectmode="single")
-        self.lb_kayitlar.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        f_sag_btn = tk.Frame(frame_kayitlar, bg=c.get_color("card_bg"))
-        f_sag_btn.pack(fill="x", pady=10, padx=10)
+        def on_focus_eski(event):
+            if self.txt_eski.get("1.0", tk.END).strip() == "Karekod yapıştır (Ctrl+V)...":
+                self.txt_eski.delete("1.0", tk.END)
+        self.txt_eski.bind("<FocusIn>", on_focus_eski)
 
-        def listeyi_yukle(hedef_tree):
+        cols_karekod = ("TIK", "KAREKOD", "İLAÇ ADI")
+        self.tree_eski = ttk.Treeview(f_eski, columns=cols_karekod, show="headings", height=10)
+        sc_eski = ttk.Scrollbar(f_eski, orient="vertical", command=self.tree_eski.yview)
+        self.tree_eski.configure(yscroll=sc_eski.set)
+        sc_eski.pack(side="right", fill="y")
+        self.tree_eski.pack(fill="both", expand=True, padx=15)
+
+        # Tümünü Seç Fonksiyonları
+        self.tree_eski.tumunu_sec_durum = False
+        def eski_tumunu_sec():
+            self.tree_eski.tumunu_sec_durum = not self.tree_eski.tumunu_sec_durum
+            ikon = "☑" if self.tree_eski.tumunu_sec_durum else "☐"
+            self.tree_eski.heading("TIK", text=ikon)
+            for item in self.tree_eski.get_children():
+                vals = list(self.tree_eski.item(item, "values"))
+                vals[0] = ikon
+                self.tree_eski.item(item, values=vals)
+
+        self.tree_eski.heading("TIK", text="☐", command=eski_tumunu_sec); self.tree_eski.column("TIK", width=40, anchor="center", stretch=False)
+        self.tree_eski.heading("KAREKOD", text="KAREKOD"); self.tree_eski.column("KAREKOD", width=180)
+        self.tree_eski.heading("İLAÇ ADI", text="İLAÇ ADI"); self.tree_eski.column("İLAÇ ADI", width=250)
+
+        def eski_satir_tikla(event):
+            region = self.tree_eski.identify("region", event.x, event.y)
+            if region == "cell" and self.tree_eski.identify_column(event.x) == "#1":
+                item = self.tree_eski.identify_row(event.y)
+                if item:
+                    vals = list(self.tree_eski.item(item, "values"))
+                    vals[0] = "☑" if vals[0] == "☐" else "☐"
+                    self.tree_eski.item(item, values=vals)
+        self.tree_eski.bind("<Button-1>", eski_satir_tikla)
+
+        f_eski_alt = tk.Frame(f_eski, bg="white")
+        f_eski_alt.pack(fill="x", padx=15, pady=10)
+        self.lbl_sayac_eski = tk.Label(f_eski_alt, text="Liste Boş", font=("Segoe UI", 9), bg="white", fg="#64748b")
+        self.lbl_sayac_eski.pack(side="left")
+
+        # --- ESKİ MOTOR FONKSİYONLARI ---
+        def parse_eski(event=None):
+            raw_data = self.txt_eski.get("1.0", tk.END).strip()
+            self.txt_eski.delete("1.0", tk.END)
+            if not raw_data or "yapıştır" in raw_data: return
+
+            for satir in [s.strip() for s in raw_data.splitlines() if s.strip()]:
+                karekod = satir
+                if "\t" in satir:
+                    for p in satir.split("\t"):
+                        if p.strip().startswith("01") and len(p.strip()) > 20: karekod = p.strip(); break
+                elif " " in satir:
+                    for p in satir.split(" "):
+                        if p.strip().startswith("01") and len(p.strip()) > 20: karekod = p.strip(); break
+
+                if len(karekod) < 10: continue
+                gtin = karekod[2:16] if karekod.startswith("01") else karekod[:14]
+                self.imlec.execute("SELECT ad FROM ilac_kartlari WHERE gtin=?", (gtin,))
+                r = self.imlec.fetchone()
+                self.tree_eski.insert("", 0, values=("☐", karekod, r[0] if r else "Bilinmeyen İlaç"))
+            self.lbl_sayac_eski.config(text=f"Toplam: {len(self.tree_eski.get_children())} Satır")
+
+        self.txt_eski.bind("<<Paste>>", lambda e: self.pencere.after(50, parse_eski))
+        self.txt_eski.bind("<Return>", parse_eski)
+
+        def kopyala_eski():
+            kopyalanacak = [self.tree_eski.item(i, "values")[1] for i in self.tree_eski.get_children() if self.tree_eski.item(i, "values")[0] == "☑"]
+            if kopyalanacak:
+                self.pencere.clipboard_clear(); self.pencere.clipboard_append("\n".join(kopyalanacak))
+                messagebox.showinfo("Kopyalandı", f"{len(kopyalanacak)} karekod kopyalandı.")
+            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
+
+        def sil_eski():
+            silinecek = [i for i in self.tree_eski.get_children() if self.tree_eski.item(i, "values")[0] == "☑"]
+            if silinecek:
+                for i in silinecek: self.tree_eski.delete(i)
+                self.lbl_sayac_eski.config(text=f"Toplam: {len(self.tree_eski.get_children())} Satır")
+            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
+
+        def temizle_eski():
+            for i in self.tree_eski.get_children(): self.tree_eski.delete(i)
+            self.lbl_sayac_eski.config(text="Liste Boş")
+
+        def kaydet_eski():
+            items = self.tree_eski.get_children()
+            if not items: return
+            ad = simpledialog.askstring("Kaydet", "Liste Adı:")
+            if ad:
+                icerik = "\n".join([self.tree_eski.item(i, "values")[1] for i in items])
+                self.imlec.execute("INSERT INTO kayitli_listeler (liste_adi, icerik, tarih) VALUES (?,?,?)", (ad, icerik, str(datetime.now())))
+                self.baglanti_skt.commit()
+                self.kayitlari_tazele()
+                messagebox.showinfo("Başarılı", "Liste sağ panele kaydedildi.")
+
+        f_eski_btns = tk.Frame(f_eski_alt, bg="white")
+        f_eski_btns.pack(side="right")
+        tk.Button(f_eski_btns, text="📋 KOPYALA", command=kopyala_eski, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_eski_btns, text="🗑️ SİL", command=sil_eski, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_eski_btns, text="🧹 TEMİZLE", command=temizle_eski, bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_eski_btns, text="💾 KAYDET", command=kaydet_eski, bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style).pack(side="left", padx=3)
+
+        # ======================================================
+        # ORTA BÖLÜM: YENİ KAREKODLAR KARTI
+        # ======================================================
+        f_yeni = tk.Frame(f_main, **tree_bg_style)
+        f_yeni.pack(side="left", fill="both", expand=True, padx=10)
+
+        tk.Label(f_yeni, text="✨ YENİ KAREKODLAR (Çalışma)", font=("Segoe UI", 11, "bold"), bg="white", fg="#1e293b", pady=10).pack(anchor="w", padx=15)
+
+        self.txt_yeni = tk.Text(f_yeni, height=3, font=("Consolas", 10), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        self.txt_yeni.pack(fill="x", padx=15, pady=(0, 10))
+        self.txt_yeni.insert("1.0", "Karekod yapıştır (Ctrl+V)...")
+
+        def on_focus_yeni(event):
+            if self.txt_yeni.get("1.0", tk.END).strip() == "Karekod yapıştır (Ctrl+V)...":
+                self.txt_yeni.delete("1.0", tk.END)
+        self.txt_yeni.bind("<FocusIn>", on_focus_yeni)
+
+        self.tree_yeni = ttk.Treeview(f_yeni, columns=cols_karekod, show="headings", height=10)
+        sc_yeni = ttk.Scrollbar(f_yeni, orient="vertical", command=self.tree_yeni.yview)
+        self.tree_yeni.configure(yscroll=sc_yeni.set)
+        sc_yeni.pack(side="right", fill="y")
+        self.tree_yeni.pack(fill="both", expand=True, padx=15)
+
+        self.tree_yeni.tumunu_sec_durum = False
+        def yeni_tumunu_sec():
+            self.tree_yeni.tumunu_sec_durum = not self.tree_yeni.tumunu_sec_durum
+            ikon = "☑" if self.tree_yeni.tumunu_sec_durum else "☐"
+            self.tree_yeni.heading("TIK", text=ikon)
+            for item in self.tree_yeni.get_children():
+                vals = list(self.tree_yeni.item(item, "values")); vals[0] = ikon; self.tree_yeni.item(item, values=vals)
+
+        self.tree_yeni.heading("TIK", text="☐", command=yeni_tumunu_sec); self.tree_yeni.column("TIK", width=40, anchor="center", stretch=False)
+        self.tree_yeni.heading("KAREKOD", text="KAREKOD"); self.tree_yeni.column("KAREKOD", width=180)
+        self.tree_yeni.heading("İLAÇ ADI", text="İLAÇ ADI"); self.tree_yeni.column("İLAÇ ADI", width=250)
+
+        def yeni_satir_tikla(event):
+            region = self.tree_yeni.identify("region", event.x, event.y)
+            if region == "cell" and self.tree_yeni.identify_column(event.x) == "#1":
+                item = self.tree_yeni.identify_row(event.y)
+                if item:
+                    vals = list(self.tree_yeni.item(item, "values")); vals[0] = "☑" if vals[0] == "☐" else "☐"; self.tree_yeni.item(item, values=vals)
+        self.tree_yeni.bind("<Button-1>", yeni_satir_tikla)
+
+        f_yeni_alt = tk.Frame(f_yeni, bg="white")
+        f_yeni_alt.pack(fill="x", padx=15, pady=10)
+        self.lbl_sayac_yeni = tk.Label(f_yeni_alt, text="Liste Boş", font=("Segoe UI", 9), bg="white", fg="#64748b")
+        self.lbl_sayac_yeni.pack(side="left")
+
+        # --- YENİ MOTOR FONKSİYONLARI ---
+        def parse_yeni(event=None):
+            raw_data = self.txt_yeni.get("1.0", tk.END).strip()
+            self.txt_yeni.delete("1.0", tk.END)
+            if not raw_data or "yapıştır" in raw_data: return
+
+            for satir in [s.strip() for s in raw_data.splitlines() if s.strip()]:
+                karekod = satir
+                if "\t" in satir:
+                    for p in satir.split("\t"):
+                        if p.strip().startswith("01") and len(p.strip()) > 20: karekod = p.strip(); break
+                elif " " in satir:
+                    for p in satir.split(" "):
+                        if p.strip().startswith("01") and len(p.strip()) > 20: karekod = p.strip(); break
+
+                if len(karekod) < 10: continue
+                gtin = karekod[2:16] if karekod.startswith("01") else karekod[:14]
+                self.imlec.execute("SELECT ad FROM ilac_kartlari WHERE gtin=?", (gtin,))
+                r = self.imlec.fetchone()
+                self.tree_yeni.insert("", 0, values=("☐", karekod, r[0] if r else "Bilinmeyen İlaç"))
+            self.lbl_sayac_yeni.config(text=f"Toplam: {len(self.tree_yeni.get_children())} Satır")
+
+        self.txt_yeni.bind("<<Paste>>", lambda e: self.pencere.after(50, parse_yeni))
+        self.txt_yeni.bind("<Return>", parse_yeni)
+
+        def kopyala_yeni():
+            kopyalanacak = [self.tree_yeni.item(i, "values")[1] for i in self.tree_yeni.get_children() if self.tree_yeni.item(i, "values")[0] == "☑"]
+            if kopyalanacak:
+                self.pencere.clipboard_clear(); self.pencere.clipboard_append("\n".join(kopyalanacak))
+                messagebox.showinfo("Kopyalandı", f"{len(kopyalanacak)} karekod kopyalandı.")
+            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
+
+        def sil_yeni():
+            silinecek = [i for i in self.tree_yeni.get_children() if self.tree_yeni.item(i, "values")[0] == "☑"]
+            if silinecek:
+                for i in silinecek: self.tree_yeni.delete(i)
+                self.lbl_sayac_yeni.config(text=f"Toplam: {len(self.tree_yeni.get_children())} Satır")
+            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
+
+        def temizle_yeni():
+            for i in self.tree_yeni.get_children(): self.tree_yeni.delete(i)
+            self.lbl_sayac_yeni.config(text="Liste Boş")
+
+        def kaydet_yeni():
+            items = self.tree_yeni.get_children()
+            if not items: return
+            ad = simpledialog.askstring("Kaydet", "Liste Adı:")
+            if ad:
+                icerik = "\n".join([self.tree_yeni.item(i, "values")[1] for i in items])
+                self.imlec.execute("INSERT INTO kayitli_listeler (liste_adi, icerik, tarih) VALUES (?,?,?)", (ad, icerik, str(datetime.now())))
+                self.baglanti_skt.commit()
+                self.kayitlari_tazele()
+                messagebox.showinfo("Başarılı", "Liste sağ panele kaydedildi.")
+
+        f_yeni_btns = tk.Frame(f_yeni_alt, bg="white")
+        f_yeni_btns.pack(side="right")
+        tk.Button(f_yeni_btns, text="📋 KOPYALA", command=kopyala_yeni, bg="#eff6ff", fg="#3b82f6", activebackground="#dbeafe", activeforeground="#2563eb", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_yeni_btns, text="🗑️ SİL", command=sil_yeni, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_yeni_btns, text="🧹 TEMİZLE", command=temizle_yeni, bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style).pack(side="left", padx=3)
+        tk.Button(f_yeni_btns, text="💾 KAYDET", command=kaydet_yeni, bg="#dcfce7", fg="#10b981", activebackground="#bbf7d0", activeforeground="#166534", **btn_style).pack(side="left", padx=3)
+
+        # ======================================================
+        # SAĞ BÖLÜM: KAYITLI LİSTELER KARTI
+        # ======================================================
+        f_kayitli = tk.Frame(f_main, **tree_bg_style)
+        f_kayitli.pack(side="right", fill="y", expand=False)
+        f_kayitli.config(width=280)
+        f_kayitli.pack_propagate(False) 
+
+        tk.Label(f_kayitli, text="💾 KAYITLI LİSTELER", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#1e293b", pady=10).pack(fill="x")
+
+        self.lb_kayitlar = tk.Listbox(f_kayitli, font=("Segoe UI", 10), bg="white", fg="#334155", relief="flat", highlightthickness=0, selectbackground="#e2e8f0", selectforeground="#0f172a")
+        self.lb_kayitlar.pack(fill="both", expand=True, padx=10, pady=10)
+
+        f_kayitli_btns = tk.Frame(f_kayitli, bg="white")
+        f_kayitli_btns.pack(fill="x", padx=10, pady=(0, 10))
+
+        def listeyi_yukle(hedef_tree, sayac_label):
             sel = self.lb_kayitlar.curselection()
             if not sel: return
             secilen_metin = self.lb_kayitlar.get(sel[0])
-            
             if not hasattr(self, 'kayit_cache'): return
             kayit_id = self.kayit_cache.get(secilen_metin)
             
@@ -8949,40 +10997,31 @@ class EczaneAsistani:
             res = self.imlec.fetchone()
             if res:
                 for i in hedef_tree.get_children(): hedef_tree.delete(i)
-                icerik = res[0]
-                satirlar = icerik.splitlines()
-                yuklenen = 0
+                satirlar = res[0].splitlines()
                 for karekod in satirlar:
                     if not karekod.strip(): continue
                     gtin = karekod[2:16] if karekod.startswith("01") else karekod[:14]
                     self.imlec.execute("SELECT ad FROM ilac_kartlari WHERE gtin=?", (gtin,))
                     r_ad = self.imlec.fetchone()
                     ad = r_ad[0] if r_ad else "Bilinmeyen İlaç"
-                    
                     hedef_tree.insert("", "end", values=("☐", karekod, ad))
-                    yuklenen += 1
-                messagebox.showinfo("Yüklendi", f"'{secilen_metin}' listesi ({yuklenen} satır) yüklendi.")
+                sayac_label.config(text=f"Toplam: {len(hedef_tree.get_children())} Satır")
+                messagebox.showinfo("Yüklendi", f"'{secilen_metin}' yüklendi.")
 
         def listeyi_sil():
             sel = self.lb_kayitlar.curselection()
             if not sel: return
-            secilen_metin = self.lb_kayitlar.get(sel[0])
-            kayit_id = self.kayit_cache.get(secilen_metin)
+            kayit_id = self.kayit_cache.get(self.lb_kayitlar.get(sel[0]))
             if messagebox.askyesno("Sil", "Bu liste silinsin mi?"):
                 self.imlec.execute("DELETE FROM kayitli_listeler WHERE id=?", (kayit_id,))
                 self.baglanti_skt.commit()
                 self.kayitlari_tazele()
 
-        # Standart Boyutlar
-        BTN_W = 230
-        BTN_H = 35
+        tk.Button(f_kayitli_btns, text="⬅️ ESKİ'YE YÜKLE", command=lambda: listeyi_yukle(self.tree_eski, self.lbl_sayac_eski), bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569", **btn_style).pack(fill="x", pady=3)
+        tk.Button(f_kayitli_btns, text="⬅️ YENİ'YE YÜKLE", command=lambda: listeyi_yukle(self.tree_yeni, self.lbl_sayac_yeni), bg="#fff7ed", fg="#ea580c", activebackground="#ffedd5", activeforeground="#c2410c", **btn_style).pack(fill="x", pady=3)
+        tk.Button(f_kayitli_btns, text="🗑️ LİSTEYİ SİL", command=listeyi_sil, bg="#fef2f2", fg="#ef4444", activebackground="#fee2e2", activeforeground="#dc2626", **btn_style).pack(fill="x", pady=3)
 
-        ModernButton(f_sag_btn, text="⬅️ ESKİ'YE YÜKLE", command=lambda: listeyi_yukle(self.tree_eski), bg_color="#64748b", width=BTN_W, height=BTN_H).pack(pady=5)
-        ModernButton(f_sag_btn, text="⬅️ YENİ'YE YÜKLE", command=lambda: listeyi_yukle(self.tree_yeni), bg_color="#f59e0b", width=BTN_W, height=BTN_H).pack(pady=5)
-        tk.Frame(f_sag_btn, height=10, bg=c.get_color("card_bg")).pack()
-        ModernButton(f_sag_btn, text="🗑️ LİSTEYİ SİL", command=listeyi_sil, bg_color="#ef4444", width=BTN_W, height=BTN_H).pack(pady=5)
-
-        self.kayitlari_tazele() 
+        self.kayitlari_tazele()
 
     # --- YENİ EKLENEN KARŞILAŞTIRMA BEYNİ ---
     def karekodlari_karsilastir(self):
@@ -9065,7 +11104,478 @@ class EczaneAsistani:
         sonuc_sekmesi_olustur("⚠️ FAZLALIKLAR (Fazla Okutulanlar)", fazlalar, "#fef3c7", yeni_karekodlar)
         sonuc_sekmesi_olustur("✅ EŞLEŞENLER (Sorunsuzlar)", eslesenler, "#d1fae5", eski_karekodlar)
 
+    def arayuz_satis_analizi(self):
+        c = TM
+        for w in self.content_area.winfo_children(): w.destroy()
+
+        # --- 1. MODERN BAŞLIK ---
+        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        header.pack(fill="x", pady=(0, 20))
+        
+        tk.Label(header, text="👑 Stratejik İstatistik ve Sipariş Radarı", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        # --- 2. ANALİZ KRİTERLERİ KARTI (Hızlı İşlem Kartı Tasarımı) ---
+        f_secim_card = tk.Frame(self.content_area, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_secim_card.pack(fill="x", pady=(0, 20))
+        
+        f_secim_header = tk.Frame(f_secim_card, bg="#f8fafc", padx=15, pady=8)
+        f_secim_header.pack(fill="x")
+        tk.Label(f_secim_header, text="⚙️ Analiz Kriterlerini Belirleyin", font=("Segoe UI", 10, "bold"), bg="#f8fafc", fg="#4f46e5").pack(side="left")
+        tk.Label(f_secim_header, text="(İTS listeleri üzerinden satış hızını analiz eder ve hedef stoğa göre sipariş önerir)", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(side="left", padx=10)
+
+        f_secim_icerik = tk.Frame(f_secim_card, bg="white", padx=15, pady=15)
+        f_secim_icerik.pack(fill="x")
+
+        # Verileri çek
+        try:
+            self.imlec.execute("SELECT id, dosya_adi, tarih FROM yuklemeler ORDER BY id DESC")
+            liste_verileri = self.imlec.fetchall()
+        except:
+            liste_verileri = []
+
+        secenekler, self.satis_liste_map = [], {}
+        for r in liste_verileri:
+            try: tarih_fmt = datetime.strptime(r[2], "%Y-%m-%d").strftime("%d.%m.%Y")
+            except: tarih_fmt = r[2]
+            
+            # DEĞİŞİKLİK BURADA: Tarih artık en başta köşeli parantez içinde yazacak!
+            etiket = f"[{tarih_fmt}] {r[1]}"
+            
+            secenekler.append(etiket)
+            self.satis_liste_map[etiket] = r[0]
+
+        if len(secenekler) < 2:
+            tk.Label(f_secim_icerik, text="Analiz için sisteme en az 2 farklı tarihte İTS listesi yüklenmiş olmalıdır.", font=("Segoe UI", 11, "bold"), fg="#ef4444", bg="white").pack(pady=10)
+            return
+
+        lbl_cfg = {"bg": "white", "fg": "#475569", "font": ("Segoe UI", 9, "bold")}
+        
+        # Başlangıç
+        f_bas = tk.Frame(f_secim_icerik, bg="white")
+        f_bas.pack(side="left", padx=(0, 15))
+        tk.Label(f_bas, text="📅 BAŞLANGIÇ LİSTESİ", **lbl_cfg).pack(anchor="w", pady=(0, 5))
+        
+        # GENİŞLİK ARTIRILDI: width=45 yapıldı
+        cmb_eski = ttk.Combobox(f_bas, values=secenekler, state="readonly", font=("Segoe UI", 10), width=45)
+        cmb_eski.pack(ipady=3)
+        cmb_eski.current(1)
+
+        tk.Label(f_secim_icerik, text="➔", font=("Segoe UI", 14), bg="white", fg="#94a3b8").pack(side="left", padx=10, pady=(15, 0))
+
+        # Bitiş
+        f_bit = tk.Frame(f_secim_icerik, bg="white")
+        f_bit.pack(side="left", padx=(15, 25))
+        tk.Label(f_bit, text="📅 BİTİŞ LİSTESİ", **lbl_cfg).pack(anchor="w", pady=(0, 5))
+        
+        # GENİŞLİK ARTIRILDI: width=45 yapıldı
+        cmb_yeni = ttk.Combobox(f_bit, values=secenekler, state="readonly", font=("Segoe UI", 10), width=45)
+        cmb_yeni.pack(ipady=3)
+        cmb_yeni.current(0)
+
+        # Hedef Gün
+        f_day = tk.Frame(f_secim_icerik, bg="white")
+        f_day.pack(side="left")
+        tk.Label(f_day, text="🎯 SİPARİŞ HEDEFİ", **lbl_cfg).pack(anchor="w", pady=(0, 5))
+        f_day_row = tk.Frame(f_day, bg="white")
+        f_day_row.pack(fill="x")
+        cmb_hedef = ttk.Combobox(f_day_row, values=["7", "15", "30", "60", "90"], state="readonly", font=("Segoe UI", 10, "bold"), width=6)
+        cmb_hedef.pack(side="left", ipady=3)
+        cmb_hedef.current(2)
+        tk.Label(f_day_row, text="Günlük", bg="white", font=("Segoe UI", 9), fg="#64748b").pack(side="left", padx=5)
+
+        # Analiz Butonu (ModernButton Kullanımı)
+        f_btn_wrapper = tk.Frame(f_secim_icerik, bg="white")
+        f_btn_wrapper.pack(side="right", fill="y", pady=(10, 0))
+        
+        def analiz_baslat_tetik():
+            btn_analiz.itemconfig(btn_analiz.find_withtag("text"), text="⏳ HESAPLANIYOR...")
+            self.pencere.update()
+            self.pencere.after(50, analiz_baslat)
+
+        btn_analiz = ModernButton(f_btn_wrapper, text="⚡ ANALİZİ BAŞLAT", command=analiz_baslat_tetik, bg_color="#4f46e5", width=220, height=45)
+        btn_analiz.pack(side="right")
+
+        # --- 3. SEKMELER VE TABLO ALANI ---
+        f_sekmeler = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        f_sekmeler.pack(side="top", fill="x", pady=(5, 0))
+
+        btn_style_sekme = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 20, "pady": 10}
+
+        btn_abc = tk.Button(f_sekmeler, text="🚂 ABC Lokomotif", **btn_style_sekme)
+        btn_abc.pack(side="left", padx=(0, 5))
+        
+        btn_trend = tk.Button(f_sekmeler, text="🏆 Top 20 Trend", **btn_style_sekme)
+        btn_trend.pack(side="left", padx=5)
+        
+        btn_yatan = tk.Button(f_sekmeler, text="🛑 Hareketsiz Stoklar", **btn_style_sekme)
+        btn_yatan.pack(side="left", padx=5)
+
+        # Tablo Kartı
+        frm_table_container = tk.Frame(self.content_area, bg="white", highlightbackground="#e2e8f0", highlightthickness=1)
+        frm_table_container.pack(fill="both", expand=True, pady=(10, 10))
+
+        list_header = tk.Frame(frm_table_container, bg="white")
+        list_header.pack(fill="x", padx=15, pady=(15, 5))
+        lbl_tablo_baslik = tk.Label(list_header, text="📄 Analiz Sonuçları", font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b")
+        lbl_tablo_baslik.pack(side="left")
+
+        self.f_tablo_alani = tk.Frame(frm_table_container, bg="white")
+        self.f_tablo_alani.pack(fill="both", expand=True, padx=2, pady=(0, 2))
+
+        self.analiz_hafizasi = {"abc": [], "trend": [], "yatan": []}
+
+        # Sekme Geçiş Mantığı (Kredi Kartı sayfasındaki gibi standart tk.Button ile sorunsuz renk değişimi)
+        def sec_sekme(aktif_sekme):
+            # Hepsini pasif (pastel) yap
+            btn_abc.config(bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569")
+            btn_trend.config(bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569")
+            btn_yatan.config(bg="#f1f5f9", fg="#64748b", activebackground="#e2e8f0", activeforeground="#475569")
+
+            # Aktif olanı canlandır ve tabloyu çiz
+            if aktif_sekme == "abc":
+                btn_abc.config(bg="#10b981", fg="white", activebackground="#059669", activeforeground="white")
+                lbl_tablo_baslik.config(text="🚂 ABC Lokomotif Analizi", fg="#10b981")
+                arayuz_ciz_abc()
+            elif aktif_sekme == "trend":
+                btn_trend.config(bg="#f59e0b", fg="white", activebackground="#d97706", activeforeground="white")
+                lbl_tablo_baslik.config(text="🏆 Top 20 Trend ve Salgın Analizi", fg="#f59e0b")
+                arayuz_ciz_trend()
+            elif aktif_sekme == "yatan":
+                btn_yatan.config(bg="#475569", fg="white", activebackground="#334155", activeforeground="white")
+                lbl_tablo_baslik.config(text="🛑 Hareketsiz (Yatan) Stoklar", fg="#475569")
+                arayuz_ciz_yatan()
+
+        btn_abc.config(command=lambda: sec_sekme("abc"))
+        btn_trend.config(command=lambda: sec_sekme("trend"))
+        btn_yatan.config(command=lambda: sec_sekme("yatan"))
+
+        def tablo_stili_uygula(tree):
+            tree.tag_configure("A", background="#ecfdf5", foreground="#065f46", font=("Segoe UI", 10, "bold")) 
+            tree.tag_configure("B", background="#fffbeb", foreground="#92400e") 
+            tree.tag_configure("C", background="#f8fafc", foreground="#475569") 
+            tree.tag_configure("TEHLIKE", background="#fef2f2", foreground="#991b1b", font=("Segoe UI", 10, "bold"))
+            tree.tag_configure("YUKSEK", background="#fef2f2", foreground="#991b1b", font=("Segoe UI", 10, "bold"))
+            tree.tag_configure("ORTA", background="#fff7ed", foreground="#9a3412", font=("Segoe UI", 10, "bold"))
+            tree.tag_configure("NORMAL", background="#f0fdf4", foreground="#15803d")
+            tree.tag_configure("YATAN", background="#f1f5f9", foreground="#475569")
+
+        def arayuz_ciz_abc():
+            for w in self.f_tablo_alani.winfo_children(): w.destroy()
+            cols = ("Sınıf", "İlaç Adı", "Sat.", "Kalan", "Günlük Hız", "Sipariş Önerisi", "Stok Durumu")
+            tree = ttk.Treeview(self.f_tablo_alani, columns=cols, show="headings", height=15)
+            for col in cols: tree.heading(col, text=col)
+            tree.column("Sınıf", width=100, anchor="center"); tree.column("İlaç Adı", width=350)
+            tree.column("Sat.", width=80, anchor="center"); tree.column("Kalan", width=80, anchor="center")
+            tree.column("Günlük Hız", width=100, anchor="center"); tree.column("Sipariş Önerisi", width=160, anchor="center")
+            tree.column("Stok Durumu", width=250, anchor="w")
+            tablo_stili_uygula(tree)
+            for r in self.analiz_hafizasi.get("abc", []):
+                tag = "TEHLIKE" if r["tehlike"] else r["sinif"][0]
+                tree.insert("", "end", values=(r["sinif"], r["ad"], r["satilan"], r["kalan"], r["hiz"], r["oneri"], r["durum"]), tags=(tag,))
+            sc = ttk.Scrollbar(self.f_tablo_alani, orient="vertical", command=tree.yview); tree.configure(yscroll=sc.set)
+            sc.pack(side="right", fill="y"); tree.pack(side="left", fill="both", expand=True)
+
+        def arayuz_ciz_trend():
+            for w in self.f_tablo_alani.winfo_children(): w.destroy()
+            cols = ("Sıra", "İlaç Adı", "Dönem Sat.", "Kalan Stok", "Günlük Hız", "Trend Durumu")
+            tree = ttk.Treeview(self.f_tablo_alani, columns=cols, show="headings", height=15)
+            for col in cols: tree.heading(col, text=col)
+            tree.column("Sıra", width=80, anchor="center"); tree.column("İlaç Adı", width=400)
+            tree.column("Dönem Sat.", width=100, anchor="center"); tree.column("Kalan Stok", width=100, anchor="center")
+            tree.column("Günlük Hız", width=120, anchor="center"); tree.column("Trend Durumu", width=250, anchor="w")
+            tablo_stili_uygula(tree)
+            for r in self.analiz_hafizasi.get("trend", []):
+                tree.insert("", "end", values=(r["sira"], r["ad"], r["satilan"], r["kalan"], r["hiz"], r["alarm"]), tags=(r["tag"],))
+            sc = ttk.Scrollbar(self.f_tablo_alani, orient="vertical", command=tree.yview); tree.configure(yscroll=sc.set)
+            sc.pack(side="right", fill="y"); tree.pack(side="left", fill="both", expand=True)
+
+        def arayuz_ciz_yatan():
+            for w in self.f_tablo_alani.winfo_children(): w.destroy()
+            cols = ("İlaç Adı", "Rafta Kalan", "Hareketsizlik Durumu", "Aksiyon Önerisi")
+            tree = ttk.Treeview(self.f_tablo_alani, columns=cols, show="headings", height=15)
+            for col in cols: tree.heading(col, text=col)
+            tree.column("İlaç Adı", width=450); tree.column("Rafta Kalan", width=150, anchor="center")
+            tree.column("Hareketsizlik Durumu", width=250, anchor="center"); tree.column("Aksiyon Önerisi", width=250, anchor="center")
+            tablo_stili_uygula(tree)
+            for r in self.analiz_hafizasi.get("yatan", []):
+                tree.insert("", "end", values=(r["ad"], r["kalan"], r["durum"], r["aksiyon"]), tags=("YATAN",))
+            sc = ttk.Scrollbar(self.f_tablo_alani, orient="vertical", command=tree.yview); tree.configure(yscroll=sc.set)
+            sc.pack(side="right", fill="y"); tree.pack(side="left", fill="both", expand=True)
+
+        # İlk açılışta ABC sekmesi aktif olsun
+        sec_sekme("abc")
+
+        # --- HESAPLAMA MOTORU ---
+        def analiz_baslat():
+            if not cmb_eski.get() or not cmb_yeni.get() or cmb_eski.get() == cmb_yeni.get(): 
+                btn_analiz.itemconfig(btn_analiz.find_withtag("text"), text="⚡ ANALİZİ BAŞLAT")
+                messagebox.showwarning("Hata", "Lütfen analiz için iki farklı liste seçin.")
+                return
+                
+            id_eski, id_yeni = self.satis_liste_map[cmb_eski.get()], self.satis_liste_map[cmb_yeni.get()]
+            if id_eski > id_yeni: id_eski, id_yeni = id_yeni, id_eski
+            try: hedef_gun = int(cmb_hedef.get())
+            except: hedef_gun = 30 
+            
+            try:
+                self.imlec.execute("SELECT tarih FROM yuklemeler WHERE id=?", (id_eski,))
+                d1 = datetime.strptime(self.imlec.fetchone()[0], "%Y-%m-%d").date()
+                self.imlec.execute("SELECT tarih FROM yuklemeler WHERE id=?", (id_yeni,))
+                d2 = datetime.strptime(self.imlec.fetchone()[0], "%Y-%m-%d").date()
+                gun_farki = abs((d2 - d1).days) or 1
+            except: gun_farki = 30
+            
+            # --- DEĞİŞİKLİK 2: KUSURSUZ MATEMATİKSEL SQL SORGUSU ---
+            # Artık manuel eklemeleri ve gelecek listeleri KESİNLİKLE dışarıda bırakıyor. Sadece Bitiş listesindeki gerçek stoğu sayar!
+            sorgu = """SELECT ad, 
+                       SUM(CASE WHEN raf_yeri != '' AND CAST(raf_yeri AS INTEGER) >= ? AND CAST(raf_yeri AS INTEGER) < ? THEN 1 ELSE 0 END) as satilan,
+                       SUM(CASE WHEN raf_yeri != '' AND (yukleme_id IS NULL OR yukleme_id <= ?) AND CAST(raf_yeri AS INTEGER) >= ? THEN 1 ELSE 0 END) as kalan
+                       FROM ilaclar GROUP BY ad HAVING satilan > 0 OR kalan > 0 ORDER BY satilan DESC"""
+            
+            self.imlec.execute(sorgu, (id_eski, id_yeni, id_yeni, id_yeni))
+            veriler = self.imlec.fetchall()
+            
+            self.analiz_hafizasi = {"abc": [], "trend": [], "yatan": []}
+            toplam_satis_adeti = sum(r[1] for r in veriler)
+            kumulatif = 0
+            trend_sayaci = 0
+            
+            for r in veriler:
+                ad, satilan, kalan = r[0], r[1], r[2]
+                gunluk_hiz = satilan / gun_farki
+                if satilan > 0:
+                    kumulatif += satilan
+                    yuzde = kumulatif / (toplam_satis_adeti or 1)
+                    if yuzde <= 0.75: sinif, guvenlik_gunu = "A (Hızlı)", 10
+                    elif yuzde <= 0.90: sinif, guvenlik_gunu = "B (Orta)", 5
+                    else: sinif, guvenlik_gunu = "C (Yavaş)", 2
+                    
+                    kritik_sinir = max(1, int(gunluk_hiz * guvenlik_gunu))
+                    tehlike = kalan <= kritik_sinir
+                    ideal_stok = int(gunluk_hiz * hedef_gun)
+                    siparis_lazim = max(0, ideal_stok - kalan)
+                    
+                    self.analiz_hafizasi["abc"].append({"sinif": sinif, "ad": ad, "satilan": f"{satilan} Kutu", "kalan": f"{kalan} Kutu", 
+                        "hiz": f"{gunluk_hiz:.2f}", "oneri": f"📦 {siparis_lazim} Kutu İste" if siparis_lazim > 0 else "-", 
+                        "durum": "🚨 KRİTİK SEVİYE" if tehlike else "✅ Yeterli", "tehlike": tehlike})
+                        
+                    if trend_sayaci < 20:
+                        trend_sayaci += 1
+                        if gunluk_hiz >= 3: alarm, tag = "🔥 YÜKSEK İVME (Salgın/Trend)", "YUKSEK"
+                        elif gunluk_hiz >= 1.5: alarm, tag = "📈 Hızlı Satış", "ORTA"
+                        else: alarm, tag = "⭐ Popüler / İstikrarlı", "NORMAL"
+                        self.analiz_hafizasi["trend"].append({"sira": f"#{trend_sayaci}", "ad": ad, "satilan": f"{satilan} Kutu", 
+                            "kalan": f"{kalan} Kutu", "hiz": f"{gunluk_hiz:.1f} K/G", "alarm": alarm, "tag": tag})
+                            
+                if satilan == 0 and kalan > 0:
+                    self.analiz_hafizasi["yatan"].append({"ad": ad, "kalan": f"{kalan} Kutu", 
+                        "durum": f"🛑 {gun_farki} Gündür Hareketsiz", "aksiyon": "🔄 İade Et veya Takasa Koy"})
+                        
+            # Sonuçları ekrana bas ve butonu eski haline getir
+            btn_analiz.itemconfig(btn_analiz.find_withtag("text"), text="⚡ ANALİZİ BAŞLAT")
+            sec_sekme("abc")
+            messagebox.showinfo("Analiz Tamamlandı", f"{gun_farki} günlük satış periyodu incelendi ve veriler işlendi!")
     # -------------------------------------------------------------------------
+
+    # =========================================================================
+    # 📚 ECZANE İÇİ BİLGİ BANKASI (WIKI / REHBER)
+    # =========================================================================
+    def arayuz_bilgi_bankasi(self):
+        c = TM
+        for w in self.content_area.winfo_children(): w.destroy()
+
+        # --- 1. ÜST BAŞLIK VE EKLEME BUTONU ---
+        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        header.pack(fill="x", pady=(0, 15))
+        tk.Label(header, text="📚 Eczane Bilgi Bankası & Rehber", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        btn_style_ana = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "cursor": "hand2", "padx": 20, "pady": 8}
+        tk.Button(header, text="➕ YENİ BİLGİ / KAYIT EKLE", command=lambda: self.bilgi_kaydi_popup(), 
+                  bg="#dbeafe", fg="#1d4ed8", activebackground="#bfdbfe", activeforeground="#1e40af", **btn_style_ana).pack(side="right", padx=10)
+
+        # --- 2. ARAMA VE FİLTRELEME KARTI ---
+        f_search_card = tk.Frame(self.content_area, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1, padx=15, pady=12)
+        f_search_card.pack(fill="x", pady=(0, 20))
+
+        tk.Label(f_search_card, text="🔍 Bilgi Ara:", font=("Segoe UI", 11, "bold"), bg="white", fg="#64748b").pack(side="left", padx=(0, 10))
+        ent_ara = tk.Entry(f_search_card, font=("Segoe UI", 12), bg="#f8fafc", fg="#0f172a", relief="solid", bd=1, insertbackground="#0f172a")
+        ent_ara.pack(side="left", fill="x", expand=True, padx=5, ipady=5)
+        
+        def ara_tetik(e=None):
+            bilgileri_listele(ent_ara.get())
+        ent_ara.bind("<KeyRelease>", ara_tetik)
+
+        # --- 3. ANA İÇERİK ALANI (SCROLLABLE GRID) ---
+        canvas = tk.Canvas(self.content_area, bg=c.get_color("bg_main"), highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.content_area, orient="vertical", command=canvas.yview)
+        self.f_bilgi_liste = tk.Frame(canvas, bg=c.get_color("bg_main"))
+        
+        self.f_bilgi_liste.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        window_id = canvas.create_window((0, 0), window=self.f_bilgi_liste, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.mouse_scroll_ekle(canvas, self.f_bilgi_liste)
+
+        def bilgileri_listele(query=""):
+            for w in self.f_bilgi_liste.winfo_children(): w.destroy()
+            
+            sql = "SELECT id, kategori, baslik, icerik, tarih FROM bilgi_bankasi"
+            params = []
+            if query:
+                sql += " WHERE baslik LIKE ? OR icerik LIKE ? OR kategori LIKE ?"
+                params = [f"%{query}%", f"%{query}%", f"%{query}%"]
+            sql += " ORDER BY kategori ASC, baslik ASC"
+            
+            self.imlec.execute(sql, params)
+            kayitlar = self.imlec.fetchall()
+            
+            if not kayitlar:
+                tk.Label(self.f_bilgi_liste, text="Aranan kriterde bir bilgi bulunamadı.", font=("Segoe UI", 11, "italic"), bg=c.get_color("bg_main"), fg="#94a3b8").pack(pady=40)
+                return
+
+            # Kartları dizeceğiz
+            for rid, kat, baslik, icerik, tarih in kayitlar:
+                render_bilgi_karti(rid, kat, baslik, icerik, tarih)
+
+        def render_bilgi_karti(rid, kat, baslik, icerik, tarih):
+            # Kategoriye göre renk belirle
+            renkler = {"Rehber": "#3b82f6", "Formül": "#10b981", "SGK": "#ef4444", "Özel Not": "#f59e0b", "Depo": "#8b5cf6"}
+            renk = renkler.get(kat, "#64748b")
+
+            card = tk.Frame(self.f_bilgi_liste, bg="white", highlightbackground="#e2e8f0", highlightthickness=1, padx=15, pady=15)
+            card.pack(fill="x", pady=5, padx=10)
+
+            f_ust = tk.Frame(card, bg="white")
+            f_ust.pack(fill="x")
+
+            # Kategori Etiketi (Küçük renkli kutu)
+            lbl_kat = tk.Label(f_ust, text=kat.upper(), font=("Segoe UI", 8, "bold"), bg=renk, fg="white", padx=8, pady=2)
+            lbl_kat.pack(side="left", padx=(0, 10))
+
+            tk.Label(f_ust, text=baslik, font=("Segoe UI", 12, "bold"), bg="white", fg="#1e293b").pack(side="left")
+            
+            # Sağ üst butonlar
+            f_btns = tk.Frame(f_ust, bg="white")
+            f_btns.pack(side="right")
+            
+            tk.Button(f_btns, text="✏️", font=("Segoe UI", 10), bg="white", fg="#3b82f6", bd=0, cursor="hand2", command=lambda: self.bilgi_kaydi_popup(rid)).pack(side="left", padx=5)
+            tk.Button(f_btns, text="🗑️", font=("Segoe UI", 10), bg="white", fg="#ef4444", bd=0, cursor="hand2", command=lambda: bilgi_sil(rid, baslik)).pack(side="left", padx=5)
+
+            # İçerik Alanı
+            lbl_icerik = tk.Label(card, text=icerik, font=("Segoe UI", 10), bg="white", fg="#475569", justify="left", wraplength=1000, pady=10)
+            lbl_icerik.pack(anchor="w")
+
+            tk.Label(card, text=f"Son Güncelleme: {tarih}", font=("Segoe UI", 8), bg="white", fg="#94a3b8").pack(anchor="e")
+
+        def bilgi_sil(rid, baslik):
+            if messagebox.askyesno("Kayıt Sil", f"'{baslik}' kaydını silmek istiyor musunuz?"):
+                self.imlec.execute("DELETE FROM bilgi_bankasi WHERE id=?", (rid,))
+                self.baglanti_skt.commit()
+                bilgileri_listele(ent_ara.get())
+
+        bilgileri_listele()
+
+    # --- EKLEME / DÜZENLEME POPUP ---
+    def bilgi_kaydi_popup(self, record_id=None):
+        c = TM
+        win = tk.Toplevel(self.pencere)
+        win.title("Bilgi Kaydı")
+        win.geometry("550x675")
+        win.configure(bg="white")
+        win.transient(self.pencere); win.grab_set()
+        
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 250
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 310
+        win.geometry(f"+{x}+{y}")
+
+        tk.Label(win, text="📚 Bilgi Bankası Formu", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=20)
+        
+        f_form = tk.Frame(win, bg="white", padx=30)
+        f_form.pack(fill="both", expand=True)
+
+        lbl_s = {"bg": "white", "fg": "#64748b", "font": ("Segoe UI", 9, "bold")}
+        
+        # 1. KATEGORİ SEÇİMİ
+        tk.Label(f_form, text="Kategori:", **lbl_s).pack(anchor="w")
+        cmb_kat = ttk.Combobox(f_form, values=["Rehber", "Depo", "Formül", "SGK", "Özel Not", "Diğer"], state="readonly", font=("Segoe UI", 11))
+        cmb_kat.pack(fill="x", pady=(2, 10), ipady=3)
+        cmb_kat.current(0)
+
+        # 2. DİNAMİK TELEFON KUTUSU (Varsayılan olarak gizli)
+        f_tel = tk.Frame(f_form, bg="white")
+        tk.Label(f_tel, text="☎️ Telefon Numarası:", **lbl_s).pack(anchor="w")
+        ent_tel = tk.Entry(f_tel, font=("Segoe UI", 12, "bold"), relief="solid", bd=1, bg="#f0fdf4", fg="#166534")
+        ent_tel.pack(fill="x", pady=(2, 10), ipady=5)
+
+        def kategori_kontrol(event=None):
+            secim = cmb_kat.get()
+            if secim == "Depo" or secim == "Rehber":
+                f_tel.pack(fill="x", after=cmb_kat) # Combobox'ın hemen altına yerleşir
+            else:
+                f_tel.pack_forget() # Gizle
+                ent_tel.delete(0, tk.END)
+
+        cmb_kat.bind("<<ComboboxSelected>>", kategori_kontrol)
+
+        # 3. BAŞLIK
+        tk.Label(f_form, text="Başlık / İsim:", **lbl_s).pack(anchor="w", pady=(5,0))
+        ent_baslik = tk.Entry(f_form, font=("Segoe UI", 11), relief="solid", bd=1)
+        ent_baslik.pack(fill="x", pady=(2, 10), ipady=5)
+
+        # 4. İÇERİK
+        tk.Label(f_form, text="İçerik / Notlar:", **lbl_s).pack(anchor="w")
+        txt_icerik = tk.Text(f_form, font=("Segoe UI", 10), height=8, relief="solid", bd=1)
+        txt_icerik.pack(fill="both", expand=True, pady=(2, 15))
+
+        # EĞER DÜZENLEME MODUYSA (Daha önce kaydedilmişse bilgileri getir)
+        if record_id:
+            self.imlec.execute("SELECT kategori, baslik, icerik FROM bilgi_bankasi WHERE id=?", (record_id,))
+            res = self.imlec.fetchone()
+            if res:
+                cmb_kat.set(res[0])
+                ent_baslik.insert(0, res[1])
+                
+                # İçerikte telefon numarası varsa ayıkla ve kutuya yaz
+                icerik_metni = res[2]
+                if "☎️ Tel: " in icerik_metni:
+                    tel_kismi = icerik_metni.split("☎️ Tel: ")[1].split("\n")[0]
+                    ent_tel.insert(0, tel_kismi)
+                    icerik_metni = icerik_metni.replace(f"☎️ Tel: {tel_kismi}\n\n", "") # Metinden temizle
+                
+                txt_icerik.insert("1.0", icerik_metni)
+                kategori_kontrol() # Telefon kutusunu duruma göre göster
+        else:
+            kategori_kontrol() # Yeni kayıtsa ilk duruma bak
+
+        def kaydet():
+            k = cmb_kat.get()
+            b = ent_baslik.get().strip()
+            i = txt_icerik.get("1.0", tk.END).strip()
+            
+            if not b or not i:
+                messagebox.showwarning("Hata", "Lütfen başlık ve içerik alanlarını doldurun.", parent=win)
+                return
+                
+            # Telefon girilmişse içeriğin en başına süslü bir şekilde ekle
+            tel = ent_tel.get().strip()
+            if tel and (k == "Depo" or k == "Rehber"):
+                i = f"☎️ Tel: {tel}\n\n{i}"
+            
+            tarih = datetime.now().strftime("%d.%m.%Y")
+            if record_id:
+                self.imlec.execute("UPDATE bilgi_bankasi SET kategori=?, baslik=?, icerik=?, tarih=? WHERE id=?", (k, b, i, tarih, record_id))
+            else:
+                self.imlec.execute("INSERT INTO bilgi_bankasi (kategori, baslik, icerik, tarih) VALUES (?,?,?,?)", (k, b, i, tarih))
+            
+            self.baglanti_skt.commit()
+            win.destroy()
+            self.arayuz_bilgi_bankasi()
+
+        ModernButton(win, text="KAYDET", command=kaydet, bg_color="#10b981", width=200, height=45).pack(pady=20)
+
     def kayitlari_tazele(self):
         self.lb_kayitlar.delete(0, tk.END)
         self.kayit_cache = {}
@@ -9138,79 +11648,7 @@ class EczaneAsistani:
                         tree.item(item, values=vals)
         tree.bind("<Button-1>", satir_tikla)
 
-        # === AKILLI AYIKLAYICI ===
-        def analiz_et(event=None):
-            raw_data = txt_input.get("1.0", tk.END).strip()
-            txt_input.delete("1.0", tk.END)
-            if not raw_data or "yapıştır" in raw_data: return
-
-            satirlar = [s.strip() for s in raw_data.splitlines() if s.strip()]
-            for satir in satirlar:
-                karekod = satir
-                
-                if "\t" in satir:
-                    for p in satir.split("\t"):
-                        if p.strip().startswith("01") and len(p.strip()) > 20:
-                            karekod = p.strip()
-                            break
-                elif " " in satir:
-                    for p in satir.split(" "):
-                        if p.strip().startswith("01") and len(p.strip()) > 20:
-                            karekod = p.strip()
-                            break
-
-                if len(karekod) < 10: continue
-                
-                gtin = karekod[2:16] if karekod.startswith("01") else karekod[:14]
-                self.imlec.execute("SELECT ad FROM ilac_kartlari WHERE gtin=?", (gtin,))
-                r = self.imlec.fetchone()
-                ad = r[0] if r else "Bilinmeyen İlaç"
-                
-                tree.insert("", 0, values=("☐", karekod, ad))
-            
-            lbl_info.config(text=f"Toplam: {len(tree.get_children())} Satır")
-
-        def on_paste(event): txt_input.after(50, analiz_et)
-        txt_input.bind("<<Paste>>", on_paste)
-        txt_input.bind("<Return>", analiz_et)
-
-        def secili_kopyala():
-            kopyalanacak = [tree.item(i, "values")[1] for i in tree.get_children() if tree.item(i, "values")[0] == "☑"]
-            if kopyalanacak:
-                self.pencere.clipboard_clear()
-                self.pencere.clipboard_append("\n".join(kopyalanacak))
-                messagebox.showinfo("Kopyalandı", f"{len(kopyalanacak)} karekod kopyalandı.")
-            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
-
-        def secili_sil():
-            silinecek = [i for i in tree.get_children() if tree.item(i, "values")[0] == "☑"]
-            if silinecek:
-                for i in silinecek: tree.delete(i)
-                lbl_info.config(text=f"Toplam: {len(tree.get_children())} Satır")
-            else: messagebox.showwarning("Uyarı", "Seçim yapınız.")
-
-        def listeyi_kaydet():
-            items = tree.get_children()
-            if not items: return
-            ad = simpledialog.askstring("Kaydet", "Liste Adı:")
-            if ad:
-                icerik = "\n".join([tree.item(i, "values")[1] for i in items])
-                self.imlec.execute("INSERT INTO kayitli_listeler (liste_adi, icerik, tarih) VALUES (?,?,?)", 
-                                   (ad, icerik, str(datetime.now())))
-                self.baglanti_skt.commit()
-                self.kayitlari_tazele()
-                messagebox.showinfo("Başarılı", "Liste sağ panele kaydedildi.")
-
-        # Standart Boyutlar
-        BTN_W = 160
-        BTN_H = 45
-
-        ModernButton(f_btn, text="📋 KOPYALA", command=secili_kopyala, bg_color="#3b82f6", width=BTN_W, height=BTN_H).pack(side="left", padx=4)
-        ModernButton(f_btn, text="🗑️ SİL", command=secili_sil, bg_color="#ef4444", width=BTN_W, height=BTN_H).pack(side="left", padx=4)
-        ModernButton(f_btn, text="💾 KAYDET", command=listeyi_kaydet, bg_color="#10b981", width=BTN_W, height=BTN_H).pack(side="right", padx=4)
-        ModernButton(f_btn, text="🧹 TEMİZLE", command=lambda: [tree.delete(i) for i in tree.get_children()], bg_color="#64748b", width=BTN_W, height=BTN_H).pack(side="right", padx=4)
-
-        return tree
+        
 
     def kayitlari_tazele(self):
         self.lb_kayitlar.delete(0, tk.END)
@@ -9427,117 +11865,902 @@ class EczaneAsistani:
         # 7 saniye (7000 ms) sonra kendi kendini yok et
         toast.after(7000, toast.destroy)
 
-    def otomatik_kontrol_dongusu(self):
-        """Programın arkada çalışmaya devam etmesini ve günlük bildirimler göndermesini sağlar"""
-        bugun_str = date.today().strftime('%Y-%m-%d')
+    def aylik_durum_raporu_gonder(self, manuel=False):
+        """Her ayın 1'inde VEYA manuel tetiklendiğinde tüm sekmelerin detayını ve SGK-Depo net durumunu raporlar."""
+        import datetime
+        from datetime import timedelta
+        bugun = datetime.date.today()
+        bu_ay_str = bugun.strftime('%Y-%m') # Örn: 2026-04
         
-        # Veritabanından son bildirim tarihini çek (Uygulama kapanıp açılsa bile hatırlar)
-        try:
-            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='son_gunluk_bildirim'")
-            res = self.imlec.fetchone()
-            kayitli_tarih = res[0] if res else ""
-        except:
-            kayitli_tarih = ""
-            
-        # Her gün sadece 1 kere bildirim verip rahatsız etmemesi için kontrol
-        if kayitli_tarih != bugun_str:
+        # Eğer otomatik çalışıyorsa sadece Ayın 1'inde ve günde 1 kez çalışsın
+        if not manuel:
+            if bugun.day != 1: return
             try:
-                bugun = date.today()
-                sinir_15_gun = (bugun + timedelta(days=15)).strftime('%Y-%m-%d')
-                yarin_str = (bugun + timedelta(days=1)).strftime('%Y-%m-%d')
-                
-                # =========================================================
-                # 1. MİAD (SKT) KONTROLÜ
-                # =========================================================
-                self.imlec.execute("SELECT COUNT(*) FROM ilaclar WHERE skt <= ?", (sinir_15_gun,))
-                yakin_miad = self.imlec.fetchone()[0]
-                
-                if yakin_miad > 0:
-                    self.goster_bildirim("📦 Kritik Stok", f"Dikkat! {yakin_miad} adet ürünün miadı dolmak üzere veya doldu.")
-                    self.sisteme_bildirim_ekle(f"⚠️ {yakin_miad} adet ürünün miadı kritik seviyede!")
+                self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='son_aylik_durum_raporu'")
+                res = self.imlec.fetchone()
+                if res and res[0] == bu_ay_str: return
+            except: pass
+            
+        # Manuel tetiklendiyse imleci (cursor) dondurup "Gönderiliyor" hissi verelim
+        if manuel:
+            self.pencere.config(cursor="watch")
+            self.pencere.update()
 
-                # =========================================================
-                # 2. KREDİ KARTI HESAP KESİM BİLDİRİMİ (Bugün)
-                # =========================================================
-                suanki_gun = bugun.day
-                self.imlec_finans.execute("SELECT isim FROM kredi_kartlari WHERE kesim_gunu=?", (suanki_gun,))
-                kesilen_kartlar = self.imlec_finans.fetchall()
-                for (k_isim,) in kesilen_kartlar:
-                    mesaj = f"Bugün '{k_isim}' kartınızın HESAP KESİM tarihidir."
-                    self.goster_bildirim("✂️ Hesap Kesimi", mesaj)
-                    self.sisteme_bildirim_ekle(f"💳 {mesaj}")
+        # Türkçe aylar sözlüğünü tanımlıyoruz
+        aylar_tr = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
 
-                # =========================================================
-                # 3. KREDİ KARTI SON ÖDEME BİLDİRİMİ (Bugün ve Yarın) - GRUPLU MANTIK
-                # =========================================================
-                self.imlec_finans.execute("""
-                    SELECT satir_notu, vade_tarihi, tutar FROM odemeler 
-                    WHERE (aciklama LIKE '%Kredi Kartı%' OR satir_notu LIKE 'KART:%') 
-                    AND durum='ODENMEDİ' AND (vade_tarihi=? OR vade_tarihi=?)
-                """, (bugun_str, yarin_str))
-                kart_odemeleri = self.imlec_finans.fetchall()
+        # Eczane döngüsüne uygun olarak Kasa hesaplamasını "Geçen ayın 15'i ile Bu ayın 15'i" arasına sabitliyoruz
+        ilk_gun = bugun.replace(day=1)
+        gecen_ay = ilk_gun - timedelta(days=1)
+        
+        gecen_15_str = f"{gecen_ay.strftime('%Y-%m')}-15"
+        bu_15_str = f"{bugun.strftime('%Y-%m')}-15"
+        
+        kasa_baslik_metni = f"💵 15 {aylar_tr[gecen_ay.month].upper()} - 15 {aylar_tr[bugun.month].upper()} KASA GİRİŞİ"
+
+        try:
+            # =================================================================
+            # 1. ANA HESAP: SGK vs DEPO (ÖDENMİŞLER DAHİL TÜM AYIN HESABI)
+            # =================================================================
+            
+            # Bu aya ait TÜM Depo Ödemeleri (Depo bazında gruplanmış)
+            self.imlec_finans.execute("""
+                SELECT fatura_adi, SUM(tutar) FROM odemeler 
+                WHERE strftime('%Y-%m', vade_tarihi) = ? 
+                AND (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
+                AND aciklama NOT LIKE 'KREDI:%'
+                GROUP BY fatura_adi
+                ORDER BY SUM(tutar) DESC
+            """, (bu_ay_str,))
+            depo_listesi_tam = self.imlec_finans.fetchall()
+            tum_aylik_depo = sum(r[1] for r in depo_listesi_tam)
+
+            # Bu aya ait TÜM SGK/Kurum Gelirleri
+            self.imlec_finans.execute("""
+                SELECT fatura_adi, SUM(tutar) FROM odemeler 
+                WHERE strftime('%Y-%m', vade_tarihi) = ? 
+                AND satir_notu = 'KURUM_GELIR'
+                GROUP BY fatura_adi
+                ORDER BY SUM(tutar) DESC
+            """, (bu_ay_str,))
+            kurum_listesi_tam = self.imlec_finans.fetchall()
+            tum_aylik_sgk = sum(r[1] for r in kurum_listesi_tam)
+
+            # Net Durum Formülü (SGK - Depo)
+            sgk_depo_farki = tum_aylik_sgk - tum_aylik_depo
+
+            if sgk_depo_farki >= 0:
+                durum_mesaji = f"Bu ay Gelirlerden, Depo ödemeleri çıkıldığında <span style='color:#10b981; font-size:18px;'>{sgk_depo_farki:,.2f} ₺ ARTIDASINIZ (+)</span>"
+                bg_renk, border_renk = "#ecfdf5", "#10b981"
+            else:
+                durum_mesaji = f"Bu aya ait toplam depo ödemeleriniz, beklenen SGK/Kurum gelirinizden <span style='color:#ef4444; font-size:18px;'>{abs(sgk_depo_farki):,.2f} ₺ DAHA FAZLA (-)</span>"
+                bg_renk, border_renk = "#fef2f2", "#ef4444"
+
+            # =================================================================
+            # 2. DİĞER BİLGİLER (KART, KREDİ, SABİT GİDER) SADECE "ÖDENMEMİŞLERİ" LİSTELER
+            # =================================================================
+            
+            # Bu Aya Ait TÜM Depolar (Ödenmiş/Ödenmemiş Fark Etmez, Gruplu Halde)
+            self.imlec_finans.execute("""
+                SELECT fatura_adi, SUM(tutar) FROM odemeler 
+                WHERE strftime('%Y-%m', vade_tarihi) = ?
+                AND (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
+                AND aciklama NOT LIKE 'KREDI:%' GROUP BY fatura_adi ORDER BY SUM(tutar) DESC
+            """, (bu_ay_str,))
+            depo_listesi = self.imlec_finans.fetchall()
+            depo_toplam = sum(r[1] for r in depo_listesi)
+
+            # Kart Ödemeleri
+            self.imlec_finans.execute("""
+                SELECT satir_notu, SUM(tutar) FROM odemeler 
+                WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' 
+                AND (satir_notu LIKE 'KART:%' OR aciklama = 'Kredi Kartı') GROUP BY satir_notu
+            """, (bu_ay_str,))
+            ham_kart_odemeleri = self.imlec_finans.fetchall()
+            
+            kart_sistem_toplam = {}
+            for notu, tutar in ham_kart_odemeleri:
+                k_adi = "Diğer Kartlar"
+                if notu and "KART:" in str(notu):
+                    temp = str(notu).split("KART:")[1].strip()
+                    k_adi = temp.split("(")[0].replace("-", "").strip() if "(" in temp else temp.replace("-", "").strip()
+                kart_sistem_toplam[k_adi] = kart_sistem_toplam.get(k_adi, 0.0) + (tutar or 0.0)
+
+            self.imlec_finans.execute("SELECT ayar_adi, deger FROM program_ayarlari WHERE ayar_adi LIKE ?", (f"ekstre_toplam_%_{bu_ay_str}",))
+            manuel_ekstreler = {}
+            for ayar_adi, deger in self.imlec_finans.fetchall():
+                k_adi = ayar_adi.replace("ekstre_toplam_", "").replace(f"_{bu_ay_str}", "").strip()
+                try: manuel_ekstreler[k_adi] = float(deger)
+                except: manuel_ekstreler[k_adi] = 0.0
+
+            kart_sonuc_listesi = []
+            kart_toplam = 0.0
+            tum_kartlar = set(list(kart_sistem_toplam.keys()) + list(manuel_ekstreler.keys()))
+            
+            for k_adi in sorted(tum_kartlar):
+                sist_tut = kart_sistem_toplam.get(k_adi, 0.0)
+                eks_tut = manuel_ekstreler.get(k_adi, 0.0)
+                gecerli_tutar = eks_tut if eks_tut > 0 else sist_tut
+                if gecerli_tutar > 0:
+                    kart_sonuc_listesi.append((k_adi, gecerli_tutar))
+                    kart_toplam += gecerli_tutar
+
+            # Krediler
+            self.imlec_finans.execute("SELECT aciklama, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND aciklama LIKE 'KREDI:%'", (bu_ay_str,))
+            kredi_listesi = self.imlec_finans.fetchall()
+            kredi_toplam = sum(r[1] for r in kredi_listesi)
+
+            # Sabit Giderler
+            self.imlec_finans.execute("SELECT fatura_adi, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND satir_notu = 'MANUEL_GIDER' AND (aciklama IS NULL OR aciklama NOT LIKE 'KREDI:%')", (bu_ay_str,))
+            gider_listesi = self.imlec_finans.fetchall()
+            gider_toplam = sum(r[1] for r in gider_listesi)
+
+            # Sabit Gelirler (Diğer Bekleyen Gelirler)
+            self.imlec_finans.execute("SELECT fatura_adi, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND satir_notu = 'MANUEL_GELIR'", (bu_ay_str,))
+            diger_gelir_listesi = self.imlec_finans.fetchall()
+            diger_gelir_toplam = sum(r[1] for r in diger_gelir_listesi)
+
+            # Sadece Bekleyen SGK Gelirleri
+            self.imlec_finans.execute("SELECT fatura_adi, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND satir_notu = 'KURUM_GELIR'", (bu_ay_str,))
+            kurum_listesi = self.imlec_finans.fetchall()
+            kurum_toplam = sum(r[1] for r in kurum_listesi)
+
+            # İlgili Dönemin Kasa Girişi (15'inden 15'ine)
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM kasa_defteri WHERE islem_turu='GİRİŞ' AND tarih >= ? AND tarih <= ?", (gecen_15_str, bu_15_str))
+            kasa_giris_toplam = self.imlec_finans.fetchone()[0] or 0.0
+
+            tum_gelirler = kurum_toplam + kasa_giris_toplam
+
+            # YENİ: BULUNDUĞUMUZ AYIN GELİR VE GİDER MODÜLÜ ÖZETİ (Sadece Mevcut/Ödenmemiş Borç ve Alacaklar)
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND satir_notu IN ('KURUM_GELIR', 'MANUEL_GELIR') AND durum='ODENMEDİ'", (bu_ay_str,))
+            aylik_kasa_giris = self.imlec_finans.fetchone()[0] or 0.0
+            
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND (satir_notu IS NULL OR satir_notu NOT IN ('KURUM_GELIR', 'MANUEL_GELIR')) AND durum='ODENMEDİ'", (bu_ay_str,))
+            aylik_kasa_cikis = self.imlec_finans.fetchone()[0] or 0.0
+            
+            aylik_kasa_net = aylik_kasa_giris - aylik_kasa_cikis
+            if aylik_kasa_net >= 0:
+                kasa_net_mesaj = f"<span style='color:#10b981;'>{aylik_kasa_net:,.2f} ₺ ARTIDASINIZ (+)</span>"
+            else:
+                kasa_net_mesaj = f"<span style='color:#ef4444;'>{abs(aylik_kasa_net):,.2f} ₺ EKSİDESİNİZ (-)</span>"
+
+            # --- HTML MAİL İÇERİĞİ ---
+            aylar_tr = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
+            ay_ismi = f"{aylar_tr[bugun.month]} {bugun.year}"
+            html = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                <h2 style="color: #2c3e50; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">📊 {ay_ismi} Finans Dökümü</h2>
                 
-                # Kart isimlerine ve tarihe göre grupla (Aynı karta ait harcamaları topla)
-                kart_gruplu = {}
-                for (notu, v_tar, tutar) in kart_odemeleri:
-                    kart_adi = "Kredi Kartı"
-                    if notu and "KART:" in str(notu):
-                        temp = str(notu).split("KART:")[1].strip()
-                        kart_adi = temp.split("(")[0].strip() if "(" in temp else temp
-                    
-                    key = (kart_adi, v_tar)
-                    kart_gruplu[key] = kart_gruplu.get(key, 0.0) + (tutar or 0.0)
+                <div style="background-color: {bg_renk}; border-left: 5px solid {border_renk}; padding: 15px; margin-bottom: 25px;">
+                    <h3 style="margin: 0; font-size: 18px;">⚖️ AYLIK NET DURUM</h3>
+                    <p style="margin: 5px 0; font-size: 13px; color: #555;"><i>(Bu Aya Ait Toplam Kurum Geliri: <b>{tum_aylik_sgk:,.2f} ₺</b>  |  Toplam Depo Ödemesi: <b>{tum_aylik_depo:,.2f} ₺</b>)</i></p>
+                    <p style="font-size: 16px; margin: 10px 0 0 0; font-weight: bold;">{durum_mesaji}</p>
+                </div>
+
+                <table width="100%" cellpadding="10" style="border-collapse: collapse;">
+                    <tr>
+                        <td width="50%" valign="top" style="border: 1px solid #ddd; background-color: #fef2f2;">
+                            <h3 style="color: #c0392b; margin-top: 0;">📉 ÇIKACAK PARALAR (ANA GİDER)</h3>
+                            
+                            <b>🚚 AYLIK TÜM DEPO ÖDEMELERİ</b><br>
+                            <p style="font-size: 10px; color: #7f8c8d; margin-top: 2px;">(Ödenmiş ve ödenmemiş tüm kayıtlar)</p>
+                            <table width="100%" style="font-size: 12px; margin-bottom: 10px;">
+            """
+            for d in depo_listesi: html += f"<tr><td>{d[0]}</td><td align='right'>{d[1]:,.2f} ₺</td></tr>"
+            if not depo_listesi: html += "<tr><td><i>Bu ay için depo kaydı yok</i></td></tr>"
+            html += f"<tr><td align='right'><b>TOPLAM DEPO ÖDEMESİ:</b></td><td align='right'><b>{depo_toplam:,.2f} ₺</b></td></tr></table>"
+            
+            html += f"""
+                        </td>
+                        <td width="50%" valign="top" style="border: 1px solid #ddd; background-color: #ecfdf5;">
+                            <h3 style="color: #27ae60; margin-top: 0;">📈 GELECEK PARALAR (GELİRLER)</h3>
+                            
+                            <b>🏥 BEKLEYEN KURUM (SGK) GELİRLERİ</b><br>
+                            <table width="100%" style="font-size: 12px; margin-bottom: 10px;">
+            """
+            for sgk in kurum_listesi: html += f"<tr><td>{sgk[0]}</td><td align='right'>{sgk[1]:,.2f} ₺</td></tr>"
+            if not kurum_listesi: html += "<tr><td><i>Bekleyen kurum ödemesi yok</i></td></tr>"
+            html += f"<tr><td align='right'><b>BEKLEYEN KURUM ALACAĞI:</b></td><td align='right'><b>{kurum_toplam:,.2f} ₺</b></td></tr></table>"
+
+            html += f"""
+                            <b>{kasa_baslik_metni}</b><br>
+                            <table width="100%" style="font-size: 12px; margin-bottom: 10px;">
+                                <tr><td>Sistemdeki Toplam Satış:</td><td align='right'><b>{kasa_giris_toplam:,.2f} ₺</b></td></tr>
+                            </table>
+                            
+                            <h3 style="text-align:right; color:#27ae60; margin-top:20px;">BEKLEYEN KURUM + KASA: {tum_gelirler:,.2f} ₺</h3>
+                        </td>
+                    </tr>
+                </table>
                 
-                # Gruplanmış verileri tek bildirim olarak yolla
-                for (k_adi, v_tar), top_tutar in kart_gruplu.items():
-                    zaman = "BUGÜN" if v_tar == bugun_str else "YARIN"
-                    
-                    # Vade tarihinden yılı ve ayı çek (Örn: "2026-03-16" -> "2026-03")
-                    v_tar_ay = v_tar[:7]
-                    
-                    # Veritabanında o aya ve o karta ait manuel girilmiş "Ekstre" değeri var mı kontrol et
-                    guncel_tutar = top_tutar # Varsayılan: Sistemdeki Eczane Gideri (Taksitlerin toplamı)
-                    try:
-                        self.imlec_finans.execute("SELECT deger FROM program_ayarlari WHERE ayar_adi=?", (f"ekstre_toplam_{k_adi}_{v_tar_ay}",))
-                        res_ekstre = self.imlec_finans.fetchone()
-                        if res_ekstre and res_ekstre[0]:
-                            ekstre_val = float(res_ekstre[0])
-                            if ekstre_val > 0:
-                                guncel_tutar = ekstre_val # Eğer ekstre girilmişse, ekstre tutarını kullan
-                    except: pass
-
-                    mesaj = f"'{k_adi}' kartınızın toplam ödemesi {zaman}!\nToplam Tutar: {guncel_tutar:,.2f} ₺"
-                    self.goster_bildirim("🚨 Kart Ödemesi", mesaj)
-                    self.sisteme_bildirim_ekle(f"💳 {mesaj}")
-
-                # =========================================================
-                # 4. KREDİ TAKSİT BİLDİRİMİ (Bugün ve Yarın)
-                # =========================================================
-                self.imlec_finans.execute("""
-                    SELECT aciklama, vade_tarihi, tutar FROM odemeler 
-                    WHERE aciklama LIKE 'KREDI:%' 
-                    AND durum='ODENMEDİ' AND (vade_tarihi=? OR vade_tarihi=?)
-                """, (bugun_str, yarin_str))
-                kredi_odemeleri = self.imlec_finans.fetchall()
+                <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-top: 25px;">
+                    <h3 style="margin-top: 0; color: #334155; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏧 {ay_ismi.upper()} - GELİR / GİDER ÖZETİ</h3>
+                    <table width="100%" style="font-size: 14px; margin-top: 10px;">
+                        <tr>
+                            <td width="33%">İlgili Ay Toplam Gelir: <br><b style="color:#27ae60; font-size:16px;">{aylik_kasa_giris:,.2f} ₺</b></td>
+                            <td width="33%">İlgili Ay Toplam Gider: <br><b style="color:#c0392b; font-size:16px;">{aylik_kasa_cikis:,.2f} ₺</b></td>
+                            <td width="34%" align="right" valign="middle">
+                                <span style="font-size: 13px; color: #64748b;">Modül Net Durumu:</span><br>
+                                <b style="font-size: 16px;">{kasa_net_mesaj}</b>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
                 
-                for (ack, v_tar, tutar) in kredi_odemeleri:
-                    # 'KREDI: İş Bankası İhtiyaç (1/12)' yazısından sadece banka adını ayıklıyoruz
-                    kredi_adi = ack.split('(')[0].replace('KREDI:', '').strip()
-                    zaman = "BUGÜN" if v_tar == bugun_str else "YARIN"
-                    mesaj = f"'{kredi_adi}' taksit ödemeniz {zaman}!\nTutar: {tutar:,.2f} ₺"
-                    self.goster_bildirim("🏦 Kredi Taksiti", mesaj)
-                    self.sisteme_bildirim_ekle(f"🏦 {mesaj}")
+                <hr style="margin-top: 30px; margin-bottom: 30px; border: 0; border-top: 1px solid #eee;">
+                
+                <h3 style="color: #7f8c8d;">ℹ️ DİĞER BİLGİLER (Sadece Bekleyen / Açık Borçlar)</h3>
+                
+                <table width="100%" cellpadding="8" style="font-size: 12px; border-collapse: collapse; border: 1px solid #ddd;">
+                    <tr style="background-color: #f8f9fa;">
+                        <th width="25%" align="left">💳 KART EKSTRELERİ</th>
+                        <th width="25%" align="left">🏦 KREDİ TAKSİTLERİ</th>
+                        <th width="25%" align="left">⚡ SABİT GİDERLER</th>
+                        <th width="25%" align="left">💰 SABİT GELİRLER</th>
+                    </tr>
+                    <tr>
+                        <td valign="top">
+            """
+            for k_ad, tutar in kart_sonuc_listesi: 
+                html += f"• {k_ad}: <b>{tutar:,.2f} ₺</b><br>"
+            if not kart_sonuc_listesi: html += "<i>Kayıt Yok</i><br>"
+            html += f"<br><b>Alt Toplam: {kart_toplam:,.2f} ₺</b></td><td valign='top'>"
+            
+            for kr in kredi_listesi: html += f"• {kr[0]}: <b>{kr[1]:,.2f} ₺</b><br>"
+            if not kredi_listesi: html += "<i>Kayıt Yok</i><br>"
+            html += f"<br><b>Alt Toplam: {kredi_toplam:,.2f} ₺</b></td><td valign='top'>"
+            
+            for g in gider_listesi: html += f"• {g[0]}: <b>{g[1]:,.2f} ₺</b><br>"
+            if not gider_listesi: html += "<i>Kayıt Yok</i><br>"
+            html += f"<br><b>Alt Toplam: {gider_toplam:,.2f} ₺</b></td><td valign='top'>"
 
-                # Bugün bildirim atıldı olarak işaretle ve KALICI olarak veritabanına kaydet
-                self.son_bildirim_tarihi = bugun_str
-                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('son_gunluk_bildirim', ?)", (bugun_str,))
+            for dg in diger_gelir_listesi: html += f"• {dg[0]}: <b>{dg[1]:,.2f} ₺</b><br>"
+            if not diger_gelir_listesi: html += "<i>Kayıt Yok</i><br>"
+            html += f"<br><b>Alt Toplam: {diger_gelir_toplam:,.2f} ₺</b></td></tr></table>"
+
+            html += f"""
+                <p style="font-size: 11px; color: #95a5a6; margin-top: 20px;">
+                <b>* Aylık Net Durum Analizi:</b> Yalnızca SGK/Kurum gelirleri ile Depo ödemeleri kıyaslanarak hesaplanmıştır. Durumu ödenmiş veya ödenmemiş olması fark etmeksizin, o aya ait <u>tüm depo ve SGK tutarları</u> "Net Durum" formülüne dahildir. Tablolardaki listeler ise yalnızca ödenmemiş (bekleyen) kayıtları gösterir.
+                </p>
+            </body>
+            </html>
+            """
+
+            # MAİLİ GÖNDER
+            self.basit_mail_gonder(f"[ECZACI DEFTERİ] 📊 {ay_ismi} Finans Raporu", html, is_html=True)
+            
+            if manuel:
+                self.pencere.config(cursor="") # Fareyi normale döndür
+                from tkinter import messagebox
+                messagebox.showinfo("Başarılı", "Aylık finansal durum raporu başarıyla e-posta adresinize gönderildi!", parent=self.pencere)
+            else:
+                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('son_aylik_durum_raporu', ?)", (bu_ay_str,))
                 self.baglanti_skt.commit()
-                
-            except Exception as e:
-                print(f"Bildirim Hatası: {e}")
 
-        # Döngüyü 1 saatte bir (3600000 ms) tekrar çalışacak şekilde ayarla
-        self.pencere.after(3600000, self.otomatik_kontrol_dongusu)
+        except Exception as e:
+            if manuel:
+                self.pencere.config(cursor="")
+                from tkinter import messagebox
+                messagebox.showerror("Hata", f"Rapor oluşturulurken bir hata meydana geldi:\n{str(e)}", parent=self.pencere)
+            print("Aylık rapor oluşturma hatası:", e)
+
+    def pdf_rapor_olustur(self):
+        """Mevcut ayın finansal durumunu hesaplar, listeleri yazar ve sonuna grafik sayfası ekler."""
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            from matplotlib.backends.backend_pdf import PdfPages
+        except ImportError:
+            from tkinter import messagebox
+            messagebox.showerror("Eksik Kütüphane", "PDF oluşturmak için 'matplotlib' ve 'numpy' kütüphaneleri gereklidir.\n\nLütfen terminali açıp şu komutu yazarak yükleyin:\npip install matplotlib numpy")
+            return
+
+        import datetime
+        from datetime import timedelta
+        bugun = datetime.date.today()
+        bu_ay_str = bugun.strftime('%Y-%m') 
+        
+        from tkinter import filedialog
+        dosya_yolu = filedialog.asksaveasfilename(
+            defaultextension=".pdf", 
+            filetypes=[("PDF Dosyası", "*.pdf")],
+            title="Raporu Kaydet",
+            initialfile=f"Finans_Dokumu_{bu_ay_str}.pdf"
+        )
+        if not dosya_yolu: return
+
+        # --- TARİH VE TÜRKÇE AY AYARLARI (15'inden 15'ine) ---
+        ilk_gun = bugun.replace(day=1)
+        gecen_ay = ilk_gun - timedelta(days=1)
+        
+        gecen_15_str = f"{gecen_ay.strftime('%Y-%m')}-15"
+        bu_15_str = f"{bu_ay_str}-15"
+
+        aylar_tr = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
+        ay_ismi = f"{aylar_tr[bugun.month]} {bugun.year}"
+        ay_adi_gecen = aylar_tr[gecen_ay.month]
+
+        try:
+            # =================================================================
+            # VERİLERİ ÇEKME
+            # =================================================================
+            self.imlec_finans.execute("""
+                SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? 
+                AND (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
+                AND aciklama NOT LIKE 'KREDI:%'
+            """, (bu_ay_str,))
+            tum_aylik_depo = self.imlec_finans.fetchone()[0] or 0.0
+
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND satir_notu = 'KURUM_GELIR'", (bu_ay_str,))
+            tum_aylik_sgk = self.imlec_finans.fetchone()[0] or 0.0
+
+            sgk_depo_farki = tum_aylik_sgk - tum_aylik_depo
+
+            self.imlec_finans.execute("""
+                SELECT fatura_adi, SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ?
+                AND (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
+                AND aciklama NOT LIKE 'KREDI:%' GROUP BY fatura_adi ORDER BY SUM(tutar) DESC
+            """, (bu_ay_str,))
+            depo_listesi = self.imlec_finans.fetchall()
+            depo_toplam = sum(r[1] for r in depo_listesi)
+
+            self.imlec_finans.execute("""
+                SELECT fatura_adi, SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND satir_notu = 'KURUM_GELIR'
+                GROUP BY fatura_adi ORDER BY SUM(tutar) DESC
+            """, (bu_ay_str,))
+            kurum_listesi = self.imlec_finans.fetchall()
+            kurum_toplam = sum(r[1] for r in kurum_listesi)
+
+            self.imlec_finans.execute("SELECT satir_notu, SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND (satir_notu LIKE 'KART:%' OR aciklama = 'Kredi Kartı') GROUP BY satir_notu", (bu_ay_str,))
+            ham_kart = self.imlec_finans.fetchall()
+            kart_sis = {}
+            for notu, tut in ham_kart:
+                k_adi = notu.split("KART:")[1].split("(")[0].replace("-", "").strip() if notu and "KART:" in str(notu) else "Diğer Kartlar"
+                kart_sis[k_adi] = kart_sis.get(k_adi, 0.0) + (tut or 0.0)
+
+            self.imlec_finans.execute("SELECT ayar_adi, deger FROM program_ayarlari WHERE ayar_adi LIKE ?", (f"ekstre_toplam_%_{bu_ay_str}",))
+            man_eks = {r[0].replace("ekstre_toplam_", "").replace(f"_{bu_ay_str}", "").strip(): float(r[1]) for r in self.imlec_finans.fetchall()}
+
+            kart_sonuc = []
+            kart_toplam = 0.0
+            for k_adi in sorted(set(list(kart_sis.keys()) + list(man_eks.keys()))):
+                gecerli = man_eks.get(k_adi, 0.0) if man_eks.get(k_adi, 0.0) > 0 else kart_sis.get(k_adi, 0.0)
+                if gecerli > 0:
+                    kart_sonuc.append((k_adi, gecerli))
+                    kart_toplam += gecerli
+
+            self.imlec_finans.execute("SELECT aciklama, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND aciklama LIKE 'KREDI:%'", (bu_ay_str,))
+            kredi_listesi = self.imlec_finans.fetchall()
+            kredi_toplam = sum(r[1] for r in kredi_listesi)
+
+            self.imlec_finans.execute("SELECT fatura_adi, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND satir_notu = 'MANUEL_GIDER' AND (aciklama IS NULL OR aciklama NOT LIKE 'KREDI:%')", (bu_ay_str,))
+            gider_listesi = self.imlec_finans.fetchall()
+            gider_toplam = sum(r[1] for r in gider_listesi)
+
+            self.imlec_finans.execute("SELECT fatura_adi, tutar FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND durum='ODENMEDİ' AND satir_notu = 'MANUEL_GELIR'", (bu_ay_str,))
+            diger_gelir_listesi = self.imlec_finans.fetchall()
+            diger_gelir_toplam = sum(r[1] for r in diger_gelir_listesi)
+
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM kasa_defteri WHERE islem_turu='GİRİŞ' AND tarih >= ? AND tarih <= ?", (gecen_15_str, bu_15_str))
+            kasa_giris_toplam = self.imlec_finans.fetchone()[0] or 0.0
+            
+            tum_gelirler = kurum_toplam + kasa_giris_toplam
+
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND satir_notu IN ('KURUM_GELIR', 'MANUEL_GELIR') AND durum='ODENMEDİ'", (bu_ay_str,))
+            aylik_kasa_giris = self.imlec_finans.fetchone()[0] or 0.0
+            
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND (satir_notu IS NULL OR satir_notu NOT IN ('KURUM_GELIR', 'MANUEL_GELIR')) AND durum='ODENMEDİ'", (bu_ay_str,))
+            aylik_kasa_cikis = self.imlec_finans.fetchone()[0] or 0.0
+            
+            aylik_kasa_net = aylik_kasa_giris - aylik_kasa_cikis
+
+            # GEÇMİŞ AYLAR VERİSİNİ ÇEKME (Grafik İçin Son 6 Ay)
+            self.imlec_finans.execute("""
+                SELECT strftime('%Y-%m', vade_tarihi) as ay, SUM(tutar) FROM odemeler 
+                WHERE satir_notu = 'KURUM_GELIR' AND strftime('%Y-%m', vade_tarihi) <= ?
+                GROUP BY ay ORDER BY ay DESC LIMIT 6
+            """, (bu_ay_str,))
+            gecmis_kurum = dict(self.imlec_finans.fetchall())
+
+            self.imlec_finans.execute("""
+                SELECT strftime('%Y-%m', vade_tarihi) as ay, SUM(tutar) FROM odemeler 
+                WHERE (satir_notu IS NULL OR (NOT satir_notu LIKE 'KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu != 'MANUEL_GIDER' AND satir_notu != 'MANUEL_GELIR'))
+                AND aciklama NOT LIKE 'KREDI:%' AND strftime('%Y-%m', vade_tarihi) <= ?
+                GROUP BY ay ORDER BY ay DESC LIMIT 6
+            """, (bu_ay_str,))
+            gecmis_depo = dict(self.imlec_finans.fetchall())
+
+        except Exception as db_err:
+            print("Veritabanı hatası (PDF):", db_err)
+            return
+
+        # =====================================================================
+        # DİNAMİK SATIR OLUŞTURUCU (METİN SAYFALARI)
+        # =====================================================================
+        satirlar = []
+        satirlar.append(f"FİNANSAL DÖKÜM RAPORU - {ay_ismi.upper()}")
+        satirlar.append("=" * 70)
+        satirlar.append("")
+        satirlar.append("AYLIK NET DURUM (Aylık SGK Geliri - Aylık Depo Gideri)")
+        durum_isaret = "+" if sgk_depo_farki >= 0 else "-"
+        satirlar.append(f"--> {abs(sgk_depo_farki):,.2f} TL ({durum_isaret})")
+        satirlar.append("-" * 70)
+        satirlar.append("")
+        satirlar.append("")
+
+        # --- GELİRLER ---
+        satirlar.append("■ GELECEK PARALAR (GELİRLER)")
+        satirlar.append("=" * 70)
+        satirlar.append("AYLIK KURUM (SGK) GELİRLERİ")
+        satirlar.append("-" * 70)
+        for k in kurum_listesi:
+            isim = (k[0][:40] + '..') if len(k[0]) > 40 else k[0]
+            satirlar.append(f"{isim:<45} : {k[1]:>15,.2f} TL")
+        if not kurum_listesi: satirlar.append("Kayıt Yok")
+        satirlar.append(f"KURUM TOPLAMI                                 : {kurum_toplam:>15,.2f} TL")
+        satirlar.append("")
+
+        satirlar.append(f"15 {ay_adi_gecen.upper()} - 15 {aylar_tr[bugun.month].upper()} KASA GİRİŞİ")
+        satirlar.append("-" * 70)
+        satirlar.append(f"{'Sistemdeki Toplam Satış':<45} : {kasa_giris_toplam:>15,.2f} TL")
+        satirlar.append("-" * 70)
+        satirlar.append(f"KURUM + KASA TOPLAMI                          : {tum_gelirler:>15,.2f} TL")
+        satirlar.append("")
+
+        satirlar.append("SABİT GELİRLER (Bekleyen)")
+        satirlar.append("-" * 70)
+        for dg in diger_gelir_listesi:
+            isim = (dg[0][:40] + '..') if len(dg[0]) > 40 else dg[0]
+            satirlar.append(f"{isim:<45} : {dg[1]:>15,.2f} TL")
+        if not diger_gelir_listesi: satirlar.append("Kayıt Yok")
+        satirlar.append(f"SABİT GELİR TOPLAMI                           : {diger_gelir_toplam:>15,.2f} TL")
+        satirlar.append("")
+        satirlar.append("")
+
+        # --- GİDERLER ---
+        satirlar.append("■ ÇIKACAK PARALAR (GİDERLER)")
+        satirlar.append("=" * 70)
+        satirlar.append("AYLIK TÜM DEPO ÖDEMELERİ")
+        satirlar.append("-" * 70)
+        for d in depo_listesi:
+            isim = (d[0][:40] + '..') if len(d[0]) > 40 else d[0]
+            satirlar.append(f"{isim:<45} : {d[1]:>15,.2f} TL")
+        if not depo_listesi: satirlar.append("Kayıt Yok")
+        satirlar.append(f"TÜM DEPO TOPLAMI                              : {depo_toplam:>15,.2f} TL")
+        satirlar.append("")
+
+        satirlar.append("KART EKSTRELERİ (Bekleyen)")
+        satirlar.append("-" * 70)
+        for k, t in kart_sonuc:
+            isim = (k[:40] + '..') if len(k) > 40 else k
+            satirlar.append(f"{isim:<45} : {t:>15,.2f} TL")
+        if not kart_sonuc: satirlar.append("Kayıt Yok")
+        satirlar.append(f"KART TOPLAMI                                  : {kart_toplam:>15,.2f} TL")
+        satirlar.append("")
+
+        satirlar.append("KREDİ TAKSİTLERİ (Bekleyen)")
+        satirlar.append("-" * 70)
+        for k in kredi_listesi:
+            isim = (k[0][:40] + '..') if len(k[0]) > 40 else k[0]
+            satirlar.append(f"{isim:<45} : {k[1]:>15,.2f} TL")
+        if not kredi_listesi: satirlar.append("Kayıt Yok")
+        satirlar.append(f"KREDİ TOPLAMI                                 : {kredi_toplam:>15,.2f} TL")
+        satirlar.append("")
+
+        satirlar.append("SABİT GİDERLER (Bekleyen)")
+        satirlar.append("-" * 70)
+        for g in gider_listesi:
+            isim = (g[0][:40] + '..') if len(g[0]) > 40 else g[0]
+            satirlar.append(f"{isim:<45} : {g[1]:>15,.2f} TL")
+        if not gider_listesi: satirlar.append("Kayıt Yok")
+        satirlar.append(f"SABİT GİDER TOPLAMI                           : {gider_toplam:>15,.2f} TL")
+        satirlar.append("")
+        satirlar.append("")
+
+        # --- MODÜL ÖZETİ ---
+        satirlar.append("■ GELİR / GİDER MODÜLÜ ÖZETİ")
+        satirlar.append("=" * 70)
+        satirlar.append(f"{'İlgili Ay Toplam Gelir':<45} : {aylik_kasa_giris:>15,.2f} TL")
+        satirlar.append(f"{'İlgili Ay Toplam Gider':<45} : {aylik_kasa_cikis:>15,.2f} TL")
+        satirlar.append("-" * 70)
+        if aylik_kasa_net >= 0:
+            satirlar.append(f"{'MODÜL NET DURUMU':<45} : {aylik_kasa_net:>15,.2f} TL (+)")
+        else:
+            satirlar.append(f"{'MODÜL NET DURUMU':<45} : {abs(aylik_kasa_net):>15,.2f} TL (-)")
+
+        # =====================================================================
+        # PDF ÇİZİM MOTORU (Metinler + Ekstra Grafik Sayfası)
+        # =====================================================================
+        try:
+            plt.style.use('default') 
+            
+            with PdfPages(dosya_yolu) as pdf:
+                # ------ 1. KISIM: METİN SAYFALARI (Döngü) ------
+                y_start = 0.95
+                y_current = y_start
+                line_height = 0.016 
+                
+                fig = plt.figure(figsize=(8.27, 11.69), facecolor='#ffffff')
+                ax = fig.add_axes([0.1, 0.05, 0.8, 0.9])
+                ax.axis('off')
+
+                for satir in satirlar:
+                    if y_current < 0.05:
+                        pdf.savefig(fig)
+                        plt.close(fig)
+                        fig = plt.figure(figsize=(8.27, 11.69), facecolor='#ffffff')
+                        ax = fig.add_axes([0.1, 0.05, 0.8, 0.9])
+                        ax.axis('off')
+                        y_current = y_start
+
+                    weight = 'normal'
+                    fontsize = 10
+                    color = '#1e293b'
+
+                    if satir.startswith('■'): 
+                        weight = 'bold'
+                        fontsize = 11
+                    elif satir.startswith('FİNANSAL DÖKÜM'):
+                        weight = 'bold'
+                        fontsize = 14
+                    elif satir.startswith('-->'):
+                        weight = 'bold'
+                        fontsize = 13
+                        color = '#10b981' if '+' in satir else '#ef4444'
+                    elif "TOPLAM" in satir or "MODÜL" in satir or "AYLIK" in satir:
+                        weight = 'bold'
+
+                    ax.text(0.0, y_current, satir, ha='left', va='top', fontsize=fontsize, fontweight=weight, family='monospace', color=color)
+                    y_current -= line_height
+
+                # Son metin sayfasını kaydet
+                pdf.savefig(fig)
+                plt.close(fig)
+
+                # ------ 2. KISIM: GRAFİK SAYFASI (Son Sayfa) ------
+                fig_g = plt.figure(figsize=(8.27, 11.69), facecolor='#ffffff')
+                fig_g.text(0.5, 0.94, f"FİNANSAL GRAFİKLER ({ay_ismi.upper()})", ha='center', va='center', fontsize=18, fontweight='bold', color='#1e293b')
+                fig_g.text(0.5, 0.91, "="*65, ha='center', va='center', color='#94a3b8')
+
+                # GRAFİK 1: Pasta Grafiği (Hangi depoya yüzde kaç gidiyor?)
+                ax_pie = fig_g.add_axes([0.1, 0.60, 0.8, 0.25])
+                d_labels = []
+                d_sizes = []
+                for i, (ad, tutar) in enumerate(depo_listesi):
+                    if i < 5:
+                        d_labels.append((ad[:15] + '..') if len(ad) > 15 else ad)
+                        d_sizes.append(tutar)
+                    else:
+                        if len(d_labels) == 6:
+                            d_sizes[5] += tutar
+                        else:
+                            d_labels.append('Diğerleri')
+                            d_sizes.append(tutar)
+                if sum(d_sizes) > 0:
+                    # Hem yüzdeyi hem de gerçek TL tutarını formatlayan fonksiyon
+                    def dilim_yazisi(pct, allvals):
+                        absolute = float(pct / 100. * np.sum(allvals))
+                        return f"{pct:.1f}%\n({absolute:,.0f} TL)"
+                        
+                    ax_pie.pie(d_sizes, labels=d_labels, autopct=lambda pct: dilim_yazisi(pct, d_sizes), startangle=140, colors=plt.cm.Paired.colors)
+                    ax_pie.set_title("Aylık Depo Ödemeleri Dağılımı", fontweight='bold', fontsize=11, color='#334155')
+                else:
+                    ax_pie.text(0.5, 0.5, "Bu ay için depo kaydı yok.", ha='center', va='center', fontsize=12)
+                    ax_pie.axis('off')
+
+                # GRAFİK 2: Bu Ay Sütun (Kurum vs Depo) ve Üstte Net Fark
+                ax_bar = fig_g.add_axes([0.25, 0.35, 0.5, 0.20])
+                bars = ax_bar.bar(['Kurum Gelirleri', 'Depo Ödemeleri'], [kurum_toplam, depo_toplam], color=['#10b981', '#ef4444'])
+                ax_bar.set_title("Bu Ay: Kurum ve Depo Kıyaslaması", fontweight='bold', fontsize=11, color='#334155')
+                
+                max_v = max(kurum_toplam, depo_toplam)
+                ax_bar.set_ylim(0, max_v * 1.30 if max_v > 0 else 100) # Üstteki fark yazısı için %30 boşluk bırak
+
+                # 1. Sütunların içine rakamlarını yaz
+                for bar in bars:
+                    yval = bar.get_height()
+                    if yval > 0:
+                        # Rakamı sütunun tepesinden biraz aşağıda (yval * 0.9) içine yaz
+                        ax_bar.text(bar.get_x() + bar.get_width()/2.0, yval * 0.9, f"{yval:,.0f} TL", ha='center', va='top', fontweight='bold', fontsize=10, color='white')
+
+                # 2. Aradaki farkı grafiğin tepesine (boşluğa) yaz
+                fark_tl = kurum_toplam - depo_toplam
+                fark_isaret = "+" if fark_tl >= 0 else "-"
+                fark_renk = '#10b981' if fark_tl >= 0 else '#ef4444' # Yeşil veya Kırmızı
+                
+                # Grafiğin en tepesine kocaman farkı yaz
+                ax_bar.text(0.5, max_v * 1.15, f"NET FARK: {abs(fark_tl):,.2f} TL ({fark_isaret})", ha='center', va='bottom', fontsize=16, fontweight='bold', color=fark_renk)
+                # Küçük bir açıklama
+                ax_bar.text(0.5, max_v * 1.05, "(Kurum - Depo)", ha='center', va='bottom', fontsize=9, color='#64748b')
+
+                # GRAFİK 3: Geçmiş Aylar Kıyaslaması (Grup Sütun + İçinde Rakamlar + Tepede Fark)
+                ax_hist = fig_g.add_axes([0.15, 0.08, 0.7, 0.20])
+                tum_aylar = sorted(list(set(list(gecmis_kurum.keys()) + list(gecmis_depo.keys()))))
+                ay_etiketleri = [aylar_tr[int(a.split('-')[1])] + " '" + a.split('-')[0][-2:] for a in tum_aylar]
+                k_verileri = [gecmis_kurum.get(a, 0.0) for a in tum_aylar]
+                d_verileri = [gecmis_depo.get(a, 0.0) for a in tum_aylar]
+
+                if tum_aylar:
+                    x = np.arange(len(ay_etiketleri))
+                    width = 0.38
+                    rects1 = ax_hist.bar(x - width/2, k_verileri, width, label='Kurum Geliri', color='#10b981')
+                    rects2 = ax_hist.bar(x + width/2, d_verileri, width, label='Depo Gideri', color='#ef4444')
+                    
+                    ax_hist.set_title("Son 6 Ayın Kurum ve Depo Performansı", fontweight='bold', fontsize=11, color='#334155')
+                    ax_hist.set_xticks(x)
+                    ax_hist.set_xticklabels(ay_etiketleri)
+                    
+                    max_hist = max(max(k_verileri, default=0), max(d_verileri, default=0))
+                    ax_hist.set_ylim(0, max_hist * 1.35 if max_hist > 0 else 100) # Fark yazıları için pay bırak
+
+                    # 1. Sütunların içine rakamları yaz (Dikey yazdırıyoruz ki sığsın)
+                    def autolabel_inner(rects):
+                        for rect in rects:
+                            height = rect.get_height()
+                            if height > 0:
+                                ax_hist.text(rect.get_x() + rect.get_width()/2., height * 0.5,
+                                            f"{height/1000:,.0f}K", ha='center', va='center', 
+                                            color='white', fontweight='bold', fontsize=8, rotation=90)
+
+                    autolabel_inner(rects1)
+                    autolabel_inner(rects2)
+
+                    # 2. Her ayın tepesine net farkı yaz
+                    for i in range(len(tum_aylar)):
+                        fark = k_verileri[i] - d_verileri[i]
+                        f_renk = '#10b981' if fark >= 0 else '#ef4444'
+                        f_isaret = "+" if fark >= 0 else "-"
+                        # Tepedeki fark yazısı
+                        ax_hist.text(x[i], max(k_verileri[i], d_verileri[i]) + (max_hist * 0.05),
+                                    f"{f_isaret}{abs(fark)/1000:,.0f}K", ha='center', va='bottom',
+                                    fontsize=9, fontweight='bold', color=f_renk)
+
+                    ax_hist.legend(loc='upper left', fontsize=8)
+                else:
+                    ax_hist.text(0.5, 0.5, "Geçmiş ay kaydı bulunamadı.", ha='center', va='center', fontsize=12)
+                    ax_hist.axis('off')
+
+                # Grafik sayfasını da kaydet
+                pdf.savefig(fig_g)
+                plt.close(fig_g)
+            
+            # İşlem bitince aç
+            import platform, os
+            if platform.system() == 'Darwin': os.system(f'open "{dosya_yolu}"') 
+            elif platform.system() == 'Windows': os.startfile(dosya_yolu) 
+            else: os.system(f'xdg-open "{dosya_yolu}"') 
+            
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Çizim Hatası", f"PDF oluşturulurken bir hata meydana geldi:\n{e}")
+
+    # =========================================================================
+    # 🌟 VAY BE ETKİSİ: GLOBAL ÇAPRAZ SATIŞ (CROSS-SELL) YAPAY ZEKA ASİSTANI
+    # =========================================================================
+    def global_barkod_dinleyici_baslat(self):
+        # 1. Gerekli veritabanı tablolarını otomatik oluştur (Yoksa)
+        try:
+            self.imlec.execute("CREATE TABLE IF NOT EXISTS capraz_satis_kurallari (id INTEGER PRIMARY KEY AUTOINCREMENT, kelimeler TEXT, baslik TEXT, mesaj TEXT, renk TEXT)")
+            self.imlec.execute("INSERT OR IGNORE INTO ayarlar (anahtar, deger) VALUES ('capraz_satis_aktif', '1')")
+            self.baglanti_skt.commit()
+            
+            # Eğer tablo boşsa, varsayılan (default) harika kuralları içine yükle
+            self.imlec.execute("SELECT COUNT(*) FROM capraz_satis_kurallari")
+            if self.imlec.fetchone()[0] == 0:
+                varsayilanlar = [
+                    # --- MEVCUT KURALLAR ---
+                    ("AUGMENTIN, KLAMOKS, KLAVUNAT, CROXILEX, AMOKLAVIN, ZINNAT, MACROL", "💊 Antibiyotik Satışı Tespit Edildi!", "Hastanın bağırsak florası bozulabilir.\nYanında mutlaka PROBİYOTİK (Enterogermina, Maflor vb.) önermeyi unutmayın!", "#8b5cf6"),
+                    ("FERRUM, FERRO SANOL, GYNO FERRO, VEGAFERON, FERAMAT, TARDYFERON", "🩸 Demir İlacı Satışı Tespit Edildi!", "Demirin vücutta emilimi için C vitamini şarttır.\nHastaya C VİTAMİNİ EFERVESAN (Redoxon vb.) önerin!", "#f59e0b"),
+                    ("KATARIN, THERAFLU, TYLOLHOT, A-FERIN, NUROFEN COLD, IBUCOLD, CORTAIR, AFERIN", "🤧 Soğuk Algınlığı Satışı!", "Bağışıklık destekleyici ÇİNKO, C VİTAMİNİ, BOĞAZ SPREYİ veya PASTİL önermeyi unutmayın!", "#10b981"),
+                    ("MAJEZIK, ARVELES, MUSCORIL, CABRAL, DOLOREX, DIKLORON, PAROL", "⚡ Ağrı Kesici Satışı Tespit Edildi!", "Ağrıyan bölgeye masaj için VOLTAREN KREM veya sıcak/soğuk kompres bandı (Termofor) önerin!", "#ef4444"),
+                    ("CALPOL, PEDIFEN, IBUACTIVE, DOLVEN, PARANOX, IBUFEN", "👶 Bebek/Çocuk Şurubu Satışı!", "Evde DİJİTAL ATEŞ ÖLÇER olup olmadığını sorun.\nAyrıca burun tıkanıklığı için SERUM FİZYOLOJİK ve ASPİRATÖR önerebilirsiniz!", "#3b82f6"),
+                    ("ROACCUTANE, AKNETRENT, ZORETANIN, BENZAMYCIN, ACNEMIX, CLINDOXYL, MUNDERM", "🧴 Akne/Sivilce Tedavisi Tespit Edildi!", "Bu ilaçlar cildi ve dudakları aşırı kurutur ve güneşe hassaslaştırır.\nMutlaka DUDAK KORUYUCU (Lip Balm) ve GÜNEŞ KREMİ (50+ SPF) önerin!", "#eab308"),
+                    ("ZYRTEC, ALLERSET, CREBROS, AERIUS, DELODAY, LEVMONT, DESLODIN, RUPAFIN", "🌼 Alerji İlacı (Antihistaminik) Satışı!", "Alerjik rinit veya burun tıkanıklığı varsa solunumu rahatlatmak için DENİZ SUYU SPREYİ (Sterimar vb.) önerebilirsiniz.", "#10b981"),
+                    ("REFLOR, ERCEFURYL, LOPAMED, LOPERMID, DIAFURYL, BISMUTH, LOMOTIL", "🚽 Bağırsak Enfeksiyonu / İshal İlacı!", "Aşırı sıvı ve mineral kaybını önlemek için ORS (Ge-Oral vb.) takviyesi ve fazladan PROBİYOTİK önermeyi unutmayın!", "#ef4444"),
+                    ("YAZZ, DIANE, MICROGYNON, YASMIN, QLAIRA, DROSPY, GINERA", "🌸 Doğum Kontrol İlacı Satışı!", "Hastaya İNTİM YIKAMA JELİ veya GÜNLÜK PED ihtiyacı olup olmadığını sorabilirsiniz.", "#8b5cf6"),
+                    ("MINOXIL, PROSCAR, ALOPECIA, PANIGAR, BIOXCIN, DUCRAY", "💇‍♂️ Saç Tedavisi / Dökülme İlacı!", "Tedaviyi içten desteklemek için BİOTİN / ÇİNKO vitaminleri veya dışarıdan uygulamak için DERMAROLLER önerebilirsiniz.", "#f59e0b"),
+                    ("NEXIUM, LANSOR, PANTPAS, RENNIE, GAVISCON, TALCID, PROTONEX, PANTHEC", "🔥 Mide İlacı (Antiasit/PPI) Satışı!", "Hazımsızlık ve şişkinlik şikayeti devam ediyorsa SİNDİRİM ENZİMİ veya Papatya/Rezene gibi bitki çayları önerebilirsiniz.", "#3b82f6"),
+                    
+                    # --- YENİ EKLENEN PROFESYONEL KURALLAR ---
+                    ("ATOR, LIPITOR, CRESTOR, ROSUCOR, CHOLESTAT, TARDEN", "🫀 Kolesterol İlacı (Statin) Satışı!", "Statin grubu ilaçlar vücuttaki Koenzim Q10 seviyesini düşürür. Kas ağrılarını önlemek için KOENZİM Q10 (CoQ10) ve OMEGA-3 (Balık Yağı) önerin!", "#ef4444"),
+                    ("GLIFOR, MATOFIN, DIAFORMIN, LANTUS, NOVORAPID, TOUJEO", "🩸 Diyabet / Şeker İlacı Satışı!", "Diyabet hastalarının ayak bakımı çok önemlidir. DİYABETİK AYAK KREMİ ve bağışıklık için ŞEKERSİZ MULTİVİTAMİN önerebilirsiniz.", "#3b82f6"),
+                    ("TRAVAZOL, GYNO LOMEXIN, GYNO-LOMEXIN, ZALAIN, KETORAL, TRAVOGEN, EXODERIL", "🍄 Mantar / Vajinal Enfeksiyon İlacı!", "Mantarın tekrarlamaması için İNTİM YIKAMA JELİ (pH dengeli) ve pamuklu iç çamaşırı kullanmasını hatırlatıp, KADINLARA ÖZEL PROBİYOTİK önerebilirsiniz.", "#8b5cf6"),
+                    ("SILVERDIN, SİLVERDİN, ANESTOL, FITO, HAMETAN, MADECASSOL, THIOKAS", "🩹 Yanık / Yara Kremi Satışı!", "Yaranın enfeksiyon kapmaması için BATICON (Antiseptik solüsyon), STERİL GAZLI BEZ ve YARA BANDI teklif etmeyi unutmayın!", "#f59e0b"),
+                    ("PROCTOLOG, PROCTO-GLYVENOL, DAFLON, KORTOS, DOXIUM", "🚽 Hemoroid (Basur) / Varis İlacı!", "Hemoroid için ALKOLSÜZ ISLAK MENDİL ve LİF TAKVİYESİ; Varis için ise VARİS ÇORABI ve at kestanesi kremi önerebilirsiniz.", "#10b981"),
+                    ("LUSTRAL, CIPRALEX, SELECTRA, PROZAC, PAXERA, EFEXOR", "🧠 Antidepresan / Anksiyete İlacı!", "Uyku problemleri veya kas gerginliği yaşıyorsa, sinir sistemini rahatlatan MAGNEZYUM BİSGLİSİNAT veya MELATONİN / PASİFLORA takviyesi önerebilirsiniz.", "#eab308"),
+                    ("FOLBIOL, DECAVIT, PREGNACARE, ELEVIT, GYNO TARDYFERON", "🤰 Hamilelik Vitamini / Folik Asit!", "Anne adayına ÇATLAK ÖNLEYİCİ KREM (Lierac, Mustela vb.) ve GÖĞÜS UCU KREMİ (Lansinoh vb.) stoklarınızı hatırlatabilirsiniz.", "#db2777"),
+                    ("REFRESH, SYSTANE, TEARS NATURALE, VISINE, EYESTIL, REFRESH TEARS", "👁️ Göz Damlası (Suni Gözyaşı) Satışı!", "Göz kuruluğu şikayeti için GÖZ ÇEVRESİ TEMİZLEME MENDİLİ (Blephaclean vb.) ve göz sağlığını destekleyen OMEGA-3 önerebilirsiniz.", "#0ea5e9"),
+                    ("KENACORT, PIRABAKT, KLORHEX, ANDOREX, TANFLEX, FARHEX", "👄 Ağız İçi Yara (Aft) / Sprey Satışı!", "Ağız mukozasını korumak için EKSTRA YUMUŞAK DİŞ FIRÇASI ve yara iyileşmesini hızlandıran B12 VİTAMİNİ önerebilirsiniz.", "#9333ea")
+                ]
+                for v in varsayilanlar:
+                    self.imlec.execute("INSERT INTO capraz_satis_kurallari (kelimeler, baslik, mesaj, renk) VALUES (?, ?, ?, ?)", v)
+                self.baglanti_skt.commit()
+        except: pass
+
+        if not globals().get('KEYBOARD_VAR', False):
+            print("Keyboard kütüphanesi yok. Çapraz satış dinleyicisi çalışmayacak.")
+            return
+
+        self.barkod_tamponu = ""
+        self.son_tus_zamani = time.time()
+
+        def klavye_dinle(e):
+            if e.event_type == keyboard.KEY_DOWN:
+                su_an = time.time()
+                
+                # DÜZELTME 1: Okuyucu toleransı 0.20'den 0.80 saniyeye çıkarıldı (Yavaş okuyucular için)
+                if su_an - self.son_tus_zamani > 0.80:
+                    self.barkod_tamponu = ""
+                
+                self.son_tus_zamani = su_an
+                
+                # Enter, Numpad Enter veya Return karakteri yakalanırsa barkodu onayla
+                if e.name in ['enter', '\n', '\r']:
+                    if len(self.barkod_tamponu) > 10:
+                        okunan_barkod = self.barkod_tamponu
+                        # DÜZELTME 2: Güvenli Lambda parametre aktarımı
+                        self.pencere.after(10, lambda b=okunan_barkod: self.capraz_satis_analiz_et(b))
+                    self.barkod_tamponu = ""
+                else:
+                    # DÜZELTME 3: Numpad rakamlarını ('num 1' gibi) temizle ve tampona ekle
+                    karakter = str(e.name).replace("num ", "").replace("keypad ", "")
+                    if len(karakter) == 1:
+                        self.barkod_tamponu += karakter
+
+        try:
+            keyboard.unhook_all() # Çift dinlemeyi engeller
+            keyboard.hook(klavye_dinle)
+        except Exception as e:
+            print(f"Dinleyici başlatılamadı: {e}")
+
+    def capraz_satis_analiz_et(self, okunan_barkod):
+        # 1. AYARLARDAN KONTROL ET: Özellik aktif mi? Değilse sessizce çık!
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='capraz_satis_aktif'")
+            res_aktif = self.imlec.fetchone()
+            if res_aktif and str(res_aktif[0]) == '0': 
+                return # Özellik kapalıysa hiçbir şey yapma
+        except: pass
+
+        # 2. Barkoddan GTIN (İlaç Kodu) Ayıklama
+        if okunan_barkod.startswith("01") and len(okunan_barkod) > 16:
+            gtin = okunan_barkod[2:16]
+        else:
+            gtin = okunan_barkod[:14].zfill(14)
+            
+        # 3. İlacın Adını Bul (DÜZELTME 4: Eğer İlaç Kartlarında yoksa Stoklara da bak!)
+        ilac_adi = None
+        try:
+            self.imlec.execute("SELECT ad FROM ilac_kartlari WHERE gtin=?", (gtin,))
+            res = self.imlec.fetchone()
+            if res:
+                ilac_adi = str(res[0])
+            else:
+                self.imlec.execute("SELECT ad FROM ilaclar WHERE barkod=? LIMIT 1", (gtin,))
+                res2 = self.imlec.fetchone()
+                if res2:
+                    ilac_adi = str(res2[0])
+                    
+            if not ilac_adi: return # Ne kartlarda ne stokta yoksa sessizce çık
+
+            # Türkçe karakterleri İngilizce eşdeğerlerine çevirerek aramayı kolaylaştır
+            ilac_adi = ilac_adi.upper().replace("İ", "I").replace("Ü", "U").replace("Ö", "O").replace("Ş", "S").replace("Ğ", "G").replace("Ç", "C")
+        except: return
+
+        # 4. KURALLARI VERİTABANINDAN ÇEK
+        try:
+            self.imlec.execute("SELECT kelimeler, baslik, mesaj, renk FROM capraz_satis_kurallari")
+            kurallar = self.imlec.fetchall()
+        except: return
+
+        # 5. İlaç adında bu kelimelerden biri geçiyor mu kontrol et
+        eslesen_kural = None
+        for k_kelimeler, k_baslik, k_mesaj, k_renk in kurallar:
+            kelime_listesi = [k.strip().upper() for k in str(k_kelimeler).split(",")]
+            for kelime in kelime_listesi:
+                if kelime in ilac_adi:
+                    eslesen_kural = {"baslik": k_baslik, "mesaj": k_mesaj, "renk": k_renk}
+                    break
+            if eslesen_kural: break
+            
+        # 6. Eşleşme varsa Popup'ı patlat
+        if eslesen_kural:
+            self.capraz_satis_popup_goster(eslesen_kural["baslik"], eslesen_kural["mesaj"], eslesen_kural["renk"], ilac_adi)
+
+    def capraz_satis_popup_goster(self, baslik, mesaj, renk, ilac_adi):
+        """Ekranın SAĞ ALT köşesinde diğer tüm programların üstünde bildirim çıkartır.
+           Birden fazla bildirim gelirse üst üste dizer."""
+        
+        # Bildirim listesini başlat (İlk defa çalışıyorsa)
+        if not hasattr(self, 'aktif_bildirimler'):
+            self.aktif_bildirimler = []
+
+        toast = tk.Toplevel(self.pencere)
+        toast.wm_overrideredirect(True) 
+        toast.attributes("-topmost", True) 
+        toast.configure(bg="white", highlightbackground=renk, highlightthickness=3)
+        
+        # --- GENİŞLİK AYARI (Yazılar sığsın diye artırıldı) ---
+        genislik = 460  
+        
+        f_main = tk.Frame(toast, bg="white", padx=20, pady=15)
+        f_main.pack(fill="both", expand=True)
+        
+        # ÜST BAŞLIK VE KAPATMA TUŞU (X)
+        f_head = tk.Frame(f_main, bg="white")
+        f_head.pack(fill="x", pady=(0, 5))
+        
+        tk.Label(f_head, text="💡 AKILLI ASİSTAN ÖNERİSİ", font=("Segoe UI", 10, "bold"), bg="white", fg=renk).pack(side="left")
+        
+        lbl_kapat = tk.Label(f_head, text="✖", font=("Segoe UI", 13, "bold"), bg="white", fg="#ef4444", cursor="hand2")
+        lbl_kapat.pack(side="right")
+        lbl_kapat.bind("<Button-1>", lambda e, t=toast: self._toast_kapat(t))
+        
+        tk.Label(f_main, text=baslik, font=("Segoe UI", 14, "bold"), bg="white", fg="#1e293b", pady=2).pack(anchor="w")
+        tk.Label(f_main, text=f"Okutulan: {ilac_adi}", font=("Segoe UI", 9, "italic"), bg="white", fg="#94a3b8").pack(anchor="w", pady=(0, 8))
+        
+        # WRAPLENGTH ARTIRILDI (Yazılar alt satıra tam sığsın diye)
+        tk.Label(f_main, text=mesaj, font=("Segoe UI", 12), bg="white", fg="#334155", justify="left", wraplength=420).pack(anchor="w", pady=(0, 5))
+        
+        # Pencerenin gerçek yüksekliğini hesapla
+        toast.update_idletasks()
+        yukseklik = toast.winfo_reqheight()
+        
+        # --- YENİ POZİSYON HESAPLAMA (Aşağıdan yukarı doğru dizilim) ---
+        ekran_genislik = toast.winfo_screenwidth()
+        ekran_yukseklik = toast.winfo_screenheight()
+        
+        x = ekran_genislik - genislik - 30
+        
+        # Görev çubuğu payı (80px)
+        alt_bosluk = 80 
+        
+        # Açık olan diğer bildirimlerin boyunu hesapla ve yeni bildirimi onların ÜSTÜNE koy
+        for t in self.aktif_bildirimler:
+            if t.winfo_exists():
+                alt_bosluk += t.winfo_height() + 15 # Her bildirim arası 15px boşluk
+                
+        y = ekran_yukseklik - alt_bosluk - yukseklik 
+        toast.geometry(f"{genislik}x{yukseklik}+{x}+{y}")
+        
+        # Aktif bildirimler listesine ekle
+        self.aktif_bildirimler.append(toast)
+        
+        # 15 saniye sonra otomatik kapanır ve diğerlerini aşağı kaydırır
+        toast.after(15000, lambda t=toast: self._toast_kapat(t))
+
+    def _toast_kapat(self, toast):
+        """Bildirimi kapatır ve listeden silip diğerlerini aşağı kaydırır."""
+        if toast in getattr(self, 'aktif_bildirimler', []):
+            self.aktif_bildirimler.remove(toast)
+        if toast.winfo_exists():
+            toast.destroy()
+        
+        # Bir bildirim kapandığında diğerlerinin pozisyonunu güncelle (Şelale Efekti)
+        self._toast_pozisyonlarini_guncelle()
+
+    def _toast_pozisyonlarini_guncelle(self):
+        """Bir bildirim kapandığında üsttekileri aşağı kaydırır."""
+        if not hasattr(self, 'aktif_bildirimler'): return
+        
+        alt_bosluk = 80
+        ekran_yukseklik = self.pencere.winfo_screenheight()
+        
+        guncel_liste = []
+        for t in self.aktif_bildirimler:
+            if t.winfo_exists():
+                yukseklik = t.winfo_height()
+                genislik = t.winfo_width()
+                x = t.winfo_x()
+                # Yeni Y pozisyonunu hesapla ve aşağı kaydır
+                y = ekran_yukseklik - alt_bosluk - yukseklik
+                t.geometry(f"{genislik}x{yukseklik}+{x}+{y}")
+                
+                alt_bosluk += yukseklik + 15
+                guncel_liste.append(t)
+        
+        self.aktif_bildirimler = guncel_liste
 
     # =========================================================================
     # 8. GERİ BİLDİRİM MODÜLÜ
@@ -9793,6 +13016,380 @@ class EczaneAsistani:
             self.zil_guncelle()
         except Exception as e: print("Bildirim ekleme hatası:", e)
 
+    def _goster_yasal_onay_penceresi(self):
+        """Uzak Bağlantı İlk Kullanım Yasal Onay Ekranı (Genişletilmiş)"""
+        c = TM
+        onay_win = tk.Toplevel(self.pencere)
+        onay_win.title("⚠️ Yasal Uyarı ve Sorumluluk Reddi")
+        # Pencere boyutunu 600x600'den 720x680'e çıkardık
+        onay_win.geometry("720x780")
+        onay_win.configure(bg=c.get_color("bg_main"))
+        onay_win.transient(self.pencere)
+        onay_win.grab_set()
+
+        # Pencereyi tam ortaya al
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 360
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 340
+        onay_win.geometry(f"+{x}+{y}")
+
+        # --- BAŞLIK ---
+        header = tk.Frame(onay_win, bg="#ef4444", pady=20)
+        header.pack(fill="x")
+        tk.Label(header, text="⚠️ YASAL UYARI VE SORUMLULUK REDDİ", font=("Segoe UI", 15, "bold"), bg="#ef4444", fg="white").pack()
+
+        # --- METİN ALANI ---
+        body = tk.Frame(onay_win, bg=c.get_color("bg_main"), padx=30, pady=25)
+        body.pack(fill="both", expand=True)
+
+        uyari_metni = (
+            "Değerli Kullanıcı,\n\n"
+            "Bu uygulamadaki 'Uzak Bağlantı' modülü, bilgisayarınızda halihazırda bulunan yerleşik Uzak Masaüstü (RDP) veya AnyDesk gibi üçüncü taraf yazılımları tetiklemek için yalnızca bir köprü/kısayol işlevi görmektedir.\n\n"
+            "• Veri Sorumluluğu: Kişisel Verilerin Korunması Kanunu (KVKK) kapsamında, eczanenizdeki hastaların ve reçetelerin veri güvenliğinden tamamen 'Veri Sorumlusu' sıfatıyla siz sorumlusunuz.\n\n"
+            "• Güvenlik Yükümlülüğü: Ağınızın güvenliği, Tailscale vb. VPN ağlarının gizliliği, kullanılan şifrelerin gücü ve üçüncü taraf programların (AnyDesk) erişim yetkileri tamamen sizin kontrolünüzdedir.\n\n"
+            "• Sorumluluk Reddi: Uygulama geliştiricisi, olası siber saldırılar, veri sızıntıları, şifre çalınması, izinsiz erişim veya üçüncü taraf programlardan kaynaklanan hiçbir teknik, hukuki veya cezai sorumluluğu KABUL ETMEZ.\n\n"
+            "Bu modülü kullanarak tüm veri güvenliği risklerini ve hukuki sorumluluğu tamamen üzerinize aldığınızı beyan etmiş olursunuz."
+        )
+
+        txt_frame = tk.Frame(body, bg=c.get_color("bg_main"))
+        txt_frame.pack(fill="both", expand=True, pady=(0, 20))
+        
+        # Height değerini artırdık ki yazının tamamı görünsün
+        txt = tk.Text(txt_frame, font=("Segoe UI", 10), bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), wrap="word", bd=1, relief="solid", padx=20, pady=20, height=18)
+        txt.pack(fill="both", expand=True)
+        txt.insert("1.0", uyari_metni)
+        txt.config(state="disabled")
+
+        # --- ONAY KUTUSU (CHECKBOX) ---
+        onay_var = tk.BooleanVar(value=False)
+        
+        def onay_degisti():
+            if onay_var.get():
+                btn_kabul.configure(state="normal", bg="#10b981", cursor="hand2")
+            else:
+                btn_kabul.configure(state="disabled", bg="#9ca3af", cursor="arrow")
+
+        # wraplength ekledik ki yazı kutudan taşmasın, alt satıra geçsin
+        chk_text = "Yukarıdaki yasal uyarıyı okudum, anladım ve sorumluluğun tamamen tarafıma ait olduğunu beyan ve kabul ediyorum."
+        chk = tk.Checkbutton(body, text=chk_text, variable=onay_var, command=onay_degisti, font=("Segoe UI", 11, "bold"), bg=c.get_color("bg_main"), fg="#ef4444", selectcolor=c.get_color("card_bg"), activebackground=c.get_color("bg_main"), activeforeground="#ef4444", justify="left", wraplength=640)
+        chk.pack(anchor="w", pady=(0, 25))
+
+        # --- KAYIT İŞLEMİ VE BUTON ---
+        def sozlesmeyi_kabul_et():
+            try:
+                import datetime
+                onay_zamani = datetime.datetime.now().strftime("%d.%m.%Y - %H:%M:%S")
+                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('rdp_sozlesme_onay', ?)", (onay_zamani,))
+                self.baglanti_skt.commit()
+                onay_win.destroy()
+                # Onaydan hemen sonra asıl paneli aç
+                self.uzak_masaustu_paneli() 
+            except Exception as e:
+                messagebox.showerror("Hata", f"Onay kaydedilemedi: {e}", parent=onay_win)
+
+        btn_kabul = tk.Button(body, text="ONAYLIYORUM VE DEVAM ET", font=("Segoe UI", 13, "bold"), fg="white", bg="#9ca3af", state="disabled", relief="flat", pady=12, command=sozlesmeyi_kabul_et)
+        btn_kabul.pack(fill="x")
+
+    def _admin_sifre_sor(self, event=None):
+        """Ctrl+Shift+A basıldığında tetiklenen gizli şifre ekranı"""
+        from tkinter import simpledialog
+        
+        # Minik şifre sorma kutusu (Yazılanlar * olarak görünür)
+        sifre = simpledialog.askstring("Yetki Kontrolü", "Geliştirici Şifresi:", show='*', parent=self.pencere)
+        
+        if sifre == "patron123":  # BURAYA KENDİ GİZLİ ŞİFRENİ YAZABİLİRSİN
+            self.goster_admin_paneli()
+        elif sifre is not None:
+            messagebox.showerror("Erişim Engellendi", "Hatalı şifre! Bu girişim kaydedildi.", parent=self.pencere)
+
+    def goster_admin_paneli(self):
+        """Sadece doğru şifreyle açılan gizli veri okuma paneli"""
+        c = TM
+        admin_win = tk.Toplevel(self.pencere)
+        admin_win.title("🔒 Sistem Yönetimi / Admin Paneli")
+        admin_win.geometry("450x300")
+        admin_win.configure(bg=c.get_color("bg_main"))
+        admin_win.transient(self.pencere)
+        admin_win.grab_set()
+
+        # Pencereyi tam ortaya al
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 150
+        admin_win.geometry(f"+{x}+{y}")
+
+        # --- BAŞLIK ---
+        header = tk.Frame(admin_win, bg="#111827", pady=15)
+        header.pack(fill="x")
+        tk.Label(header, text="🛡️ GELİŞTİRİCİ KONTROL MERKEZİ", font=("Segoe UI", 12, "bold"), bg="#111827", fg="#10b981").pack()
+
+        body = tk.Frame(admin_win, bg=c.get_color("bg_main"), padx=20, pady=20)
+        body.pack(fill="both", expand=True)
+
+        # =========================================================
+        # VERİTABANINDAN SÖZLEŞME ONAYINI (ISLAK İMZAYI) OKUMA
+        # =========================================================
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='rdp_sozlesme_onay'")
+            res = self.imlec.fetchone()
+            
+            if res and res[0] and res[0] != '1':
+                onay_durumu = f"Kabul Edildi\nTarih: {res[0]}"
+                renk = "#10b981"  # Yeşil
+                ikon = "✅"
+            elif res and res[0] == '1':
+                # Eğer daha önce '1' olarak kaydettiysen onu da anlasın
+                onay_durumu = "Kabul Edildi\n(Tarih damgası öncesi eski kayıt)"
+                renk = "#10b981"
+                ikon = "✅"
+            else:
+                onay_durumu = "Henüz Onaylanmadı veya Reddedildi"
+                renk = "#ef4444"  # Kırmızı
+                ikon = "❌"
+        except Exception as e:
+            onay_durumu = f"Veritabanı Okuma Hatası"
+            renk = "#f59e0b"
+            ikon = "⚠️"
+
+        # --- EKRANA KART OLARAK YAZDIRMA ---
+        f_onay = tk.Frame(body, bg=c.get_color("card_bg"), bd=1, relief="solid", highlightbackground=renk, highlightthickness=1, padx=15, pady=15)
+        f_onay.pack(fill="x", pady=10)
+        
+        tk.Label(f_onay, text="Uzak Masaüstü Yasal Uyarı Onayı:", font=("Segoe UI", 10, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 5))
+        
+        lbl_sonuc = tk.Label(f_onay, text=f"{ikon} {onay_durumu}", font=("Segoe UI", 11, "bold"), bg=c.get_color("card_bg"), fg=renk, justify="left")
+        lbl_sonuc.pack(anchor="w")
+
+        # Kapat Butonu
+        tk.Button(body, text="PANELİ KAPAT", font=("Segoe UI", 10, "bold"), bg="#4b5563", fg="white", command=admin_win.destroy, relief="flat", pady=8).pack(side="bottom", fill="x", pady=(15, 0))
+
+    def uzak_masaustu_paneli(self):
+        """Modern Uzak Bağlantı (RDP + AnyDesk + Kapsamlı Rehber) Paneli"""
+        c = TM
+        
+        # =========================================================
+        # ONAY KONTROLÜ
+        # =========================================================
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='rdp_sozlesme_onay'")
+            res = self.imlec.fetchone()
+            # DÜZELTME: Artık '1' mi diye bakmıyoruz. İçi boş değilse (yani tarih yazıyorsa) onaylanmıştır diyoruz.
+            onayli_mi = True if (res and res[0]) else False
+        except:
+            onayli_mi = False
+
+        if not onayli_mi:
+            self._goster_yasal_onay_penceresi()
+            return
+        # =========================================================
+
+        if hasattr(self, 'rdp_win') and self.rdp_win.winfo_exists():
+            self.rdp_win.destroy()
+            return
+
+        self.rdp_win = tk.Toplevel(self.pencere)
+        self.rdp_win.title("🖥️ Eczaneye Hızlı Bağlantı")
+        self.rdp_win.geometry("520x720") 
+        self.rdp_win.configure(bg=c.get_color("bg_main"))
+        self.rdp_win.transient(self.pencere)
+        self.rdp_win.grab_set()
+
+        x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 260
+        y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 360
+        self.rdp_win.geometry(f"+{x}+{y}")
+
+        # --- ÜST BAŞLIK ---
+        header = tk.Frame(self.rdp_win, bg=c.get_color("header_bg"), pady=20)
+        header.pack(fill="x")
+        
+        tk.Label(header, text="🖥️", font=("Segoe UI", 26), bg=c.get_color("header_bg"), fg="#3b82f6").pack(side="left", padx=(30, 15))
+        tk.Label(header, text="Eczaneye Hızlı Bağlan", font=("Segoe UI", 15, "bold"), bg=c.get_color("header_bg"), fg="white").pack(side="left")
+
+        # --- ANA GÖVDE ---
+        body = tk.Frame(self.rdp_win, bg=c.get_color("bg_main"), padx=30, pady=20)
+        body.pack(fill="both", expand=True)
+
+        # =========================================================
+        # 1. SEÇENEK: RDP (TAILSCALE) - ÖNERİLEN
+        # =========================================================
+        f_rdp = tk.Frame(body, bg=c.get_color("card_bg"), bd=0, highlightbackground="#3b82f6", highlightthickness=2, padx=20, pady=20)
+        f_rdp.pack(fill="x", pady=(0, 15))
+
+        tk.Label(f_rdp, text="🌟 Windows Uzak Masaüstü (Önerilen)", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg="#3b82f6").pack(anchor="center", pady=(0, 5))
+        tk.Label(f_rdp, text="En hızlı ve net görüntü. Tailscale IP adresini girin.", font=("Segoe UI", 9), bg=c.get_color("card_bg"), fg="#94a3b8").pack(anchor="center", pady=(0, 15))
+
+        ent_rdp = tk.Entry(f_rdp, font=("Segoe UI", 15, "bold"), bg=c.get_color("input_bg"), fg="#3b82f6", insertbackground=c.get_color("fg_text"), relief="solid", bd=1, justify="center")
+        ent_rdp.pack(fill="x", ipady=8, padx=15, pady=(0, 15))
+
+        def baglan_rdp():
+            ip = ent_rdp.get().strip()
+            if not ip:
+                messagebox.showwarning("Eksik", "Lütfen Tailscale IP adresini girin.", parent=self.rdp_win)
+                return
+            try:
+                import subprocess
+                import platform
+                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('son_rdp_ip', ?)", (ip,))
+                self.baglanti_skt.commit()
+                
+                if platform.system() == "Darwin":
+                    subprocess.Popen(["open", f"rdp://full address=s:{ip}"])
+                else:
+                    subprocess.Popen(["mstsc", f"/v:{ip}"])
+                    
+                self.goster_bildirim("RDP Başlatılıyor...", f"🖥️ {ip} hedefine bağlanılıyor.")
+                self.rdp_win.destroy()
+            except Exception as e:
+                messagebox.showerror("Hata", f"RDP başlatılamadı:\n{e}", parent=self.rdp_win)
+
+        f_btn_rdp = tk.Frame(f_rdp, bg=c.get_color("card_bg"))
+        f_btn_rdp.pack(fill="x")
+        ModernButton(f_btn_rdp, text="🚀 RDP İLE BAĞLAN", command=baglan_rdp, bg_color="#3b82f6", hover_color="#2563eb", width=280, height=45).pack(anchor="center")
+
+        # =========================================================
+        # 2. SEÇENEK: ANYDESK - ALTERNATİF
+        # =========================================================
+        f_any = tk.Frame(body, bg=c.get_color("card_bg"), bd=0, highlightbackground=c.get_color("border"), highlightthickness=1, padx=20, pady=15)
+        f_any.pack(fill="x", pady=(0, 15))
+
+        tk.Label(f_any, text="🟥 AnyDesk (Alternatif)", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg="#ef4444").pack(anchor="center", pady=(0, 5))
+        tk.Label(f_any, text="RDP çalışmazsa kullanılır. AnyDesk ID numarasını girin.", font=("Segoe UI", 9), bg=c.get_color("card_bg"), fg="#94a3b8").pack(anchor="center", pady=(0, 15))
+
+        ent_anydesk = tk.Entry(f_any, font=("Segoe UI", 15, "bold"), bg=c.get_color("input_bg"), fg="#ef4444", insertbackground=c.get_color("fg_text"), relief="solid", bd=1, justify="center")
+        ent_anydesk.pack(fill="x", ipady=8, padx=15, pady=(0, 15))
+
+        def baglan_anydesk():
+            hedef_id = ent_anydesk.get().replace(" ", "").strip()
+            if not hedef_id:
+                messagebox.showwarning("Eksik", "Lütfen AnyDesk ID'sini girin.", parent=self.rdp_win)
+                return
+            try:
+                import subprocess
+                import os
+                import platform
+                self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('son_anydesk_id', ?)", (hedef_id,))
+                self.baglanti_skt.commit()
+
+                if platform.system() == "Darwin":
+                    mac_anydesk_path = "/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
+                    if os.path.exists(mac_anydesk_path):
+                        subprocess.Popen([mac_anydesk_path, hedef_id])
+                    else:
+                        subprocess.Popen(["open", f"anydesk:{hedef_id}"])
+                else:
+                    olasi_yollar = [
+                        r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
+                        r"C:\Program Files\AnyDesk\AnyDesk.exe",
+                        os.path.expanduser(r"~\AppData\Local\AnyDesk\AnyDesk.exe")
+                    ]
+                    anydesk_yolu = next((yol for yol in olasi_yollar if os.path.exists(yol)), None)
+
+                    if anydesk_yolu:
+                        subprocess.Popen([anydesk_yolu, hedef_id])
+                    else:
+                        subprocess.Popen(["anydesk", hedef_id])
+                
+                self.goster_bildirim("AnyDesk Başlatılıyor...", f"🖥️ {hedef_id} numaralı cihaza bağlanılıyor.")
+                self.rdp_win.destroy()
+            except Exception as e:
+                messagebox.showerror("Hata", f"AnyDesk başlatılamadı:\n{e}", parent=self.rdp_win)
+
+        f_btn_any = tk.Frame(f_any, bg=c.get_color("card_bg"))
+        f_btn_any.pack(fill="x")
+        ModernButton(f_btn_any, text="🚀 ANYDESK İLE BAĞLAN", command=baglan_anydesk, bg_color="#ef4444", hover_color="#dc2626", width=280, height=45).pack(anchor="center")
+
+        # =========================================================
+        # 3. YARDIM / SORUN GİDERME BUTONU
+        # =========================================================
+        def goster_yardim_penceresi(event):
+            help_win = tk.Toplevel(self.rdp_win)
+            help_win.title("❓ Uzak Masaüstü Sorun Giderme Rehberi")
+            help_win.geometry("740x780") 
+            help_win.configure(bg=c.get_color("bg_main"))
+            help_win.transient(self.rdp_win)
+            
+            hx = self.rdp_win.winfo_x() - 110
+            hy = self.rdp_win.winfo_y() - 30
+            help_win.geometry(f"+{hx}+{hy}")
+
+            lbl_title = tk.Label(help_win, text="🛠️ Kapsamlı Bağlantı ve Sorun Giderme Rehberi", font=("Segoe UI", 16, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text"), pady=15)
+            lbl_title.pack(fill="x")
+
+            txt_frame = tk.Frame(help_win, bg=c.get_color("bg_main"), padx=20)
+            txt_frame.pack(fill="both", expand=True, pady=(0, 20))
+
+            scrollbar = tk.Scrollbar(txt_frame)
+            scrollbar.pack(side="right", fill="y")
+
+            txt = tk.Text(txt_frame, font=("Segoe UI", 10), bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), wrap="word", yscrollcommand=scrollbar.set, bd=1, relief="solid", padx=20, pady=20)
+            txt.pack(side="left", fill="both", expand=True)
+            scrollbar.config(command=txt.yview)
+
+            txt.tag_configure("bilgi_baslik", font=("Segoe UI", 12, "bold"), foreground="#3b82f6", spacing1=10, spacing3=5)
+            txt.tag_configure("baslik", font=("Segoe UI", 12, "bold"), foreground="#ef4444", spacing1=15, spacing3=5)
+            txt.tag_configure("altbaslik", font=("Segoe UI", 10, "bold"), foreground="#f59e0b", spacing1=5)
+            txt.tag_configure("cozum_baslik", font=("Segoe UI", 10, "bold"), foreground="#10b981", spacing1=5)
+            txt.tag_configure("normal", font=("Segoe UI", 10), foreground=c.get_color("fg_text"))
+            txt.tag_configure("madde", font=("Segoe UI", 10), foreground=c.get_color("fg_text"), lmargin1=20, lmargin2=35, spacing1=3)
+            txt.tag_configure("kod", font=("Consolas", 10, "bold"), foreground="#3b82f6", lmargin1=35)
+
+            txt.insert(tk.END, "📌 1. BAĞLANTI İÇİN ZORUNLU ÖN HAZIRLIKLAR\n", "bilgi_baslik")
+            txt.insert(tk.END, "RDP (Tailscale) Hazırlığı:\n", "altbaslik")
+            txt.insert(tk.END, "• Her iki bilgisayara da Tailscale kurulmalı ve kesinlikle AYNI Gmail hesabıyla giriş yapılmalıdır.\n", "madde")
+            txt.insert(tk.END, "• Mac Kullanıcıları: Bağlantı kurabilmek için App Store'dan ücretsiz 'Microsoft Remote Desktop' uygulamasını indirmelidir.\n", "madde")
+            txt.insert(tk.END, "AnyDesk Hazırlığı:\n", "altbaslik")
+            txt.insert(tk.END, "• AnyDesk taşınabilir (indir-çalıştır) sürüm olmamalı, bilgisayara KURULMUŞ olmalıdır.\n", "madde")
+            txt.insert(tk.END, "• Şifresiz direkt bağlanabilmek için Eczanedeki AnyDesk'te: Sağ üst menü > Ayarlar > Güvenlik sekmesinden 'Gözetimsiz erişime izin ver' seçilmeli ve şifre belirlenmelidir.\n", "madde")
+
+            txt.insert(tk.END, "\n🚀 2. NASIL BAĞLANIRIM? (ADIM ADIM)\n", "bilgi_baslik")
+            txt.insert(tk.END, "RDP (Tailscale) İle Bağlanmak İçin:\n", "altbaslik")
+            txt.insert(tk.END, "1. Eczanedeki bilgisayarın sağ alt köşesindeki Tailscale simgesine tıklayın.\n", "madde")
+            txt.insert(tk.END, "2. Açılan menünün en üstündeki IP adresine tıklayarak kopyalayın.\n", "madde")
+            txt.insert(tk.END, "3. Evdeki bilgisayarda, bu IP adresini mavi RDP kutusuna yapıştırın ve BAĞLAN'a basın.\n", "madde")
+            
+            txt.insert(tk.END, "AnyDesk İle Bağlanmak İçin:\n", "altbaslik")
+            txt.insert(tk.END, "1. Eczanedeki bilgisayarda AnyDesk programını açın.\n", "madde")
+            txt.insert(tk.END, "2. Ekrandaki 9 haneli \"Bu Çalışma Alanı\" numarasını not alın.\n", "madde")
+            txt.insert(tk.END, "3. Evdeki bilgisayarda, bu numarayı kırmızı AnyDesk kutusuna yazın ve BAĞLAN'a basın.\n", "madde")
+
+            txt.insert(tk.END, "\n🛠️ 3. SIK KARŞILAŞILAN SORUNLAR\n", "bilgi_baslik")
+            txt.insert(tk.END, "❌ SORUN 1: \"Bağlanamıyor\" veya \"Ağda Bulunamıyor\"\n", "baslik")
+            txt.insert(tk.END, "Nedeni: ", "altbaslik")
+            txt.insert(tk.END, "Bilgisayarlar birbirini görmüyor veya uzak bağlantı kapalı.\n", "normal")
+            txt.insert(tk.END, "Çözüm:\n", "cozum_baslik")
+            txt.insert(tk.END, "• Eczanedeki bilgisayarda: Başlat > 'Uzak Masaüstü Ayarları' > Şalteri AÇIK konuma getirin.\n", "madde")
+
+            txt.insert(tk.END, "\n❌ SORUN 2: Uzak Masaüstü Şalteri Açılmıyor (Kırmızı Uyarı)\n", "baslik")
+            txt.insert(tk.END, "Nedeni: ", "altbaslik")
+            txt.insert(tk.END, "Eczanedeki bilgisayarda Windows 10/11 'Home' sürümü yüklüdür.\n", "normal")
+            txt.insert(tk.END, "Çözüm:\n", "cozum_baslik")
+            txt.insert(tk.END, "• A Planı: Eczanedeki bilgisayarı uygun fiyatlı 'Windows 11 Pro' lisansı ile yükseltin.\n", "madde")
+            txt.insert(tk.END, "• B Planı: Menüdeki 'AnyDesk (Alternatif)' butonunu kullanın.\n", "madde")
+
+            txt.insert(tk.END, "\n❌ SORUN 3: Kimlik Bilgileri Çalışmadı (Şifre Hatası)\n", "baslik")
+            txt.insert(tk.END, "Nedeni: ", "altbaslik")
+            txt.insert(tk.END, "Eczanedeki bilgisayar Microsoft hesabına bağlıdır ve PIN kodu şifreyi engelliyordur.\n", "normal")
+            txt.insert(tk.END, "Çözüm:\n", "cozum_baslik")
+            txt.insert(tk.END, "• Adım 1: Eczanedeki bilgisayarda: Ayarlar > Hesaplar > Oturum Açma Seçenekleri'ne girin. 'Yalnızca Windows Hello...' şalterini KAPATIN.\n", "madde")
+            txt.insert(tk.END, "• Adım 2: Evden bağlanırken Kullanıcı Adı kısmına tam olarak şunu yazın:\n", "madde")
+            txt.insert(tk.END, "MicrosoftAccount\\sizinmailiniz@hotmail.com\n", "kod")
+            txt.insert(tk.END, "• Adım 3: Parola kısmına PIN değil, e-posta adresinizin gerçek şifresini yazın.\n", "madde")
+            txt.insert(tk.END, "• Alternatif Adım: Eczanedeki bilgisayarı kilitleyip (Win+L), açılış ekranında PIN yerine \"Parola\" ikonunu seçerek asıl şifrenizle masaüstüne bir kez giriş yapın.\n", "madde")
+
+            txt.config(state="disabled")
+
+        lbl_yardim = tk.Label(body, text="❓ Bağlantı Sorunu mu Yaşıyorsunuz? Rehberi Oku", font=("Segoe UI", 10, "underline"), bg=c.get_color("bg_main"), fg="#f59e0b", cursor="hand2")
+        lbl_yardim.pack(side="bottom", pady=(15, 0))
+        lbl_yardim.bind("<Button-1>", goster_yardim_penceresi)
+
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='son_rdp_ip'")
+            res_rdp = self.imlec.fetchone()
+            if res_rdp and res_rdp[0]: ent_rdp.insert(0, res_rdp[0])
+            
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='son_anydesk_id'")
+            res_any = self.imlec.fetchone()
+            if res_any and res_any[0]: ent_anydesk.insert(0, res_any[0])
+        except: pass
+
     def bildirim_panelini_ac(self):
         c = TM
         
@@ -10025,6 +13622,14 @@ class EczaneAsistani:
                 sonuc_var = True
         except: pass
 
+        # 4. Bilgi Bankası Araması
+        try:
+            self.imlec.execute("SELECT kategori, baslik, icerik FROM bilgi_bankasi WHERE baslik LIKE ? OR icerik LIKE ? LIMIT 10", (f"%{query}%", f"%{query}%"))
+            for r in self.imlec.fetchall():
+                tree.insert("", "end", values=(f"📚 {r[0]}", r[1], r[2][:50] + "..."))
+                sonuc_var = True
+        except: pass
+
         if not sonuc_var:
             tree.insert("", "end", values=("Sonuç Yok", "Aradığınız kriterde kayıt bulunamadı.", "-"))
 
@@ -10036,6 +13641,7 @@ class EczaneAsistani:
             if "Stok" in kat: self.sekme_degistir(1)
             elif "Depo" in kat: self.sekme_degistir(6)
             elif "Kasa" in kat: self.sekme_degistir(11)
+            elif "📚" in kat: self.sekme_degistir(19)
 
         tree.bind("<Double-1>", git_modul)
         tk.Label(pop, text="İlgili modüle gitmek için satıra çift tıklayın.", font=("Segoe UI", 9, "italic"), bg=TM.get_color("bg_main"), fg="#64748b").pack(pady=5)
@@ -10047,31 +13653,35 @@ class EczaneAsistani:
         self.bakiye_gizli = getattr(self, 'bakiye_gizli', False)
 
         def toggle_bakiye():
-            # Bakiye durumunu tersine çevir
             self.bakiye_gizli = not self.bakiye_gizli
-            
-            # 1. Butonun metnini belirle (Açık veya Kapalı göz)
-            yeni_ikon = "🙈    ₺" if self.bakiye_gizli else "👁️₺"
-            
-            # 2. Buton varsa içindeki 'text' özelliğini değiştirip yeniden çizdiriyoruz
+            yeni_ikon = "🙈   ₺" if self.bakiye_gizli else "👁️₺"
             if hasattr(self, 'btn_bakiye_ozel'):
                 self.btn_bakiye_ozel.text = yeni_ikon
                 self.btn_bakiye_ozel._draw(self.btn_bakiye_ozel.bg_color)
-            
-            # 3. Rakamları maskele veya göster
             guncelle_ozet_kartlari()
 
-
         # =====================================================================
-        # 1. KAYDIRMA (SWIPE) ALTYAPISI
+        # 1. KAYDIRMA (SWIPE) ALTYAPISI (GÜVENLİ VERSİYON)
         # =====================================================================
         self.current_page = getattr(self, 'last_home_page', 0)
-        self.is_dragging = False
         self.animating = False
-        self.drag_start_x = 0
+
+        # --- DÜZELTME: Noktaları ekranın en altına en baştan sabitliyoruz ---
+        f_dots = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        f_dots.pack(side="bottom", fill="x", pady=(5, 15))
+        
+        tk.Label(f_dots, text="Sayfalar arası geçiş yapmak için sağ üstteki butonları veya klavye yön tuşlarını (← →) kullanabilirsiniz.", font=("Segoe UI", 8, "italic"), bg=c.get_color("bg_main"), fg="#94a3b8").pack(side="top", pady=(0, 5))
+        
+        canvas_dots = tk.Canvas(f_dots, bg=c.get_color("bg_main"), highlightthickness=0, height=30, width=100)
+        canvas_dots.pack(anchor="center")
+        
+        canvas_dots.tag_bind("dot0", "<Button-1>", lambda e: goto_page(0))
+        canvas_dots.tag_bind("dot1", "<Button-1>", lambda e: goto_page(1))
+        canvas_dots.config(cursor="hand2")
+        # ---------------------------------------------------------------------
 
         viewport = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        viewport.pack(fill="both", expand=True)
+        viewport.pack(side="top", fill="both", expand=True) # side="top" eklendi
 
         self.page_ozet = tk.Frame(viewport, bg=c.get_color("bg_main"))
         self.page_menu = tk.Frame(viewport, bg=c.get_color("bg_main"))
@@ -10083,9 +13693,9 @@ class EczaneAsistani:
             self.page_ozet.place(relx=-1, rely=0, relwidth=1, relheight=1)
             self.page_menu.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        def goto_page(page_num, from_drag=False):
+        def goto_page(page_num):
             if self.animating: return
-            if page_num == self.current_page and not from_drag: return
+            if page_num == self.current_page: return
             self.animating = True
             
             try: ozet_start = float(self.page_ozet.place_info()['relx'])
@@ -10097,71 +13707,31 @@ class EczaneAsistani:
             menu_target = 1.0 if page_num == 0 else 0.0
 
             def step(count=0):
-                if count > 20:
+                # Güvenlik Kilidi: Başka sayfaya geçildiyse animasyonu durdur
+                if not hasattr(self, 'page_ozet') or not self.page_ozet.winfo_exists():
+                    self.animating = False
+                    return
+                
+                if count > 15: # Daha hızlı bir geçiş efekti
                     self.page_ozet.place(relx=ozet_target)
                     self.page_menu.place(relx=menu_target)
                     self.current_page = page_num
                     self.last_home_page = page_num
                     self.animating = False
-                    guncelle_noktalar()
+                    try: guncelle_noktalar()
+                    except: pass
                     return
-                progress = count / 20.0
+                    
+                progress = count / 15.0
                 ease = 1 - (1 - progress) * (1 - progress)
                 self.page_ozet.place(relx=ozet_start + (ozet_target - ozet_start) * ease)
                 self.page_menu.place(relx=menu_start + (menu_target - menu_start) * ease)
-                self.pencere.after(10, lambda: step(count + 1))
+                self.pencere.after(15, lambda: step(count + 1))
             step()
 
-        def on_press(e):
-            if isinstance(e.widget, (tk.Entry, tk.Text, ttk.Combobox, tk.Listbox)): return
-            if self.animating: return
-            self.drag_start_x = e.x_root
-            self.is_dragging = False
-
-        def on_motion(e):
-            # --- GÜVENLİK KONTROLÜ BAŞLANGICI ---
-            if not viewport.winfo_exists(): return
-            # --- GÜVENLİK KONTROLÜ BİTİŞİ ---
-            
-            if isinstance(e.widget, (tk.Entry, tk.Text, ttk.Combobox, tk.Listbox)): return
-            if self.animating: return
-            dx = e.x_root - self.drag_start_x
-            if abs(dx) > 15: self.is_dragging = True
-            
-            if self.is_dragging:
-                w = viewport.winfo_width()
-                shift = dx / w
-                if self.current_page == 0:
-                    if shift > 0: shift *= 0.2
-                    self.page_ozet.place(relx=shift)
-                    self.page_menu.place(relx=1 + shift)
-                else:
-                    if shift < 0: shift *= 0.2
-                    self.page_ozet.place(relx=-1 + shift)
-                    self.page_menu.place(relx=shift)
-
-        def on_release(e):
-            # --- GÜVENLİK KONTROLÜ: Ana sayfada değilsek bu işlemi iptal et ---
-            if not viewport.winfo_exists(): return
-            
-            if isinstance(e.widget, (tk.Entry, tk.Text, ttk.Combobox, tk.Listbox)): return
-            if self.animating or not self.is_dragging: return
-            dx = e.x_root - self.drag_start_x
-            w = viewport.winfo_width()
-            if dx < -(w * 0.15) and self.current_page == 0: goto_page(1, from_drag=True)
-            elif dx > (w * 0.15) and self.current_page == 1: goto_page(0, from_drag=True)
-            else: goto_page(self.current_page, from_drag=True)
-
-        self.pencere.bind_all("<ButtonPress-1>", on_press)
-        self.pencere.bind_all("<B1-Motion>", on_motion)
-        self.pencere.bind_all("<ButtonRelease-1>", on_release)
-
-        # Tıklama sorunu çözüldü (is_dragging koruması butonlardan kaldırıldı)
+        # DÜZELTME: Tüm tehlikeli unbind_all komutları kaldırıldı!
         def wrap_cmd(idx):
             def cmd():
-                self.pencere.unbind_all("<MouseWheel>")
-                self.pencere.unbind_all("<Left>")
-                self.pencere.unbind_all("<Right>")
                 self.sekme_degistir(idx)
             return cmd
 
@@ -10171,29 +13741,34 @@ class EczaneAsistani:
         header_ozet = tk.Frame(self.page_ozet, bg=c.get_color("bg_main"))
         header_ozet.pack(fill="x", pady=(25, 10), padx=40)
         
-        # Logo ve Metinleri yan yana tutmak için çerçeve
         f_baslik_icerik = tk.Frame(header_ozet, bg=c.get_color("bg_main"))
         f_baslik_icerik.pack(side="left", fill="both")
 
-        # Dashboard Logosu
         if hasattr(self, 'logo_dashboard'):
             lbl_dash_logo = tk.Label(f_baslik_icerik, image=self.logo_dashboard, bg=c.get_color("bg_main"))
             lbl_dash_logo.pack(side="left", padx=(0, 25))
 
-        # Metinleri tutan çerçeve
         f_baslik_metin = tk.Frame(f_baslik_icerik, bg=c.get_color("bg_main"))
         f_baslik_metin.pack(side="left")
 
-        # Marka yerine sayfanın amacı vurgulandı
-        # Ekranda kimin yetkisiyle girdiğinizi parantez içinde görebileceksiniz
         tk.Label(f_baslik_metin, text=f"Genel Durum Özeti ({self.aktif_rol})", font=("Segoe UI", 34, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w")
         tk.Label(f_baslik_metin, text="Eczanenizin güncel SKT, stok ve finansal özet durumu", font=("Segoe UI", 13), bg=c.get_color("bg_main"), fg="#94a3b8").pack(anchor="w", pady=(2,0))
         
-        # Bakiye Gizle/Göster Butonu (Sadece yetkisi olanlar görebilir)
-        ilk_ikon = "🙈₺" if self.bakiye_gizli else "👁️₺"
+        # --- YENİ: GARANTİLİ FİZİKSEL MENÜ GEÇİŞ BUTONU ---
+        f_sag_ust = tk.Frame(header_ozet, bg=c.get_color("bg_main"))
+        f_sag_ust.pack(side="right", anchor="ne")
+        
+        ilk_ikon = "🙈 ₺" if self.bakiye_gizli else "👁️ ₺"
         if self.aktif_rol == "Yönetici" or self.personel_yetkileri.get("para_gorsun", False):
-            self.btn_bakiye_ozel = ModernButton(header_ozet, text=ilk_ikon, command=toggle_bakiye, bg_color="#64748b", width=70, height=28)
-            self.btn_bakiye_ozel.place(relx=1.0, rely=0, anchor="ne")
+            self.btn_bakiye_ozel = ModernButton(f_sag_ust, text=ilk_ikon, command=toggle_bakiye, bg_color="#64748b", width=70, height=35)
+            self.btn_bakiye_ozel.pack(side="left", padx=5)
+
+        ModernButton(f_sag_ust, text="MENÜYE GİT ➡", command=lambda: goto_page(1), bg_color="#3b82f6", width=150, height=35).pack(side="left", padx=5)
+        
+        # --- PDF ve Mail Butonlarını Personelden Gizle ---
+        if self.aktif_rol == "Yönetici" or self.personel_yetkileri.get("finans_gorsun", False):
+            ModernButton(f_sag_ust, text="📥 PDF RAPOR İNDİR", command=self.pdf_rapor_olustur, bg_color="#8b5cf6", width=180, height=35).pack(side="left", padx=5)
+            ModernButton(f_sag_ust, text="📧 RAPORU MAİL AT", command=lambda: self.aylik_durum_raporu_gonder(manuel=True), bg_color="#f59e0b", width=180, height=35).pack(side="left", padx=5)
 
         # --- TÜM OLASI VERİLERİ HESAPLA (TAM LİSTE) ---
         bugun = date.today()
@@ -10250,41 +13825,54 @@ class EczaneAsistani:
             self.imlec_finans.execute("SELECT SUM(tutar) FROM kasa_defteri WHERE islem_turu='ÇIKIŞ' AND tarih LIKE ?", (f"{bu_ay_str}%",))
             aylik_kasa_cikis = self.imlec_finans.fetchone()[0] or 0.0
 
-            # --- KART GİDERİ: Ekstre tabanlı, kart başına 1 kez ---
+            # --- KART GİDERİ HESAPLAMASI (EKSTRE VEYA SİSTEM) ---
             imlec2 = self.baglanti_finans.cursor()
+            
+            # 1. Sistemdeki (Taksitlendirilmiş) Giderleri Bul
             imlec2.execute("""
                 SELECT satir_notu, SUM(tutar) FROM odemeler 
                 WHERE (aciklama LIKE '%Kredi Kartı%' OR satir_notu LIKE 'KART:%') 
                 AND strftime('%Y-%m', vade_tarihi)=?
                 GROUP BY satir_notu
             """, (bu_ay_str,))
-            _kart_satirlar = imlec2.fetchall()
-
-            # Önce kart adına göre sistem toplamlarını birleştir
+            
             _kart_sistem = {}
-            for (_notu, _tut) in _kart_satirlar:
+            for (_notu, _tut) in imlec2.fetchall():
                 _k_adi = "Diğer Kartlar"
                 if _notu and "KART:" in str(_notu):
                     _temp = str(_notu).split("KART:")[1].strip()
-                    _k_adi = _temp.split("(")[0].rstrip(" -").strip()
+                    # --- PARANTEZ HATASI DÜZELTİLDİ ---
+                    if "(" in _temp and ")" in _temp:
+                        last_open = _temp.rfind("(")
+                        if "/" in _temp[last_open:]:
+                            _k_adi = _temp[:last_open].strip()
+                        else:
+                            _k_adi = _temp
+                    else:
+                        _k_adi = _temp
+                    # ----------------------------------
+                    _k_adi = _k_adi.rstrip(" -").strip()
                 _kart_sistem[_k_adi] = _kart_sistem.get(_k_adi, 0.0) + (_tut or 0.0)
 
-            # Her unique kart için ekstre kontrolü (1 kez!)
+            # 2. Manuel Girilen Ekstreleri Bul
+            imlec2.execute("SELECT ayar_adi, deger FROM program_ayarlari WHERE ayar_adi LIKE ?", (f"ekstre_toplam_%_{bu_ay_str}",))
+            _ekstreler = {}
+            for ayar_adi, deger in imlec2.fetchall():
+                _k_adi = ayar_adi.replace("ekstre_toplam_", "").replace(f"_{bu_ay_str}", "")
+                try: _ekstreler[_k_adi] = float(deger)
+                except: _ekstreler[_k_adi] = 0.0
+
+            # 3. İkisini Birleştir: Ekstre varsa onu al, yoksa Sistemdekini (Taksitleri) al
             aylik_kart_gideri = 0.0
-            for _k_adi, _sistem_tut in _kart_sistem.items():
-                imlec2.execute(
-                    "SELECT deger FROM program_ayarlari WHERE ayar_adi=?",
-                    (f"ekstre_toplam_{_k_adi}_{bu_ay_str}",)
-                )
-                _res = imlec2.fetchone()
-                if _res and _res[0]:
-                    try:
-                        _ev = float(_res[0])
-                        aylik_kart_gideri += _ev if _ev > 0 else _sistem_tut
-                    except:
-                        aylik_kart_gideri += _sistem_tut
-                else:
-                    aylik_kart_gideri += _sistem_tut
+            tum_kartlar = set(list(_kart_sistem.keys()) + list(_ekstreler.keys()))
+            
+            for k in tum_kartlar:
+                ekstre_tutari = _ekstreler.get(k, 0.0)
+                sistem_tutari = _kart_sistem.get(k, 0.0)
+                
+                # Matematiksel olarak güvenli olan değeri kullan
+                kesin_tutar = self.gecerli_tutar_belirle(ekstre_tutari, sistem_tutari)
+                aylik_kart_gideri += kesin_tutar
             # -------------------------------------------------------
 
             self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND (satir_notu IS NULL OR (NOT satir_notu LIKE '%KART:%' AND NOT satir_notu LIKE '%KURUM%' AND satir_notu NOT IN ('MANUEL_GIDER', 'MANUEL_GELIR', 'KURUM_GELIR'))) AND (aciklama IS NULL OR aciklama NOT LIKE '%[SENET-KK]%')", (bu_ay_str,))
@@ -10326,6 +13914,41 @@ class EczaneAsistani:
             self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE durum='ODENMEDİ' AND strftime('%Y-%m', vade_tarihi) = ? AND aciklama LIKE 'KREDI:%'", (bu_ay_str,))
             bu_ay_kredi = self.imlec_finans.fetchone()[0] or 0.0
 
+            self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE durum='ODENMEDİ' AND strftime('%Y-%m', vade_tarihi) = ? AND aciklama LIKE 'KREDI:%'", (gelecek_ay_str,))
+            gelecek_ay_kredi = self.imlec_finans.fetchone()[0] or 0.0
+
+            # --- YENİ: KREDİ LİSTESİ METNİ OLUŞTURMA (TOPLAM BORÇ VE TAKSİT BİLGİSİ İLE) ---
+            self.imlec_finans.execute("SELECT aciklama FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND aciklama LIKE 'KREDI:%'", (bu_ay_str,))
+            kredi_liste_satirlari = self.imlec_finans.fetchall()
+            
+            kredi_liste_metni = ""
+            if kredi_liste_satirlari:
+                kredi_dict = {}
+                for (ack,) in kredi_liste_satirlari:
+                    # KREDI: İŞ BANKASI İHTİYAÇ (1/36) yazısından verileri ayıklıyoruz
+                    try:
+                        k_adi = str(ack).split("(")[0].replace("KREDI:", "").strip()
+                        taksit_no = str(ack).split("(")[1].replace(")", "").strip()
+                    except:
+                        k_adi = str(ack).replace("KREDI:", "").strip()
+                        taksit_no = "-"
+                    
+                    if k_adi not in kredi_dict:
+                        # O krediye ait ödenmemiş TÜM taksitleri toplayıp "Kalan Toplam Borcu" buluyoruz
+                        self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE durum='ODENMEDİ' AND aciklama LIKE ?", (f"KREDI: {k_adi}%",))
+                        res_borc = self.imlec_finans.fetchone()
+                        kalan_borc = res_borc[0] if res_borc and res_borc[0] else 0.0
+                        kredi_dict[k_adi] = {"taksit": taksit_no, "kalan_borc": kalan_borc}
+                        
+                for k_adi, data in kredi_dict.items():
+                    # İsim çok uzunsa kutudan taşmasın diye hafif kısaltıyoruz
+                    if len(k_adi) > 15: k_adi = k_adi[:13] + ".."
+                    
+                    # Ekrana Yazılacak Format: 🏦 TEB TİCARİ (1/36) ➔ Kalan: 1,824,446.97 ₺
+                    kredi_liste_metni += f"🏦 {k_adi} ({data['taksit']}) ➔ Kalan: {data['kalan_borc']:,.2f} ₺\n"
+            else:
+                kredi_liste_metni = "Bu ay planlanmış kredi ödemesi yok."
+
             self.imlec_finans.execute("SELECT SUM(tutar) FROM odemeler WHERE durum='ODENMEDİ' AND strftime('%Y-%m', vade_tarihi) = ? AND satir_notu NOT IN ('MANUEL_GELIR', 'KURUM_GELIR') AND (aciklama IS NULL OR aciklama NOT LIKE '%[SENET-KK]%')", (gelecek_ay_str,))
             gelecek_ay_borc = self.imlec_finans.fetchone()[0] or 0.0
 
@@ -10349,26 +13972,26 @@ class EczaneAsistani:
             "stok_kritik": {"baslik": "Kritik Miad (0-3 Ay)", "deger": f"{kritik_stok:,}", "ikon": "🚨", "bg": "#ef4444", "is_money": False},
             "stok_uyari": {"baslik": "Yaklaşan Miad (3-6 Ay)", "deger": f"{yaklasan_stok:,}", "ikon": "⚠️", "bg": "#f59e0b", "is_money": False},
             "stok_dikkat": {"baslik": "Dikkat Miad (6-12 Ay)", "deger": f"{dikkat_stok:,}", "ikon": "🟡", "bg": "#eab308", "is_money": False},
-            "finans_borc": {"baslik": "Toplam Açık Borç", "deger": f"{toplam_borc:,.2f} ₺", "ikon": "🏢", "bg": "#f97316", "is_money": True},
             "finans_gelecek_ay": {"baslik": "Gelecek Ayki Borç", "deger": f"{gelecek_ay_borc:,.2f} ₺", "ikon": "🗓️", "bg": "#8b5cf6", "is_money": True},
             "finans_bakiye": {"baslik": "Aylık Net Bakiye", "deger": f"{bakiye:,.2f} ₺", "ikon": "💰", "bg": "#10b981" if bakiye>=0 else "#be123c", "is_money": True},
             "kasa_bugun_giris": {"baslik": "Bugünkü Kasa Girişi", "deger": f"{bugun_giris:,.2f} ₺", "ikon": "💵", "bg": "#0ea5e9", "is_money": True},
             "kasa_bugun_cikis": {"baslik": "Bugünkü Kasa Çıkışı", "deger": f"{bugun_cikis:,.2f} ₺", "ikon": "💸", "bg": "#f43f5e", "is_money": True},
             "finans_giris": {"baslik": "Bu Ay Kasa Girişi", "deger": f"{aylik_giris:,.2f} ₺", "ikon": "📈", "bg": "#059669", "is_money": True},
             "finans_cikis": {"baslik": "Bu Ay Kasa Çıkışı", "deger": f"{aylik_cikis:,.2f} ₺", "ikon": "📉", "bg": "#e11d48", "is_money": True},
-            "kasa_kk_giris": {"baslik": "Bu Ay POS/Kart Satışı", "deger": f"{bu_ay_kk_giris:,.2f} ₺", "ikon": "💳", "bg": "#0284c7", "is_money": True},
             "finans_depo": {"baslik": "Bu Ayki Depo Ödemesi", "deger": f"{bu_ay_depo:,.2f} ₺", "ikon": "🚚", "bg": "#4f46e5", "is_money": True},
             "finans_kart": {"baslik": "Bu Ayki Kart Ödemesi", "deger": f"{bu_ay_kart:,.2f} ₺", "ikon": "💳", "bg": "#a855f7", "is_money": True},
             "finans_kredi": {"baslik": "Bu Ayki Kredi Taksitleri", "deger": f"{bu_ay_kredi:,.2f} ₺", "ikon": "🏦", "bg": "#6366f1", "is_money": True},
-            "finans_sgk": {"baslik": "Bekleyen Kurum Geliri", "deger": f"{bekleyen_sgk:,.2f} ₺", "ikon": "🏥", "bg": "#2563eb", "is_money": True}
+            "finans_kredi_liste": {"baslik": "Bu Ayki Kredi Ödemeleri", "deger": kredi_liste_metni, "ikon": "📜", "bg": "#4f46e5", "is_money": True, "is_list": True},
+            "finans_sgk": {"baslik": "Bekleyen Kurum Geliri", "deger": f"{bekleyen_sgk:,.2f} ₺", "ikon": "🏥", "bg": "#2563eb", "is_money": True},
+            "finans_gelecek_kredi": {"baslik": "Gelecek Ay Kredi Taksitleri", "deger": f"{gelecek_ay_kredi:,.2f} ₺", "ikon": "🔜", "bg": "#8b5cf6", "is_money": True}
         }
 
         # Veritabanından Ayarları Çek
         try:
             self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='dashboard_kard_ayarlari'")
             res = self.imlec.fetchone()
-            secili_kartlar = eval(res[0]) if res and res[0] else ["stok_toplam", "stok_kritik", "finans_bakiye", "finans_borc"]
-        except: secili_kartlar = ["stok_toplam", "stok_kritik", "finans_bakiye", "finans_borc"]
+            secili_kartlar = eval(res[0]) if res and res[0] else ["stok_toplam", "stok_kritik", "finans_bakiye", "finans_giris"]
+        except: secili_kartlar = ["stok_toplam", "stok_kritik", "finans_bakiye", "finans_giris"]
 
         # Yetki Kontrolü
         if str(self.aktif_rol).strip() != "Yönetici" and not self.personel_yetkileri.get("para_gorsun", False):
@@ -10472,7 +14095,7 @@ class EczaneAsistani:
                 donem_metni = f"Dönem: {bu_ay_str}"
             elif secili_k_id in ["kasa_bugun_giris", "kasa_bugun_cikis"]:
                 donem_metni = f"Dönem: {bugun_str} (Bugün)"
-            elif secili_k_id == "finans_gelecek_ay":
+            elif secili_k_id in ["finans_gelecek_ay", "finans_gelecek_kredi"]:
                 donem_metni = f"Dönem: {gelecek_ay_str} (Gelecek Ay)"
             else:
                 donem_metni = "Dönem: Tüm Zamanlar (Açık/Bekleyen Kayıtlar)"
@@ -10537,7 +14160,7 @@ class EczaneAsistani:
                     kutu_renk = "#ef4444"
                 
                 elif secili_k_id == "finans_kart":
-                    # Bu ayki tüm taksitleri çek
+                    # 1. Bu ayki tüm taksitleri çek (Sistem)
                     self.imlec_finans.execute("""
                         SELECT satir_notu, SUM(tutar) FROM odemeler 
                         WHERE strftime('%Y-%m', vade_tarihi) = ? 
@@ -10550,40 +14173,57 @@ class EczaneAsistani:
                         k_adi = "Diğer Kartlar"
                         if notu and "KART:" in str(notu):
                             temp = str(notu).split("KART:")[1].strip()
-                            # "(1/12)" kısmından önce al
-                            if "(" in temp:
-                                k_adi = temp.split("(")[0].strip()
+                            # --- PARANTEZ HATASI DÜZELTİLDİ ---
+                            if "(" in temp and ")" in temp:
+                                last_open = temp.rfind("(")
+                                if "/" in temp[last_open:]:
+                                    k_adi = temp[:last_open].strip()
+                                else:
+                                    k_adi = temp
                             else:
                                 k_adi = temp
-                            # Trailing " -" veya "-" temizle (iki farklı format var)
+                            # ----------------------------------
                             k_adi = k_adi.rstrip(" -").strip()
                         kart_sistem_toplamlar[k_adi] = kart_sistem_toplamlar.get(k_adi, 0.0) + (tut or 0.0)
                     
-                    # Her kart için ekstre girilmişse onu kullan, yoksa sistem toplamını kullan
-                    for k_adi, sistem_tut in kart_sistem_toplamlar.items():
-                        self.imlec_finans.execute(
-                            "SELECT deger FROM program_ayarlari WHERE ayar_adi=?",
-                            (f"ekstre_toplam_{k_adi}_{bu_ay_str}",)
-                        )
-                        res_ekstre = self.imlec_finans.fetchone()
-                        if res_ekstre and res_ekstre[0]:
-                            try:
-                                ekstre_val = float(res_ekstre[0])
-                                veriler[k_adi] = ekstre_val if ekstre_val > 0 else sistem_tut
-                            except:
-                                veriler[k_adi] = sistem_tut
-                        else:
-                            veriler[k_adi] = sistem_tut
+                    # 2. Manuel Girilen Ekstreleri Bul
+                    self.imlec_finans.execute("SELECT ayar_adi, deger FROM program_ayarlari WHERE ayar_adi LIKE ?", (f"ekstre_toplam_%_{bu_ay_str}",))
+                    _ekstreler_popup = {}
+                    for ayar_adi, deger in self.imlec_finans.fetchall():
+                        _k_adi = ayar_adi.replace("ekstre_toplam_", "").replace(f"_{bu_ay_str}", "")
+                        try: _ekstreler_popup[_k_adi] = float(deger)
+                        except: _ekstreler_popup[_k_adi] = 0.0
+
+                    # 3. İkisini Birleştir: Ekstre varsa onu al, yoksa Sistemdekini al
+                    tum_kartlar_popup = set(list(kart_sistem_toplamlar.keys()) + list(_ekstreler_popup.keys()))
+                    
+                    for k_adi in tum_kartlar_popup:
+                        ekstre_tutari = _ekstreler_popup.get(k_adi, 0.0)
+                        sistem_tutari = kart_sistem_toplamlar.get(k_adi, 0.0)
+                        
+                        kesin_tutar = self.gecerli_tutar_belirle(ekstre_tutari, sistem_tutari)
+                        veriler[k_adi] = kesin_tutar
+
                     kutu_baslik = "KART ÖDEMELERİ (Ekstre / Sistem)"
                     kutu_renk = "#ef4444"
                         
-                elif secili_k_id == "finans_kredi":
-                    # DÜZELTME: durum='ODENMEDİ' filtresi kaldırıldı, o ayki tüm taksitler hesaplanacak
-                    self.imlec_finans.execute("SELECT aciklama, SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND aciklama LIKE 'KREDI:%' GROUP BY aciklama", (bu_ay_str,))
+                elif secili_k_id in ["finans_kredi", "finans_kredi_liste", "finans_gelecek_kredi"]:
+                    hedef_donem = gelecek_ay_str if secili_k_id == "finans_gelecek_kredi" else bu_ay_str
+                    self.imlec_finans.execute("SELECT aciklama, SUM(tutar) FROM odemeler WHERE strftime('%Y-%m', vade_tarihi) = ? AND aciklama LIKE 'KREDI:%' GROUP BY aciklama", (hedef_donem,))
                     for r in self.imlec_finans.fetchall():
-                        k_adi = str(r[0]).split("(")[0].replace("KREDI:", "").strip()
-                        veriler[k_adi] = veriler.get(k_adi, 0.0) + r[1]
-                    kutu_baslik = "KREDİ TAKSİTLERİ (-)"
+                        ack = str(r[0])
+                        try:
+                            # "KREDI: İŞ BANKASI İHTİYAÇ (1/36)" metninden isim ve taksit numarasını ayıkla
+                            k_adi = ack.split("(")[0].replace("KREDI:", "").strip()
+                            taksit_no = ack.split("(")[1].replace(")", "").strip()
+                            # İkisi birleşip ekranda "TEB TİCARİ (1/36)" şeklinde görünsün
+                            gosterim_adi = f"{k_adi} ({taksit_no})"
+                        except:
+                            gosterim_adi = ack.replace("KREDI:", "").strip()
+                            
+                        veriler[gosterim_adi] = veriler.get(gosterim_adi, 0.0) + r[1]
+                    
+                    kutu_baslik = "GELECEK AY ÖDENECEK KREDİ TAKSİTLERİ (-)" if secili_k_id == "finans_gelecek_kredi" else "BU AY ÖDENECEK KREDİ TAKSİTLERİ (-)"
                     kutu_renk = "#ef4444"
                         
                 elif secili_k_id == "finans_sgk":
@@ -10638,8 +14278,13 @@ class EczaneAsistani:
             lbl_toplam_val.config(text=f"{toplam_tutar:,.2f} ₺", fg=kutu_renk)
 
 
-        # --- KUTULARI ÇİZEN DÖNGÜ ---
+        # --- KUTULARI ÇİZEN DÖNGÜ (Sola Dayalı ve Ezilmeyen Yapı) ---
         self.ozet_label_referanslari = []
+        
+        # Satırları otomatik esnetme ayarı
+        for i in range((len(secili_kartlar) + 1) // 2):
+            f_cards.grid_rowconfigure(i, weight=1)
+
         for idx, k_id in enumerate(secili_kartlar):
             if k_id not in kart_datalari: continue
             veri = kart_datalari[k_id]
@@ -10657,19 +14302,30 @@ class EczaneAsistani:
             lbl_ikon = tk.Label(f_ust, text=veri["ikon"], bg=veri["bg"], fg="white")
             lbl_ikon.pack(side="right", anchor="ne")
             
-            lbl_val = tk.Label(kart, text="", bg=veri["bg"], fg="white", anchor="w")
-            lbl_val.pack(fill="both", expand=True, padx=15, pady=(0, 10)) 
+            # YAZILAR TEKRAR SOLA DAYANDI (anchor="w")
+            if veri.get("is_list", False):
+                lbl_val = tk.Label(kart, text="", bg=veri["bg"], fg="white", anchor="nw", justify="left")
+            else:
+                lbl_val = tk.Label(kart, text="", bg=veri["bg"], fg="white", anchor="w", justify="left")
+                
+            lbl_val.pack(fill="both", expand=True, padx=15, pady=(5, 10)) 
             
             self.ozet_label_referanslari.append((lbl_val, veri["deger"], veri["is_money"]))
 
-            # --- DİNAMİK ÖLÇEKLEME ---
-            def resize_fonts(event, l_v=lbl_val, l_c=lbl_cap, l_i=lbl_ikon):
+            # --- DİNAMİK ÖLÇEKLEME (EZİLMEYİ KESİNLİKLE ÖNLER) ---
+            def resize_fonts(event, l_v=lbl_val, l_c=lbl_cap, l_i=lbl_ikon, is_l=veri.get("is_list", False)):
                 w = event.width
                 h = event.height
                 if h < 20: return 
-                v_size = max(8, min(28, int(h * 0.28), int(w * 0.08))) 
-                c_size = max(6,  min(10, int(h * 0.15)))                
-                i_size = max(10, min(20, int(h * 0.25)))                
+                
+                if is_l:
+                    v_size = max(9, min(14, int(h * 0.12))) 
+                else:
+                    # YAZININ ALTTAN EZİLMEMESİ İÇİN KATSAYI DÜŞÜRÜLDÜ (0.22)
+                    v_size = max(8, min(26, int(h * 0.22), int(w * 0.07))) 
+                    
+                c_size = max(6,  min(11, int(h * 0.12)))                
+                i_size = max(10, min(18, int(h * 0.20)))                
                 
                 l_v.config(font=("Segoe UI", v_size, "bold"))
                 l_c.config(font=("Segoe UI", c_size, "bold"), wraplength=int(w * 0.70))
@@ -10708,113 +14364,140 @@ class EczaneAsistani:
         guncelle_ozet_kartlari()
 
         # =====================================================================
-        # 3. SAYFA 1: MENÜ EKRANI (SIĞMAMA SORUNU DÜZELTİLDİ)
+        # 3. SAYFA 1: MENÜ EKRANI (DOYGUN PASTEL KART TASARIMI)
         # =====================================================================
         
-        # Üst boşluklar (pady) kısıldı
-        tk.Label(self.page_menu, text="Uygulama Modülleri", font=("Segoe UI", 26, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(pady=(10, 5))
+        # Üst başlık
+        tk.Label(self.page_menu, text="Uygulama Modülleri", font=("Segoe UI", 26, "bold"), bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(pady=(15, 5))
 
+        # Ana kapsayıcı (Tüm kartları tutan çerçeve)
         main_pane = tk.Frame(self.page_menu, bg=c.get_color("bg_main"))
-        main_pane.pack(fill="both", expand=True, padx=40, pady=5)
+        main_pane.pack(fill="both", expand=True, padx=40, pady=10)
 
-        # Ana kapsayıcıyı ızgara (grid) sistemine geçiriyoruz
-        main_pane.grid_rowconfigure(0, weight=1) # 0. Satır (Üst menüler) esneyebilir
-        main_pane.grid_rowconfigure(1, weight=0) # 1. Satır (Sistem Ayarları) ezilemez, sabit kalır
-        main_pane.grid_columnconfigure(0, weight=1)
+        # --- YARDIMCI TASARIM FONKSİYONLARI ---
+        def create_menu_card(parent, title, icon, color, side="left", fill="both", expand=True, padx=0, pady=0):
+            """Modern görünümlü, çerçeveli, şık başlıklı beyaz kartlar oluşturur."""
+            card = tk.Frame(parent, bg="white", highlightbackground=c.get_color("border"), highlightthickness=1)
+            card.pack(side=side, fill=fill, expand=expand, padx=padx, pady=pady)
+            
+            header = tk.Frame(card, bg="white")
+            header.pack(fill="x", padx=20, pady=(15, 5))
+            
+            # Başlık yanına şık renkli bir çizgi/vurgu
+            tk.Frame(header, bg=color, width=4).pack(side="left", fill="y", padx=(0, 10))
+            tk.Label(header, text=f"{icon} {title}", font=("Segoe UI", 13, "bold"), bg="white", fg="#1e293b").pack(side="left")
+            
+            grid_frame = tk.Frame(card, bg="white")
+            grid_frame.pack(fill="both", expand=True, padx=15, pady=(5, 15))
+            return grid_frame, card
 
-        f_top_split = tk.Frame(main_pane, bg=c.get_color("bg_main"))
-        # pack yerine grid kullanıyoruz
-        f_top_split.grid(row=0, column=0, sticky="nsew")
-
-        def create_grid_button(parent, text, bg_col, row, col, cmd, colspan=1):
+        def create_grid_button(parent, text, bg_col, fg_col, row, col, cmd, colspan=1):
+            """Ekranı otomatik dolduran duyarlı (responsive) doygun pastel butonlar."""
             btn = tk.Button(parent, text=text, command=cmd, 
-                            bg=bg_col, fg="white", font=("Segoe UI", 13, "bold"), 
-                            relief="flat", cursor="hand2", 
-                            activebackground=bg_col, activeforeground="white")
-            btn.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=5, pady=4) 
+                            bg=bg_col, fg=fg_col, font=("Segoe UI", 11, "bold"), 
+                            relief="flat", bd=0, cursor="hand2", 
+                            activebackground=bg_col, activeforeground=fg_col, pady=10)
+            btn.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=6, pady=6) 
             return btn
 
-        # --- SOL YARI: ASİSTAN İŞLEMLERİ ---
-        f_asistan = tk.LabelFrame(f_top_split, text="💊 ASİSTAN İŞLEMLERİ", font=("Segoe UI", 12, "bold"), bg=c.get_color("bg_main"), fg="#10b981", padx=10, pady=5)
-        f_asistan.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        # --- ORANTILI EKRAN YÖNETİMİ (GRID SİSTEMİ) ---
+        # Ekranı dikeyde 2 parçaya bölüyoruz: Üst (%80) ve Alt (%20). 
+        # Böylece pencere küçüldüğünde modüller birbirini ezmez, aynı oranda küçülürler.
+        main_pane.grid_columnconfigure(0, weight=1)
+        main_pane.grid_rowconfigure(0, weight=4) # Üst Taraf (4 Kat Büyüklük)
+        main_pane.grid_rowconfigure(1, weight=1) # Alt Taraf (1 Kat Büyüklük)
+
+        # =========================================================
+        # --- ÜST YARI (SATIR 0): ASİSTAN VE FİNANS KARTLARI ---
+        # =========================================================
+        f_ust = tk.Frame(main_pane, bg=c.get_color("bg_main"))
+        f_ust.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
         
-        f_asistan.grid_columnconfigure(0, weight=1); f_asistan.grid_columnconfigure(1, weight=1)
-        for i in range(3): f_asistan.grid_rowconfigure(i, weight=1)
+        f_ust.grid_columnconfigure(0, weight=1)
+        f_ust.grid_columnconfigure(1, weight=1)
+        f_ust.grid_rowconfigure(0, weight=1)
 
-        create_grid_button(f_asistan, "📅\n\nSKT TAKİBİ", "#0ea5e9", 0, 0, wrap_cmd(1))
-        create_grid_button(f_asistan, "💊\n\nİLAÇ KARTLARI", "#10b981", 0, 1, wrap_cmd(2))
-        create_grid_button(f_asistan, "🚀\n\nTOPLU İŞLEM", "#f59e0b", 1, 0, wrap_cmd(3))
-        create_grid_button(f_asistan, "🔲\n\nKAREKOD ÜRET", "#8b5cf6", 1, 1, wrap_cmd(4))
-        create_grid_button(f_asistan, "📦\n\nSTOK SAYIM", "#f97316", 2, 0, wrap_cmd(5), colspan=2)
+        # ---------------------------------------------------------
+        # SOL YARI: ASİSTAN İŞLEMLERİ
+        # ---------------------------------------------------------
+        f_asistan_container = tk.Frame(f_ust, bg=c.get_color("bg_main"))
+        f_asistan_container.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        f_asistan, c_asistan = create_menu_card(f_asistan_container, "ASİSTAN İŞLEMLERİ", "🏷️", "#059669", side="top", fill="both", expand=True)
+        
+        for i in range(2): f_asistan.grid_columnconfigure(i, weight=1)
+        for i in range(4): f_asistan.grid_rowconfigure(i, weight=1)
 
-        # --- SAĞ YARI: FİNANS YÖNETİMİ ---
-        if self.aktif_rol == "Yönetici" or self.personel_yetkileri.get("finans_gorsun", False):
-            f_finans = tk.LabelFrame(f_top_split, text="📊 FİNANS YÖNETİMİ", font=("Segoe UI", 12, "bold"), bg=c.get_color("bg_main"), fg="#f59e0b", padx=10, pady=5)
-            f_finans.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        create_grid_button(f_asistan, "📅\nSKT TAKİBİ", "#dbeafe", "#1d4ed8", 0, 0, wrap_cmd(1))
+        create_grid_button(f_asistan, "💊\nİLAÇ KARTLARI", "#d1fae5", "#047857", 0, 1, wrap_cmd(2))
+        create_grid_button(f_asistan, "🚀\nTOPLU İŞLEM", "#ffedd5", "#c2410c", 1, 0, wrap_cmd(3))
+        create_grid_button(f_asistan, "🔲\nKAREKOD ÜRET", "#f3e8ff", "#6d28d9", 1, 1, wrap_cmd(4))
+        create_grid_button(f_asistan, "📦\nSTOK SAYIM", "#fee2e2", "#b91c1c", 2, 0, wrap_cmd(5))
+        create_grid_button(f_asistan, "🧠\nAKILLI SİPARİŞ", "#f5f3ff", "#7c3aed", 2, 1, wrap_cmd(18))
+        create_grid_button(f_asistan, "📚\nBİLGİ BANKASI", "#fef3c7", "#b45309", 3, 0, wrap_cmd(19))
+        create_grid_button(f_asistan, "🛠️\nPRATİK ARAÇLAR", "#e0f2fe", "#0369a1", 3, 1, wrap_cmd(21))
+        
 
-            f_finans.grid_columnconfigure(0, weight=1); f_finans.grid_columnconfigure(1, weight=1)
+        # ---------------------------------------------------------
+        # SAĞ YARI: FİNANS YÖNETİMİ (YETKİ KONTROLLÜ)
+        # ---------------------------------------------------------
+        finans_yetkisi_var_mi = (self.aktif_rol == "Yönetici") or self.personel_yetkileri.get("finans_gorsun", False)
+        
+        if finans_yetkisi_var_mi:
+            f_finans_container = tk.Frame(f_ust, bg=c.get_color("bg_main"))
+            f_finans_container.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+            f_finans, c_finans = create_menu_card(f_finans_container, "FİNANS YÖNETİMİ", "💾", "#d97706", side="top", fill="both", expand=True)
+
+            for i in range(2): f_finans.grid_columnconfigure(i, weight=1)
             for i in range(4): f_finans.grid_rowconfigure(i, weight=1)
 
-            create_grid_button(f_finans, "🏢\n\nDEPO ÖDEMELERİ", "#3b82f6", 0, 0, wrap_cmd(6))
-            create_grid_button(f_finans, "💳\n\nKREDİ KARTLARI", "#ec4899", 0, 1, wrap_cmd(7))
-            create_grid_button(f_finans, "🏛️\n\nKURUM İŞLEMLERİ", "#14b8a6", 1, 0, wrap_cmd(8))
-            create_grid_button(f_finans, "💰\n\nGELİR TAKİBİ", "#22c55e", 1, 1, wrap_cmd(9))
-            create_grid_button(f_finans, "📉\n\nGİDER TAKİBİ", "#ef4444", 2, 0, wrap_cmd(10))
-            create_grid_button(f_finans, "📒\n\nKASA DEFTERİ", "#eab308", 2, 1, wrap_cmd(11))
-            create_grid_button(f_finans, "🧮\n\nKREDİ HESAPLAMA", "#0284c7", 3, 0, wrap_cmd(15))
-            create_grid_button(f_finans, "📂\n\nMEVCUT KREDİLER", "#8b5cf6", 3, 1, wrap_cmd(16))
-            
+            create_grid_button(f_finans, "🏢\nDEPO ÖDEMELERİ", "#e0e7ff", "#4338ca", 0, 0, wrap_cmd(6))
+            create_grid_button(f_finans, "💳\nKREDİ KARTLARI", "#fce7f3", "#be185d", 0, 1, wrap_cmd(7))
+            create_grid_button(f_finans, "🏛️\nKURUM İŞLEMLERİ", "#d1fae5", "#047857", 1, 0, wrap_cmd(8))
+            create_grid_button(f_finans, "💰\nGELİR TAKİBİ", "#dcfce7", "#166534", 1, 1, wrap_cmd(9))
+            create_grid_button(f_finans, "📉\nGİDER TAKİBİ", "#fee2e2", "#b91c1c", 2, 0, wrap_cmd(10))
+            create_grid_button(f_finans, "📒\nKASA DEFTERİ", "#fef3c7", "#b45309", 2, 1, wrap_cmd(11))
+            create_grid_button(f_finans, "📝\nKREDİ HESAPLAMA", "#e0f2fe", "#0369a1", 3, 0, wrap_cmd(15))
+            create_grid_button(f_finans, "📂\nMEVCUT KREDİLER", "#f3e8ff", "#7e22ce", 3, 1, wrap_cmd(16))
         else:
-            f_finans = tk.LabelFrame(f_top_split, text="🔒 FİNANS YÖNETİMİ", font=("Segoe UI", 12, "bold"), bg=c.get_color("bg_main"), fg="#64748b", padx=10, pady=5)
-            f_finans.pack(side="right", fill="both", expand=True, padx=(10, 0))
-            
-            f_finans.grid_columnconfigure(0, weight=1)
-            f_finans.grid_rowconfigure(0, weight=1)
-            
-            tk.Label(f_finans, text="Bu modüle erişim yetkiniz bulunmamaktadır.\n\nYetki almak için yöneticinizle görüşün.", font=("Segoe UI", 11, "italic"), bg=c.get_color("bg_main"), fg="#94a3b8").grid(row=0, column=0, sticky="nsew")
+            # Personel ise sağ tarafı boş (gri arka plan) bırakır, hiçbir şey göstermez
+            tk.Frame(f_ust, bg=c.get_color("bg_main")).grid(row=0, column=1, sticky="nsew")
 
-        # --- ALT: SİSTEM & AYARLAR ---
-        f_sistem = tk.LabelFrame(main_pane, text="🛠️ SİSTEM & AYARLAR", font=("Segoe UI", 12, "bold"), bg=c.get_color("bg_main"), fg="#8b5cf6", padx=10, pady=5)
+
+        # =========================================================
+        # --- ALT YARI (SATIR 1): SİSTEM & AYARLAR KARTI ---
+        # =========================================================
+        f_alt = tk.Frame(main_pane, bg=c.get_color("bg_main"))
+        f_alt.grid(row=1, column=0, sticky="nsew", pady=(5, 0))
         
-        f_sistem.grid(row=1, column=0, sticky="ew", pady=(10, 0), ipady=5) 
+        f_sistem, c_sistem = create_menu_card(f_alt, "SİSTEM & AYARLAR", "🛠️", "#8b5cf6", side="top", fill="both", expand=True)
         
         f_sistem.grid_columnconfigure(0, weight=1)
         f_sistem.grid_columnconfigure(1, weight=1)
         f_sistem.grid_columnconfigure(2, weight=1)
-        f_sistem.grid_rowconfigure(0, weight=1) 
+        f_sistem.grid_rowconfigure(0, weight=1)
 
         if self.aktif_rol == "Yönetici" or self.personel_yetkileri.get("ayarlar_gorsun", False):
-            create_grid_button(f_sistem, "⚙️\nAYARLAR", "#64748b", 0, 0, wrap_cmd(12))
+            create_grid_button(f_sistem, "⚙️ AYARLAR", "#e2e8f0", "#334155", 0, 0, wrap_cmd(12))
         else:
-            tk.Button(f_sistem, text="🔒\nYETKİ YOK", bg="#cbd5e1", fg="white", font=("Segoe UI", 13, "bold"), relief="flat", state="disabled").grid(row=0, column=0, sticky="nsew", padx=5, pady=4)
+            tk.Button(f_sistem, text="🔒 YETKİ YOK", bg="#e2e8f0", fg="#94a3b8", font=("Segoe UI", 11, "bold"), relief="flat", bd=0, state="disabled").grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
 
-        create_grid_button(f_sistem, "📢\n\nGERİ BİLDİRİM", "#6366f1", 0, 1, wrap_cmd(13))
-        create_grid_button(f_sistem, "📖\n\nKILAVUZ", "#a855f7", 0, 2, wrap_cmd(14))
+        create_grid_button(f_sistem, "📢 GERİ BİLDİRİM", "#e0e7ff", "#4338ca", 0, 1, wrap_cmd(13))
+        create_grid_button(f_sistem, "📖 KILAVUZ", "#fae8ff", "#a21caf", 0, 2, wrap_cmd(14))
         
-        
-
         # =====================================================================
-        # 4. ALT NOKTA GÖSTERGESİ VE YENİ KAYDIRMA KONTROLLERİ
+        # 4. GÜVENLİ KAYDIRMA KONTROLLERİ (SADECE MANTIK)
         # =====================================================================
-        f_dots = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
-        f_dots.pack(side="bottom", fill="x", pady=(5, 15))
         
-        # YENİ: Aşağıya alınan uyarı metni
-        tk.Label(f_dots, text="Sayfalar arası geçiş yapmak için fare tekerleğini (Scroll) aşağı/yukarı yapabilir, sağ/sol ok tuşlarını (← →) kullanabilir veya ekranı kaydırabilirsiniz.", font=("Segoe UI", 7, "italic"), bg=c.get_color("bg_main"), fg="#94a3b8").pack(side="top", pady=(0, 5))
-        
-        canvas_dots = tk.Canvas(f_dots, bg=c.get_color("bg_main"), highlightthickness=0, height=20, width=60)
-        canvas_dots.pack(anchor="center")
-        
-        # --- YENİ: SCROLL VE OK TUŞU BAĞLANTILARI ---
-        def on_scroll_swipe(e):
+        # --- GÜVENLİ SCROLL VE OK TUŞU BAĞLANTILARI ---
+        def on_scroll_safe(e):
             if self.animating: return
-            # Eğer fare bir listenin veya tablonun üzerindeyse sayfa değiştirmesin (kendi içinde kaysın)
-            w_class = e.widget.winfo_class()
-            if w_class in ("Canvas", "Treeview", "Scrollbar", "Listbox", "Text", "Entry"): return
+            try:
+                w_class = e.widget.winfo_class()
+                # Eğer fare tablonun veya listenin üstündeyse sayfa kaymasını engelle
+                if w_class in ("Canvas", "Treeview", "Scrollbar", "Listbox", "Text", "Entry"): return
+            except: pass
             
-            # Tekerlek aşağı (delta negatif) -> Menüye (Sağa) geç
             if e.delta < 0 and self.current_page == 0: goto_page(1)
-            # Tekerlek yukarı (delta pozitif) -> Özete (Sola) dön
             elif e.delta > 0 and self.current_page == 1: goto_page(0)
 
         def on_key_left(e):
@@ -10823,19 +14506,20 @@ class EczaneAsistani:
         def on_key_right(e):
             if self.current_page == 0: goto_page(1)
 
-        self.pencere.bind_all("<MouseWheel>", on_scroll_swipe)
+        self.pencere.bind_all("<MouseWheel>", on_scroll_safe)
         self.pencere.bind_all("<Left>", on_key_left)
         self.pencere.bind_all("<Right>", on_key_right)
 
         def guncelle_noktalar():
+            # canvas_dots 1. bölümde oluşturulduğu için burada içini güncelliyoruz
             canvas_dots.delete("all")
             c0 = "#3b82f6" if self.current_page == 0 else "#cbd5e1"
-            canvas_dots.create_oval(10, 5, 25, 20, fill=c0, outline="")
+            canvas_dots.create_oval(25, 10, 40, 25, fill=c0, outline="", tags="dot0")
             c1 = "#3b82f6" if self.current_page == 1 else "#cbd5e1"
-            canvas_dots.create_oval(35, 5, 50, 20, fill=c1, outline="")
+            canvas_dots.create_oval(60, 10, 75, 25, fill=c1, outline="", tags="dot1")
 
         guncelle_noktalar()
-
+  
     # =========================================================================
     # ARKA PLAN (SİSTEM TEPSİSİ - SYSTEM TRAY) İŞLEMLERİ
     # =========================================================================
@@ -11004,6 +14688,997 @@ class EczaneAsistani:
                 tree.insert("", "end", values=r)
         except Exception as e:
             tree.insert("", "end", values=("HATA", "-", "-", str(e)))
+
+    def render_capraz_satis(self):
+        c = TM 
+        for w in self.settings_content_frame.winfo_children(): w.destroy()
+        
+        tk.Label(self.settings_content_frame, text="Çapraz Satış & Yapay Zeka Asistanı", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0, 20))
+        
+        # --- 1. AÇ/KAPAT ŞALTERİ ---
+        f_salter = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=20, pady=15, highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_salter.pack(fill="x", pady=(0, 20))
+        
+        tk.Label(f_salter, text="Akıllı Çapraz Satış Asistanı Durumu:", font=("Segoe UI", 11, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(side="left")
+        
+        var_aktif = tk.IntVar()
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar='capraz_satis_aktif'")
+            res = self.imlec.fetchone()
+            var_aktif.set(1 if res and str(res[0]) == '1' else 0)
+        except: var_aktif.set(1)
+
+        def aktiflik_kaydet():
+            yeni_deger = '1' if var_aktif.get() == 1 else '0'
+            self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES ('capraz_satis_aktif', ?)", (yeni_deger,))
+            self.baglanti_skt.commit()
+            durum = "AKTİF EDİLDİ" if yeni_deger == '1' else "KAPATILDI"
+            messagebox.showinfo("Başarılı", f"Çapraz Satış Asistanı {durum}.")
+
+        tk.Checkbutton(f_salter, text="Açık / Kapalı", variable=var_aktif, bg=c.get_color("card_bg"), fg=c.get_color("fg_text"), font=("Segoe UI", 11), selectcolor=c.get_color("input_bg"), cursor="hand2", command=aktiflik_kaydet).pack(side="left", padx=15)
+
+        # --- 2. YENİ KURAL EKLEME FORMU ---
+        f_form = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=20, pady=20, highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_form.pack(fill="x", pady=(0, 20))
+        
+        tk.Label(f_form, text="➕ Kendi Satış Kuralını Oluştur", font=("Segoe UI", 12, "bold"), bg=c.get_color("card_bg"), fg="#10b981").pack(anchor="w", pady=(0,15))
+        
+        lbl_style = {"bg": c.get_color("card_bg"), "fg": c.get_color("fg_text"), "font": ("Segoe UI", 9, "bold")}
+        entry_style = {"font": ("Segoe UI", 10), "bg": c.get_color("input_bg"), "fg": c.get_color("fg_text"), "insertbackground": c.get_color("fg_text"), "relief": "solid", "bd": 1}
+
+        tk.Label(f_form, text="Tetikleyici İlaç İsimleri (Araya virgül koyarak birden fazla yazabilirsiniz):", **lbl_style).pack(anchor="w")
+        e_kelimeler = tk.Entry(f_form, **entry_style)
+        e_kelimeler.pack(fill="x", ipady=5, pady=(2, 10))
+        e_kelimeler.insert(0, "Örn: Lustral, Cipro, Klamoks")
+
+        f_ikili = tk.Frame(f_form, bg=c.get_color("card_bg"))
+        f_ikili.pack(fill="x", pady=(0, 10))
+        
+        f_sol = tk.Frame(f_ikili, bg=c.get_color("card_bg"))
+        f_sol.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        tk.Label(f_sol, text="Uyarı Başlığı:", **lbl_style).pack(anchor="w")
+        e_baslik = tk.Entry(f_sol, **entry_style)
+        e_baslik.pack(fill="x", ipady=5, pady=(2, 0))
+        
+        f_sag = tk.Frame(f_ikili, bg=c.get_color("card_bg"))
+        f_sag.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        tk.Label(f_sag, text="Popup Rengi:", **lbl_style).pack(anchor="w")
+        cmb_renk = ttk.Combobox(f_sag, values=["Mor", "Turuncu", "Yeşil", "Kırmızı", "Mavi", "Sarı"], state="readonly", font=("Segoe UI", 10))
+        cmb_renk.pack(fill="x", ipady=4, pady=(2, 0))
+        cmb_renk.current(0)
+        
+        renk_sozlugu = {"Mor": "#8b5cf6", "Turuncu": "#f59e0b", "Yeşil": "#10b981", "Kırmızı": "#ef4444", "Mavi": "#3b82f6", "Sarı": "#eab308"}
+
+        tk.Label(f_form, text="Hangi ürünü önerecek? (Uyarı Metni):", **lbl_style).pack(anchor="w", pady=(5,0))
+        e_mesaj = tk.Entry(f_form, **entry_style)
+        e_mesaj.pack(fill="x", ipady=5, pady=(2, 15))
+
+        def kural_kaydet():
+            kelime = e_kelimeler.get().strip().replace("Örn: Lustral, Cipro, Klamoks", "")
+            baslik = e_baslik.get().strip()
+            mesaj = e_mesaj.get().strip()
+            renk_hex = renk_sozlugu.get(cmb_renk.get(), "#8b5cf6")
+            
+            if not kelime or not baslik or not mesaj:
+                messagebox.showwarning("Eksik", "Lütfen tüm alanları doldurun.")
+                return
+            
+            try:
+                self.imlec.execute("INSERT INTO capraz_satis_kurallari (kelimeler, baslik, mesaj, renk) VALUES (?, ?, ?, ?)", (kelime, baslik, mesaj, renk_hex))
+                self.baglanti_skt.commit()
+                e_kelimeler.delete(0, tk.END)
+                e_baslik.delete(0, tk.END)
+                e_mesaj.delete(0, tk.END)
+                kurallari_listele()
+                messagebox.showinfo("Başarılı", "Yeni çapraz satış kuralı eklendi!")
+            except Exception as e:
+                messagebox.showerror("Hata", str(e))
+
+        tk.Button(f_form, text="KURALI SİSTEME EKLE", font=("Segoe UI", 10, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", padx=20, pady=5, command=kural_kaydet).pack(anchor="e")
+
+        # --- 3. MEVCUT KURALLAR LİSTESİ ---
+        f_liste = tk.Frame(self.settings_content_frame, bg=c.get_color("card_bg"), padx=20, pady=20, highlightbackground=c.get_color("border"), highlightthickness=1)
+        f_liste.pack(fill="both", expand=True)
+        
+        tk.Label(f_liste, text="Mevcut Kurallar (Detayını görmek veya işlem yapmak için listeden seçin)", font=("Segoe UI", 11, "bold"), bg=c.get_color("card_bg"), fg=c.get_color("fg_text")).pack(anchor="w", pady=(0,10))
+        
+        # --- DÜZELTME 1: BUTONLARI TABLODAN ÖNCE ALTA SABİTLİYORUZ (KAYBOLMASIN DİYE) ---
+        f_btns = tk.Frame(f_liste, bg=c.get_color("card_bg"))
+        f_btns.pack(side="bottom", fill="x", pady=(10, 0))
+
+        # --- DÜZELTME 2: TABLOYU ARAYA SIKIŞTIRIYORUZ ---
+        f_tree_container = tk.Frame(f_liste)
+        f_tree_container.pack(side="top", fill="both", expand=True)
+
+        cols = ("ID", "TETİKLEYİCİ İLAÇLAR", "BAŞLIK VE ÖNERİ MESAJI")
+        tree_kurallar = ttk.Treeview(f_tree_container, columns=cols, show="headings", height=8)
+        
+        sc_y = ttk.Scrollbar(f_tree_container, orient="vertical", command=tree_kurallar.yview)
+        sc_y.pack(side="right", fill="y")
+        
+        # Yatay Scrollbar (Uzun yazılar sığsın diye)
+        sc_x = ttk.Scrollbar(f_tree_container, orient="horizontal", command=tree_kurallar.xview)
+        sc_x.pack(side="bottom", fill="x")
+        
+        tree_kurallar.configure(yscrollcommand=sc_y.set, xscrollcommand=sc_x.set)
+        tree_kurallar.pack(side="left", fill="both", expand=True)
+        
+        tree_kurallar.heading("ID", text="ID"); tree_kurallar.column("ID", width=0, stretch=False)
+        
+        # DÜZELTME: Sütun genişliklerini devasa boyutlara çıkardık ki yazılar ezilmesin.
+        # Yatay kaydırma çubuğu (scroll) artık kusursuz çalışacak.
+        tree_kurallar.heading("TETİKLEYİCİ İLAÇLAR", text="Tetikleyici İlaçlar")
+        tree_kurallar.column("TETİKLEYİCİ İLAÇLAR", width=600, minwidth=400)
+        
+        tree_kurallar.heading("BAŞLIK VE ÖNERİ MESAJI", text="Başlık ve Öneri Mesajı")
+        tree_kurallar.column("BAŞLIK VE ÖNERİ MESAJI", width=1500, minwidth=800)
+
+        def kurallari_listele():
+            for i in tree_kurallar.get_children(): tree_kurallar.delete(i)
+            try:
+                self.imlec.execute("SELECT id, kelimeler, baslik, mesaj FROM capraz_satis_kurallari")
+                for r in self.imlec.fetchall():
+                    # DÜZELTME 3: Tkinter alt satırı desteklemez, metni tek satıra yayıyoruz.
+                    temiz_mesaj = str(r[3]).replace('\n', ' - ')
+                    gosterim_metni = f"[{r[2]}] {temiz_mesaj}"
+                    tree_kurallar.insert("", "end", values=(r[0], r[1], gosterim_metni))
+            except: pass
+
+        def kural_sil():
+            sel = tree_kurallar.selection()
+            if not sel:
+                messagebox.showwarning("Uyarı", "Lütfen silmek için listeden bir kural seçin.")
+                return
+            k_id = tree_kurallar.item(sel[0], "values")[0]
+            if messagebox.askyesno("Sil", "Bu kuralı tamamen silmek istiyor musunuz?"):
+                self.imlec.execute("DELETE FROM capraz_satis_kurallari WHERE id=?", (k_id,))
+                self.baglanti_skt.commit()
+                kurallari_listele()
+
+        def kural_duzenle():
+            sel = tree_kurallar.selection()
+            if not sel:
+                messagebox.showwarning("Uyarı", "Lütfen düzenlemek için listeden bir kural seçin.")
+                return
+            
+            k_id = tree_kurallar.item(sel[0], "values")[0]
+            
+            self.imlec.execute("SELECT kelimeler, baslik, mesaj, renk FROM capraz_satis_kurallari WHERE id=?", (k_id,))
+            kayit = self.imlec.fetchone()
+            if not kayit: return
+            
+            eski_kelimeler, eski_baslik, eski_mesaj, eski_renk = kayit
+            renk_ters_sozluk = {"#8b5cf6": "Mor", "#f59e0b": "Turuncu", "#10b981": "Yeşil", "#ef4444": "Kırmızı", "#3b82f6": "Mavi", "#eab308": "Sarı"}
+            
+            pop = tk.Toplevel(self.pencere)
+            pop.title("Kuralı Düzenle")
+            pop.geometry("450x450")
+            pop.configure(bg="white")
+            pop.transient(self.pencere)
+            pop.grab_set()
+
+            x = self.pencere.winfo_x() + (self.pencere.winfo_width() // 2) - 225
+            y = self.pencere.winfo_y() + (self.pencere.winfo_height() // 2) - 225
+            pop.geometry(f"+{x}+{y}")
+
+            tk.Label(pop, text="✏️ Kuralı Düzenle", font=("Segoe UI", 14, "bold"), bg="white", fg="#334155").pack(pady=(20, 15))
+
+            f_duzenle = tk.Frame(pop, bg="white", padx=25)
+            f_duzenle.pack(fill="both", expand=True)
+
+            entry_style_pop = {"font": ("Segoe UI", 10), "bg": c.get_color("input_bg"), "fg": c.get_color("fg_text"), "insertbackground": c.get_color("fg_text"), "relief": "solid", "bd": 1}
+
+            tk.Label(f_duzenle, text="Tetikleyici İlaçlar:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            e_kel = tk.Entry(f_duzenle, **entry_style_pop)
+            e_kel.pack(fill="x", ipady=4, pady=(2, 10))
+            e_kel.insert(0, str(eski_kelimeler))
+
+            tk.Label(f_duzenle, text="Uyarı Başlığı:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            e_bas = tk.Entry(f_duzenle, **entry_style_pop)
+            e_bas.pack(fill="x", ipady=4, pady=(2, 10))
+            e_bas.insert(0, str(eski_baslik))
+
+            tk.Label(f_duzenle, text="Uyarı Mesajı:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            e_mes = tk.Entry(f_duzenle, **entry_style_pop)
+            e_mes.pack(fill="x", ipady=4, pady=(2, 10))
+            e_mes.insert(0, str(eski_mesaj))
+
+            tk.Label(f_duzenle, text="Popup Rengi:", font=("Segoe UI", 9, "bold"), bg="white", fg="#64748b").pack(anchor="w")
+            cmb_r = ttk.Combobox(f_duzenle, values=["Mor", "Turuncu", "Yeşil", "Kırmızı", "Mavi", "Sarı"], state="readonly", font=("Segoe UI", 10))
+            cmb_r.pack(fill="x", ipady=4, pady=(2, 15))
+            cmb_r.set(renk_ters_sozluk.get(eski_renk, "Mor"))
+
+            def kural_guncelle():
+                yeni_kelime = e_kel.get().strip()
+                yeni_baslik = e_bas.get().strip()
+                yeni_mesaj = e_mes.get().strip()
+                yeni_renk_hex = renk_sozlugu.get(cmb_r.get(), "#8b5cf6")
+
+                if not yeni_kelime or not yeni_baslik or not yeni_mesaj:
+                    messagebox.showwarning("Eksik", "Lütfen tüm alanları doldurun.", parent=pop)
+                    return
+                
+                self.imlec.execute("UPDATE capraz_satis_kurallari SET kelimeler=?, baslik=?, mesaj=?, renk=? WHERE id=?", 
+                                 (yeni_kelime, yeni_baslik, yeni_mesaj, yeni_renk_hex, k_id))
+                self.baglanti_skt.commit()
+                kurallari_listele()
+                pop.destroy()
+                messagebox.showinfo("Başarılı", "Kural güncellendi!", parent=self.pencere)
+
+            tk.Button(f_duzenle, text="GÜNCELLE", command=kural_guncelle, font=("Segoe UI", 10, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=8).pack(fill="x")
+
+        # --- BUTONLARI PAKETLİYORUZ ---
+        btn_style_yeni = {"font": ("Segoe UI", 9, "bold"), "relief": "flat", "cursor": "hand2", "padx": 15, "pady": 6}
+
+        tk.Button(f_btns, text="🗑️ SEÇİLENİ SİL", command=kural_sil, bg="#fef2f2", fg="#ef4444", **btn_style_yeni).pack(side="right", padx=5)
+        tk.Button(f_btns, text="✏️ SEÇİLENİ DÜZENLE", command=kural_duzenle, bg="#eff6ff", fg="#3b82f6", **btn_style_yeni).pack(side="right", padx=5)
+        
+        kurallari_listele()
+
+
+    def arayuz_pratik_araclar(self):
+        c = TM
+        for w in self.content_area.winfo_children(): w.destroy()
+
+        # --- ÜST BAŞLIK ---
+        header = tk.Frame(self.content_area, bg=c.get_color("bg_main"))
+        header.pack(fill="x", pady=(0, 15))
+        tk.Label(header, text="🛠️ Pratik Araçlar", font=FONT_HEAD, bg=c.get_color("bg_main"), fg=c.get_color("fg_text")).pack(side="left")
+
+        # --- SEKMELER (NOTEBOOK) ---
+        nb = ttk.Notebook(self.content_area)
+        nb.pack(fill="both", expand=True, padx=20, pady=10)
+
+        # 1. SEKME: WhatsApp
+        tab_wp = tk.Frame(nb, bg="white", padx=20, pady=20)
+        nb.add(tab_wp, text="📱 Medula -> WhatsApp")
+        self._kur_whatsapp_cevirici(tab_wp)
+
+        # 2. SEKME: SGK Gün Hesaplayıcı
+        tab_sgk = tk.Frame(nb, bg="white", padx=20, pady=20)
+        nb.add(tab_sgk, text="⏳ SGK Gün Hesaplayıcı")
+        self._kur_sgk_hesaplayici(tab_sgk)
+
+        # 3. SEKME: Reçete ve Rapor Süresi 
+        tab_sure = tk.Frame(nb, bg="white", padx=20, pady=20)
+        nb.add(tab_sure, text="📅 Reçete & Rapor Süresi")
+        self._kur_recete_rapor_dedektifi(tab_sure)
+
+        # 4. SEKME: Pazarlık ve Kâr Analizörü (YENİ EKLENDİ)
+        tab_mf = tk.Frame(nb, bg="white", padx=20, pady=20)
+        nb.add(tab_mf, text="🧲 MF & Kâr Analizörü")
+        self._kur_mf_analizoru(tab_mf)
+
+    def _kur_whatsapp_cevirici(self, parent):
+        import re
+        f_main = tk.Frame(parent, bg="white")
+        f_main.pack(fill="both", expand=True)
+
+        tk.Label(f_main, text="📱 Günü Gelen İlaç & WhatsApp Asistanı", font=("Segoe UI", 16, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 15))
+
+        # --- EKRANI İKİYE BÖLEN YAPI (PANED WINDOW) ---
+        paned = tk.PanedWindow(f_main, orient=tk.HORIZONTAL, sashwidth=6, bg="white", bd=0)
+        paned.pack(fill="both", expand=True)
+
+        # =========================================================
+        # SOL PANEL: GİRİŞ ALANLARI
+        # =========================================================
+        f_left = tk.Frame(paned, bg="white", padx=10)
+        paned.add(f_left, minsize=350, width=450)
+
+        # 1. Hasta Adı Girişi
+        f_hasta = tk.Frame(f_left, bg="white")
+        f_hasta.pack(fill="x", pady=(0, 15))
+        tk.Label(f_hasta, text="👤 Hasta Adı Soyadı (İsteğe Bağlı):", font=("Segoe UI", 11, "bold"), bg="white", fg="#3b82f6").pack(anchor="w", pady=(0, 5))
+        ent_hasta_adi = tk.Entry(f_hasta, font=("Segoe UI", 12, "bold"), bg="#eff6ff", fg="#1e3a8a", relief="solid", bd=1, insertbackground="#0f172a")
+        ent_hasta_adi.pack(fill="x", ipady=5)
+
+        # YENİ: Mesaj Taslağı (Üslup) Seçimi
+        f_taslak = tk.Frame(f_left, bg="white")
+        f_taslak.pack(fill="x", pady=(0, 15))
+        tk.Label(f_taslak, text="💬 Mesaj Üslubu (Taslak):", font=("Segoe UI", 11, "bold"), bg="white", fg="#8b5cf6").pack(anchor="w", pady=(0, 5))
+        cmb_taslak = ttk.Combobox(f_taslak, values=[
+            "Sade & Anlaşılır", 
+            "Samimi & Enerjik 🌸", 
+            "Resmi & Ciddi 👔", 
+            "Şık & Zarif ✨", 
+            "Kısa & Öz ⚡",
+            "Hürmetkâr & Saygılı 🕊️",
+            "Çocuk/Bebek Hastalar 🧸",
+            "Kurumsal & Güven Verici 🛡️",
+            "İngilizce (English) 🌍"
+        ], state="readonly", font=("Segoe UI", 11, "bold"))
+        cmb_taslak.pack(fill="x", ipady=4)
+        cmb_taslak.current(0)
+
+        # 2. Medula Listesi Girişi
+        tk.Label(f_left, text="1. Medula'dan kopyaladığınız listeyi buraya yapıştırın:", font=("Segoe UI", 11, "bold"), bg="white", fg="#334155").pack(anchor="w", pady=(10, 5))
+        
+        f_txt_container = tk.Frame(f_left, bg="white", bd=1, relief="solid")
+        f_txt_container.pack(fill="both", expand=True, pady=(0, 15))
+        
+        text_input = tk.Text(f_txt_container, font=("Consolas", 10), bg="#f8fafc", fg="#0f172a", bd=0, highlightthickness=0, padx=5, pady=5)
+        sc_txt = ttk.Scrollbar(f_txt_container, orient="vertical", command=text_input.yview)
+        text_input.configure(yscrollcommand=sc_txt.set)
+        sc_txt.pack(side="right", fill="y")
+        text_input.pack(side="left", fill="both", expand=True)
+
+        btn_bul = tk.Button(f_left, text="🔍 İLAÇLARI GETİR VE DÜZENLE", font=("Segoe UI", 11, "bold"), bg="#f59e0b", fg="white", relief="flat", cursor="hand2", pady=10)
+        btn_bul.pack(fill="x")
+
+        # =========================================================
+        # SAĞ PANEL: DÜZENLEME VE SONUÇ ALANI
+        # =========================================================
+        f_right = tk.Frame(paned, bg="white", padx=15)
+        paned.add(f_right, minsize=400, width=650)
+
+        tk.Label(f_right, text="2. İlaçları seçin ve gerekirse bilgileri düzenleyin:", font=("Segoe UI", 11, "bold"), bg="white", fg="#334155").pack(anchor="w", pady=(0, 5))
+
+        f_liste_kapsayici = tk.Frame(f_right, bg="white", bd=1, relief="solid")
+        f_liste_kapsayici.pack(fill="both", expand=True, pady=(0, 15))
+
+        canvas = tk.Canvas(f_liste_kapsayici, bg="#f8fafc", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(f_liste_kapsayici, orient="vertical", command=canvas.yview)
+        frame_checkboxes = tk.Frame(canvas, bg="#f8fafc")
+        
+        # Canvas genişliğini içeriğe göre otomatik ayarla
+        canvas_window = canvas.create_window((0, 0), window=frame_checkboxes, anchor="nw")
+        
+        def on_canvas_configure(e):
+            canvas.itemconfig(canvas_window, width=e.width)
+        canvas.bind("<Configure>", on_canvas_configure)
+        frame_checkboxes.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        if hasattr(self, 'mouse_scroll_ekle'):
+            self.mouse_scroll_ekle(canvas, frame_checkboxes)
+
+        btn_kopyala = tk.Button(f_right, text="📋 SEÇİLENLERİ MESAJ YAP VE KOPYALA", font=("Segoe UI", 12, "bold"), bg="#10b981", fg="white", relief="flat", cursor="hand2", pady=10)
+        btn_kopyala.pack(fill="x", side="bottom")
+
+        self.wp_dinamik_satirlar = []
+
+        # --- MOTOR FONKSİYONLARI ---
+        def ilaclari_bul():
+            raw_text = text_input.get("1.0", tk.END)
+            bulunan_ilaclar_listesi = []
+            
+            # --- AKILLI SATIR TARAYICI ---
+            for satir in raw_text.splitlines():
+                satir = satir.strip()
+                if not satir: continue
+                
+                # 1. İlaç Adını Bul
+                isim_match = re.search(r'[a-zA-Z0-9]{7}\s*(.*?)\s*\(\d{13}\)', satir)
+                if not isim_match: continue
+                ilac_adi = isim_match.group(1)
+                
+                # 2. Satırdaki TÜM Tarihleri Bul ve EN SONUNCUSUNU al
+                tarihler = re.findall(r'\d{1,2}[./-]\d{1,2}[./-]\d{4}', satir)
+                son_tarih = tarihler[-1] if tarihler else "-"
+                
+                # 3. Kutu Adedi ve Kullanım Şeklini Bul
+                doz_pattern = r'(?:\d{1,2}[./-]\d{1,2}[./-]\d{4}\s*)+\s*(\d+?)\s*(\d*\s*(?:Günde|Haftada|Ayda|Saatte)\s*\d+\s*[xX]\s*\d+(?:\.\d+)?)'
+                doz_match = re.search(doz_pattern, satir, re.IGNORECASE)
+                
+                if doz_match:
+                    adet = doz_match.group(1)
+                    kullanim = doz_match.group(2)
+                else:
+                    adet = "1"
+                    kullanim = "-"
+                    
+                bulunan_ilaclar_listesi.append((ilac_adi, son_tarih, adet, kullanim))
+
+            if not bulunan_ilaclar_listesi:
+                messagebox.showwarning("Bulunamadı", "Uygun formatta ilaç verisi bulunamadı.\n\nLütfen Medula 'İlaç Bilgisi' ekranındaki listeyi doğru kopyaladığınıza emin olun.")
+                return
+            
+            # Listeyi temizle
+            for widget in frame_checkboxes.winfo_children(): widget.destroy()
+            self.wp_dinamik_satirlar.clear()
+
+            # Dinamik Düzenlenebilir Satırları Oluştur
+            for i, (ilac_adi, temiz_tarih, adet, kullanim) in enumerate(bulunan_ilaclar_listesi):
+                var_sec = tk.BooleanVar(value=True)
+                
+                temiz_ad = " ".join(ilac_adi.split())
+                temiz_adet = " ".join(adet.split())
+                temiz_kullanim = " ".join(kullanim.split())
+                
+                row_f = tk.Frame(frame_checkboxes, bg="white", bd=1, relief="solid", pady=8, padx=10)
+                row_f.pack(fill="x", padx=5, pady=4)
+                
+                cb = tk.Checkbutton(row_f, variable=var_sec, bg="white", cursor="hand2")
+                cb.pack(side="left", padx=(0, 5))
+                
+                f_info = tk.Frame(row_f, bg="white")
+                f_info.pack(side="left", fill="x", expand=True)
+                
+                tk.Label(f_info, text=f"💊 {temiz_ad}", font=("Segoe UI", 10, "bold"), bg="white", fg="#0f172a").pack(anchor="w", pady=(0, 5))
+                
+                f_inputs = tk.Frame(f_info, bg="white")
+                f_inputs.pack(fill="x")
+                
+                entry_style = {"font": ("Segoe UI", 9, "bold"), "relief": "solid", "bd": 1, "bg": "#f8fafc"}
+                
+                tk.Label(f_inputs, text="Kutu:", font=("Segoe UI", 8), bg="white", fg="#64748b").pack(side="left")
+                e_kutu = tk.Entry(f_inputs, width=4, justify="center", fg="#b45309", **entry_style)
+                e_kutu.pack(side="left", padx=(2, 10), ipady=3)
+                e_kutu.insert(0, temiz_adet)
+                
+                tk.Label(f_inputs, text="Kullanım:", font=("Segoe UI", 8), bg="white", fg="#64748b").pack(side="left")
+                e_kullanim = tk.Entry(f_inputs, width=25, fg="#2563eb", **entry_style)
+                e_kullanim.pack(side="left", fill="x", expand=True, padx=(2, 10), ipady=3)
+                e_kullanim.insert(0, temiz_kullanim)
+                
+                tk.Label(f_inputs, text="Yazdırılma:", font=("Segoe UI", 8), bg="white", fg="#64748b").pack(side="left")
+                e_tarih = tk.Entry(f_inputs, width=11, justify="center", fg="#10b981", **entry_style)
+                e_tarih.pack(side="left", padx=(2, 0), ipady=3)
+                e_tarih.insert(0, temiz_tarih)
+                
+                self.wp_dinamik_satirlar.append({
+                    "sec": var_sec,
+                    "ad": temiz_ad,
+                    "ent_kutu": e_kutu,
+                    "ent_kullanim": e_kullanim,
+                    "ent_tarih": e_tarih
+                })
+
+        btn_bul.config(command=ilaclari_bul)
+
+        def mesaji_kopyala():
+            hasta_adi = ent_hasta_adi.get().strip()
+            secilen_taslak = cmb_taslak.get()
+            
+            # YANLIŞ YAPIŞTIRMA KALKANI
+            if len(hasta_adi) > 40 or re.search(r'\d{11}', hasta_adi):
+                hasta_adi = ""
+                ent_hasta_adi.delete(0, tk.END)
+
+            # --- TASLAKLARA GÖRE WHATSAPP FORMATLARI (*kalın*, _italik_) ---
+            if secilen_taslak == "Samimi & Enerjik 🌸":
+                giris = f"_Merhaba *{hasta_adi}* 🌸_\nYazdırabileceğiniz ilaçların kullanım detaylarını sizin için aşağıya ekliyorum:\n\n" if hasta_adi else "_Merhaba 🌸_\nYazdırabileceğiniz ilaçların kullanım detaylarını sizin için aşağıya ekliyorum:\n\n"
+                cikis = "\n_Çok geçmiş olsun, sağlıklı ve güzel günler dileriz!_ 🌼"
+                def formatla(ad, kutu, kul, tar):
+                    return f"💊 *{ad}*\n📦 Kutu: {kutu}\n🕒 Nasıl Kullanılacak: _*{kul}*_\n📅 Tarih: {tar}\n〰️〰️〰️➖➖➖➖〰️〰️〰️\n"
+
+            elif secilen_taslak == "Resmi & Ciddi 👔":
+                giris = f"*Sayın {hasta_adi},*\nReçete edilebilir ilaçlarınıza ait kullanım talimatları aşağıda bilginize sunulmuştur:\n\n" if hasta_adi else "*Sayın Hastamız,*\nReçete edilebilir ilaçlarınıza ait kullanım talimatları aşağıda bilginize sunulmuştur:\n\n"
+                cikis = "\n*Sağlıklı günler dileriz.*"
+                def formatla(ad, kutu, kul, tar):
+                    return f"▪️ *İLAÇ ADI:* {ad}\n▪️ *MİKTAR:* {kutu} Kutu\n▪️ *DOZAJ:* {kul}\n▪️ *TARİH:* {tar}\n--------------------------\n"
+
+            elif secilen_taslak == "Şık & Zarif ✨":
+                giris = f"_Değerli hastamız *{hasta_adi}*,_\nKullanmanız gereken ilaçların detaylı rehberi aşağıda yer almaktadır:\n\n" if hasta_adi else "_Değerli hastamız,_\nKullanmanız gereken ilaçların detaylı rehberi aşağıda yer almaktadır:\n\n"
+                cikis = "\n_Acil şifalar diler, sağlıklı bir gün geçirmenizi temenni ederiz._ ✨"
+                def formatla(ad, kutu, kul, tar):
+                    return f"✨ _İlaç:_ *{ad}*\n📦 _Kutu:_ {kutu}\n🕒 _Kullanım:_ *{kul}*\n📅 _Tarih:_ {tar}\n✧══════════════════✧\n"
+
+            elif secilen_taslak == "Kısa & Öz ⚡":
+                giris = f"👤 *{hasta_adi}* - İlaç Detayları:\n\n" if hasta_adi else "📌 *İlaç Detayları:*\n\n"
+                cikis = "\n*Geçmiş olsun.*"
+                def formatla(ad, kutu, kul, tar):
+                    # Alt alta uzun yazmak yerine tek satırda hap bilgi!
+                    return f"👉 *{ad}* | {kutu} Kutu | *{kul}*\n" 
+
+            elif secilen_taslak == "Hürmetkâr & Saygılı 🕊️":
+                giris = f"_Kıymetli büyüğümüz *{hasta_adi}*,_\nDoktorunuzun yazmış olduğu ilaçların kullanım şekillerini unutmamak adına sizin için aşağıya not düşüyoruz:\n\n" if hasta_adi else "_Kıymetli büyüğümüz,_\nDoktorunuzun yazmış olduğu ilaçların kullanım şekillerini unutmamak adına sizin için aşağıya not düşüyoruz:\n\n"
+                cikis = "\n_Ellerinizden öper, Allah'tan acil şifalar dileriz. Kendinize çok iyi bakın._ 🤲"
+                def formatla(ad, kutu, kul, tar):
+                    return f"💊 *{ad}*\n📦 Adet: {kutu} Kutu\n🕒 Kullanımı: *{kul}*\n📅 Yazdırılma: {tar}\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+
+            elif secilen_taslak == "Çocuk/Bebek Hastalar 🧸":
+                giris = f"Merhaba,\nMinik kahramanımız *{hasta_adi}* için yazılan ilaçların kullanım detayları aşağıdadır:\n\n" if hasta_adi else "Merhaba,\nMinik kahramanımız için yazılan ilaçların kullanım detayları aşağıdadır:\n\n"
+                cikis = "\n_Yavrumuza çok geçmiş olsun, en kısa sürede toparlanmasını dileriz!_ 🧸🎈"
+                def formatla(ad, kutu, kul, tar):
+                    return f"🎈 *{ad}*\n📦 Kaç Kutu: {kutu}\n🕒 Nasıl Verilecek: _*{kul}*_\n📅 Tarih: {tar}\n〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n"
+
+            elif secilen_taslak == "Kurumsal & Güven Verici 🛡️":
+                giris = f"*Sayın {hasta_adi},*\nEczanemizi tercih ettiğiniz için teşekkür ederiz. Tedavi sürecinizde kullanmanız gereken ilaçların detayları aşağıda belirtilmiştir:\n\n" if hasta_adi else "*Sayın Hastamız,*\nEczanemizi tercih ettiğiniz için teşekkür ederiz. Tedavi sürecinizde kullanmanız gereken ilaçların detayları aşağıda belirtilmiştir:\n\n"
+                cikis = "\n_Tedavinizle ilgili herhangi bir sorunuz olursa bize her zaman bu numaradan ulaşabilirsiniz. Sağlıklı günler dileriz._ 🛡️"
+                def formatla(ad, kutu, kul, tar):
+                    return f"▶ *{ad}*\n   Miktar: {kutu} Kutu\n   Kullanım Şekli: *{kul}*\n   Reçete Tarihi: {tar}\n━━━━━━━━━━━━━━━━━━━━\n"
+
+            elif secilen_taslak == "İngilizce (English) 🌍":
+                giris = f"Hello *{hasta_adi}*,\nHere are the usage instructions for your prescribed medications:\n\n" if hasta_adi else "Hello,\nHere are the usage instructions for your prescribed medications:\n\n"
+                cikis = "\n_We wish you a quick recovery. Have a healthy day!_ 🌍"
+                def formatla(ad, kutu, kul, tar):
+                    return f"💊 *Medication:* {ad}\n📦 *Box Quantity:* {kutu}\n🕒 *Usage:* _{kul}_\n📅 *Date:* {tar}\n--------------------------\n"
+
+            else: # Sade & Anlaşılır (Varsayılan)
+                giris = f"Merhaba *{hasta_adi}*, yazdırabileceğiniz ilaçların kullanım detayları aşağıdadır:\n\n" if hasta_adi else "Merhaba, yazdırabileceğiniz ilaçların kullanım detayları aşağıdadır:\n\n"
+                cikis = "\nGeçmiş olsun dileklerimizle! 🌸"
+                def formatla(ad, kutu, kul, tar):
+                    return f"💊 İlaç: *{ad}*\n📦 Kutu Adedi: {kutu}\n🕒 Kullanım: *{kul}*\n📅 Yazdırılma Tarihi: {tar}\n➖➖➖➖➖➖➖➖➖➖\n"
+
+            wp_message = giris
+            secilen_var_mi = False
+            
+            for satir in self.wp_dinamik_satirlar:
+                if satir["sec"].get():
+                    secilen_var_mi = True
+                    
+                    ilac_adi = satir["ad"]
+                    kutu = satir["ent_kutu"].get().strip()
+                    kullanim = satir["ent_kullanim"].get().strip()
+                    tarih = satir["ent_tarih"].get().strip()
+                    
+                    # Seçilen taslağa göre biçimlendirmeyi yapan fonksiyonu çağırıyoruz
+                    wp_message += formatla(ilac_adi, kutu, kullanim, tarih)
+                    
+            if not secilen_var_mi:
+                messagebox.showwarning("Seçim Yok", "Lütfen göndermek için listeden en az bir ilaç seçin.")
+                return
+
+            wp_message += cikis
+            
+            self.pencere.clipboard_clear()
+            self.pencere.clipboard_append(wp_message)
+            messagebox.showinfo("Başarılı", "✅ Seçilen ilaçlar kopyalandı!\n\nWhatsApp Web'e gidip hastaya direkt yapıştır (CTRL+V) yapabilirsiniz.")
+
+        btn_kopyala.config(command=mesaji_kopyala)
+
+    def _kur_sgk_hesaplayici(self, parent):
+        f_main = tk.Frame(parent, bg="white")
+        f_main.pack(fill="both", expand=True)
+
+        tk.Label(f_main, text="SGK Gün ve Reçete Bitiş Hesaplayıcı", font=("Segoe UI", 16, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 20))
+
+        f_form = tk.Frame(f_main, bg="#f8fafc", padx=25, pady=25, bd=1, relief="solid", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_form.pack(fill="x", anchor="n")
+
+        lbl_s = {"bg": "#f8fafc", "fg": "#475569", "font": ("Segoe UI", 10, "bold")}
+        ent_s = {"font": ("Segoe UI", 12, "bold"), "bg": "white", "relief": "solid", "bd": 1, "justify": "center"}
+
+        # --- 1. SATIR: Tarih, Kutu İçi Adet, Verilen Kutu ---
+        f_row1 = tk.Frame(f_form, bg="#f8fafc")
+        f_row1.pack(fill="x", pady=(0, 15))
+
+        f_tar = tk.Frame(f_row1, bg="#f8fafc")
+        f_tar.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        tk.Label(f_tar, text="Önceki Alım Tarihi:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        f_tar_inner = tk.Frame(f_tar, bg="white", bd=1, relief="solid")
+        f_tar_inner.pack(fill="x")
+        ent_alim = tk.Entry(f_tar_inner, font=("Segoe UI", 12, "bold"), relief="flat", bg="white", fg="#0f172a", justify="center")
+        ent_alim.pack(side="left", fill="x", expand=True, ipady=5, padx=2)
+        ent_alim.insert(0, date.today().strftime("%Y-%m-%d"))
+        tarih_secici_bagla(f_tar_inner, ent_alim)
+        ent_alim.bind("<KeyRelease>", mask_tarih_otomatik)
+
+        f_k1 = tk.Frame(f_row1, bg="#f8fafc")
+        f_k1.pack(side="left", fill="x", expand=True, padx=10)
+        tk.Label(f_k1, text="Kutu İçi Adet:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        ent_kutu_adet = tk.Entry(f_k1, fg="#0f172a", **ent_s)
+        ent_kutu_adet.pack(fill="x", ipady=5)
+        ent_kutu_adet.insert(0, "30")
+
+        f_k2 = tk.Frame(f_row1, bg="#f8fafc")
+        f_k2.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        tk.Label(f_k2, text="Verilen Kutu Sayısı:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        ent_kutu_sayisi = tk.Entry(f_k2, fg="#0f172a", **ent_s)
+        ent_kutu_sayisi.pack(fill="x", ipady=5)
+        ent_kutu_sayisi.insert(0, "1")
+
+        # --- 2. SATIR: Kullanım Şekli ve Rapor Durumu ---
+        f_row2 = tk.Frame(f_form, bg="#f8fafc")
+        f_row2.pack(fill="x", pady=(10, 15))
+
+        f_doz_container = tk.Frame(f_row2, bg="#f8fafc")
+        f_doz_container.pack(side="left", fill="x", expand=True)
+        tk.Label(f_doz_container, text="Kullanım Şekli (Örn: 1 Günde 1 x 1):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        
+        f_doz = tk.Frame(f_doz_container, bg="#f8fafc")
+        f_doz.pack(anchor="w")
+
+        ent_p_sayi = tk.Entry(f_doz, width=4, fg="#2563eb", **ent_s)
+        ent_p_sayi.pack(side="left", ipady=5)
+        ent_p_sayi.insert(0, "1")
+        
+        cmb_p_tur = ttk.Combobox(f_doz, values=["GÜN", "HAFTA", "AY"], state="readonly", font=("Segoe UI", 10, "bold"), width=8)
+        cmb_p_tur.pack(side="left", padx=8, ipady=4)
+        cmb_p_tur.current(0)
+        
+        tk.Label(f_doz, text="'de", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#64748b").pack(side="left", padx=2)
+
+        ent_doz_1 = tk.Entry(f_doz, width=4, fg="#10b981", **ent_s)
+        ent_doz_1.pack(side="left", ipady=5, padx=5)
+        ent_doz_1.insert(0, "1")
+        
+        tk.Label(f_doz, text="x", font=("Segoe UI", 11, "bold"), bg="#f8fafc", fg="#94a3b8").pack(side="left", padx=5)
+        
+        ent_doz_2 = tk.Entry(f_doz, width=4, fg="#10b981", **ent_s)
+        ent_doz_2.pack(side="left", ipady=5, padx=5)
+        ent_doz_2.insert(0, "1")
+
+        # İlaç Tipi (Raporlu/Raporsuz) Seçimi
+        f_rapor = tk.Frame(f_row2, bg="#f8fafc")
+        f_rapor.pack(side="right", fill="x", expand=True, padx=(20, 0))
+        tk.Label(f_rapor, text="İlaç Tipi (Rapor Durumu):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        
+        var_rapor = tk.StringVar(value="Raporlu İlaç")
+        cmb_rapor = ttk.Combobox(f_rapor, textvariable=var_rapor, values=["Raporlu İlaç", "Normal (Raporsuz) İlaç"], state="readonly", font=("Segoe UI", 11, "bold"))
+        cmb_rapor.pack(fill="x", ipady=5)
+
+        # --- HESAPLA BUTONU ---
+        btn_hesapla = tk.Button(f_form, text="⚡ HESAPLA", font=("Segoe UI", 12, "bold"), bg="#3b82f6", fg="white", relief="flat", cursor="hand2", pady=10)
+        btn_hesapla.pack(fill="x", pady=(15, 0))
+
+        # --- SONUÇ ALANI ---
+        f_sonuc = tk.Frame(f_main, bg="#0f172a", padx=30, pady=25)
+        f_sonuc.pack(fill="x", pady=20)
+        
+        lbl_bitis = tk.Label(f_sonuc, text="Hesaplama Bekleniyor...", font=("Segoe UI", 16), bg="#0f172a", fg="white")
+        lbl_bitis.pack(anchor="w")
+        
+        lbl_recete = tk.Label(f_sonuc, text="", font=("Segoe UI", 16, "bold"), bg="#0f172a", fg="#34d399", justify="left")
+        
+        # --- HESAPLAMA MOTORU ---
+        def sgk_hesapla(event=None):
+            try:
+                alim_str = ent_alim.get().strip()
+                k_adet = int(ent_kutu_adet.get().strip())
+                k_sayisi = int(ent_kutu_sayisi.get().strip())
+                p_sayi = float(ent_p_sayi.get().replace(",", "."))
+                p_tur = cmb_p_tur.get()
+                d1 = float(ent_doz_1.get().replace(",", "."))
+                d2 = float(ent_doz_2.get().replace(",", "."))
+                rapor_durumu = var_rapor.get()
+                
+                # Doz hesaplama mantığı
+                toplam_doz_miktari = d1 * d2
+                if p_tur == "HAFTA": gun_katsayisi = 7
+                elif p_tur == "AY": gun_katsayisi = 30
+                else: gun_katsayisi = 1 
+                
+                gunluk_doz = toplam_doz_miktari / (p_sayi * gun_katsayisi)
+                if gunluk_doz <= 0: raise ValueError
+
+                # Kutu ve Bitiş Süresi Hesaplama
+                toplam_hap = k_adet * k_sayisi
+                kullanim_gunu = int(toplam_hap / gunluk_doz)
+
+                alim_dt = datetime.strptime(alim_str, "%Y-%m-%d").date()
+                bitis_dt = alim_dt + timedelta(days=kullanim_gunu)
+
+                lbl_bitis.config(text=f"💊 İlacın Bitiş Tarihi: {bitis_dt.strftime('%d.%m.%Y')} ({kullanim_gunu} Gün Yetecek)")
+                
+                # Raporlu vs Raporsuz Durum Analizi
+                if rapor_durumu == "Raporlu İlaç":
+                    erken_yazim_dt = bitis_dt - timedelta(days=15)
+                    lbl_recete.pack(anchor="w", pady=(15, 0)) # Sonucu göster
+                    
+                    if erken_yazim_dt <= date.today():
+                        lbl_recete.config(text=f"📝 İlk Reçete Yazdırılabilme Tarihi: {erken_yazim_dt.strftime('%d.%m.%Y')}\n✅ Günü gelmiş, reçeteye girilebilir!", fg="#34d399")
+                    else:
+                        lbl_recete.config(text=f"📝 İlk Reçete Yazdırılabilme Tarihi: {erken_yazim_dt.strftime('%d.%m.%Y')}\n❌ Henüz günü gelmedi!", fg="#f87171")
+                else:
+                    # Raporsuz ise 15 gün erken yazdırma bilgisine gerek yok, gizle!
+                    lbl_recete.pack_forget()
+
+            except Exception as e:
+                lbl_bitis.config(text="⚠️ Lütfen değerleri doğru ve eksiksiz girin.")
+                lbl_recete.pack_forget()
+
+        btn_hesapla.config(command=sgk_hesapla)
+        
+        # Kutulardan herhangi birindeyken Enter tuşuna basıldığında hesaplamayı tetikle
+        for w in (ent_p_sayi, ent_doz_1, ent_doz_2, ent_alim, ent_kutu_adet, ent_kutu_sayisi):
+            w.bind("<Return>", sgk_hesapla)
+
+    def _kur_recete_rapor_dedektifi(self, parent):
+        f_main = tk.Frame(parent, bg="white")
+        f_main.pack(fill="both", expand=True)
+
+        tk.Label(f_main, text="E-Reçete ve Sağlık Raporu Geçerlilik Dedektifi", font=("Segoe UI", 16, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 20))
+
+        # Ekranı İkiye Böl (Sol: Reçete, Sağ: Rapor)
+        f_cols = tk.Frame(f_main, bg="white")
+        f_cols.pack(fill="both", expand=True)
+
+        lbl_s = {"bg": "#f8fafc", "fg": "#475569", "font": ("Segoe UI", 10, "bold")}
+        ent_s = {"font": ("Segoe UI", 13, "bold"), "bg": "white", "relief": "solid", "bd": 1, "justify": "center"}
+
+        # =========================================================
+        # SOL PANEL: E-REÇETE 4 İŞ GÜNÜ HESAPLAYICI
+        # =========================================================
+        f_recete = tk.Frame(f_cols, bg="#f8fafc", padx=25, pady=25, bd=1, relief="solid", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_recete.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        tk.Label(f_recete, text="💊 E-Reçete Geçerlilik Süresi (4 İş Günü)", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#3b82f6").pack(anchor="w", pady=(0, 15))
+        
+        tk.Label(f_recete, text="Reçetenin Yazıldığı Tarih:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        
+        f_tar_rec = tk.Frame(f_recete, bg="white", bd=1, relief="solid")
+        f_tar_rec.pack(fill="x", pady=(0, 20))
+        
+        ent_rec_tar = tk.Entry(f_tar_rec, fg="#0f172a", **ent_s)
+        ent_rec_tar.pack(side="left", fill="x", expand=True, ipady=6, padx=2)
+        ent_rec_tar.insert(0, date.today().strftime("%Y-%m-%d"))
+        tarih_secici_bagla(f_tar_rec, ent_rec_tar)
+        ent_rec_tar.bind("<KeyRelease>", mask_tarih_otomatik)
+
+        # Sonuçları gösterecek Labeller
+        lbl_rec_sonuc = tk.Label(f_recete, text="Hesaplanıyor...", font=("Segoe UI", 14), bg="#f8fafc", fg="#0f172a", justify="left")
+        lbl_rec_sonuc.pack(anchor="w", pady=5)
+        
+        lbl_rec_durum = tk.Label(f_recete, text="", font=("Segoe UI", 15, "bold"), bg="#f8fafc", justify="left")
+        lbl_rec_durum.pack(anchor="w")
+
+        # Bilgi Notu
+        tk.Label(f_recete, text="* Sistem otomatik olarak hafta sonlarını (Cumartesi, Pazar) atlar.\n* Dini ve Resmi bayram tatilleri manuel hesaplanmalıdır.", font=("Segoe UI", 9, "italic"), bg="#f8fafc", fg="#94a3b8", justify="left").pack(side="bottom", anchor="w")
+
+        # =========================================================
+        # SAĞ PANEL: SAĞLIK RAPORU HESAPLAYICI
+        # =========================================================
+        f_rapor = tk.Frame(f_cols, bg="#f8fafc", padx=25, pady=25, bd=1, relief="solid", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_rapor.pack(side="right", fill="both", expand=True, padx=(10, 0))
+
+        tk.Label(f_rapor, text="📄 Sağlık Raporu Bitiş Süresi", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#8b5cf6").pack(anchor="w", pady=(0, 15))
+
+        tk.Label(f_rapor, text="Rapor Başlangıç (Çıkış) Tarihi:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        
+        f_tar_rap = tk.Frame(f_rapor, bg="white", bd=1, relief="solid")
+        f_tar_rap.pack(fill="x", pady=(0, 15))
+        
+        ent_rap_tar = tk.Entry(f_tar_rap, fg="#0f172a", **ent_s)
+        ent_rap_tar.pack(side="left", fill="x", expand=True, ipady=6, padx=2)
+        ent_rap_tar.insert(0, date.today().strftime("%Y-%m-%d"))
+        tarih_secici_bagla(f_tar_rap, ent_rap_tar)
+        ent_rap_tar.bind("<KeyRelease>", mask_tarih_otomatik)
+
+        tk.Label(f_rapor, text="Raporun Süresi:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        cmb_rap_sure = ttk.Combobox(f_rapor, values=["1 Yıl", "2 Yıl", "6 Ay", "3 Ay"], state="readonly", font=("Segoe UI", 12, "bold"))
+        cmb_rap_sure.pack(fill="x", ipady=5, pady=(0, 20))
+        cmb_rap_sure.current(0)
+
+        # Sonuçları gösterecek Labeller
+        lbl_rap_sonuc = tk.Label(f_rapor, text="Hesaplanıyor...", font=("Segoe UI", 14), bg="#f8fafc", fg="#0f172a", justify="left")
+        lbl_rap_sonuc.pack(anchor="w", pady=5)
+
+        lbl_rap_durum = tk.Label(f_rapor, text="", font=("Segoe UI", 15, "bold"), bg="#f8fafc", justify="left")
+        lbl_rap_durum.pack(anchor="w")
+
+        # =========================================================
+        # HESAPLAMA MOTORLARI
+        # =========================================================
+        gunler_tr = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+
+        def hesapla_recete(event=None):
+            try:
+                tar_str = ent_rec_tar.get().strip()
+                baslangic = datetime.strptime(tar_str, "%Y-%m-%d").date()
+                
+                # SGK Kuralı: Yazıldığı gün DAHİL 4 iş günü.
+                # Eğer yazıldığı gün hafta içi ise (0-4), 1. iş günü olarak sayacı başlat.
+                # Hafta sonu yazıldıysa sayaç 0'dan başlar (ilk iş günü Pazartesi sayılacak).
+                is_gunu_sayaci = 1 if baslangic.weekday() < 5 else 0
+                gecerlilik_tarihi = baslangic
+                
+                while is_gunu_sayaci < 4:
+                    gecerlilik_tarihi += timedelta(days=1)
+                    # 0: Pazartesi, 4: Cuma (Hafta içi günleri buldukça sayacı artır)
+                    if gecerlilik_tarihi.weekday() < 5: 
+                        is_gunu_sayaci += 1
+                
+                gun_adi = gunler_tr[gecerlilik_tarihi.weekday()]
+                lbl_rec_sonuc.config(text=f"Son Giriş: {gecerlilik_tarihi.strftime('%d.%m.%Y')} {gun_adi}\nSaat 23:59'a kadar.")
+                
+                if gecerlilik_tarihi >= date.today():
+                    lbl_rec_durum.config(text="✅ Reçete Geçerli", fg="#10b981")
+                else:
+                    lbl_rec_durum.config(text="❌ Süresi Dolmuş! (Geçersiz)", fg="#ef4444")
+            except Exception:
+                lbl_rec_sonuc.config(text="Lütfen geçerli bir tarih girin.")
+                lbl_rec_durum.config(text="")
+
+        def hesapla_rapor(event=None):
+            try:
+                tar_str = ent_rap_tar.get().strip()
+                baslangic = datetime.strptime(tar_str, "%Y-%m-%d").date()
+                sure = cmb_rap_sure.get()
+                
+                ay_ekle = 0
+                if sure == "1 Yıl": ay_ekle = 12
+                elif sure == "2 Yıl": ay_ekle = 24
+                elif sure == "6 Ay": ay_ekle = 6
+                elif sure == "3 Ay": ay_ekle = 3
+                
+                import calendar
+                hedef_ay = baslangic.month - 1 + ay_ekle
+                hedef_yil = baslangic.year + hedef_ay // 12
+                hedef_ay = hedef_ay % 12 + 1
+                
+                # O ayın çekeceği maksimum günü bulur (Örn: Şubat 28 mi 29 mu?)
+                hedef_gun = min(baslangic.day, calendar.monthrange(hedef_yil, hedef_ay)[1])
+                bitis_tarihi = date(hedef_yil, hedef_ay, hedef_gun)
+                
+                lbl_rap_sonuc.config(text=f"Rapor Bitiş: {bitis_tarihi.strftime('%d.%m.%Y')} {gunler_tr[bitis_tarihi.weekday()]}")
+                
+                if bitis_tarihi >= date.today():
+                    kalan_gun = (bitis_tarihi - date.today()).days
+                    lbl_rap_durum.config(text=f"✅ Rapor Geçerli (Kalan: {kalan_gun} gün)", fg="#10b981")
+                else:
+                    lbl_rap_durum.config(text="❌ Raporun Süresi Dolmuş!", fg="#ef4444")
+            except Exception:
+                lbl_rap_sonuc.config(text="Lütfen geçerli bir tarih girin.")
+                lbl_rap_durum.config(text="")
+
+        # Tuşa basıldıkça ve kutular değiştikçe anlık hesaplama (Trace mantığı)
+        ent_rec_tar.bind("<KeyRelease>", hesapla_recete, add="+")
+        ent_rap_tar.bind("<KeyRelease>", hesapla_rapor, add="+")
+        cmb_rap_sure.bind("<<ComboboxSelected>>", hesapla_rapor)
+        
+        # Ekran ilk açıldığında bugünün tarihine göre default hesaplamayı yapsın
+        hesapla_recete()
+        hesapla_rapor()  
+
+    def _kur_mf_analizoru(self, parent):
+        f_main = tk.Frame(parent, bg="white")
+        f_main.pack(fill="both", expand=True)
+
+        tk.Label(f_main, text="🤝 Plasiyer Teklif Çevirici ve Kâr Analizörü", font=("Segoe UI", 16, "bold"), bg="white", fg="#1e293b").pack(anchor="w", pady=(0, 20))
+
+        f_cols = tk.Frame(f_main, bg="white")
+        f_cols.pack(fill="both", expand=True)
+
+        lbl_s = {"bg": "#f8fafc", "fg": "#475569", "font": ("Segoe UI", 10, "bold")}
+        ent_s = {"font": ("Segoe UI", 12, "bold"), "bg": "white", "relief": "solid", "bd": 1, "justify": "center"}
+
+        # =========================================================
+        # SOL PANEL: PLASİYERİN TEKLİFİNİ GİR
+        # =========================================================
+        f_form = tk.Frame(f_cols, bg="#f8fafc", padx=25, pady=25, bd=1, relief="solid", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_form.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        tk.Label(f_form, text="📝 Plasiyerin Teklifini Giriniz", font=("Segoe UI", 13, "bold"), bg="#f8fafc", fg="#3b82f6").pack(anchor="w", pady=(0, 15))
+        
+        # 1. Fiyat
+        tk.Label(f_form, text="İlacın Liste Fiyatı (TL):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        var_fiyat = tk.StringVar()
+        ent_fiyat = tk.Entry(f_form, textvariable=var_fiyat, fg="#b45309", bg="#fffbeb", font=("Segoe UI", 15, "bold"), relief="solid", bd=1, justify="right")
+        ent_fiyat.pack(fill="x", ipady=6, pady=(0, 15))
+        ent_fiyat.bind("<KeyRelease>", mask_para_birimi)
+
+        # 2. Kutu Adetleri
+        f_mf = tk.Frame(f_form, bg="#f8fafc")
+        f_mf.pack(fill="x", pady=(0, 15))
+        
+        f_alinan = tk.Frame(f_mf, bg="#f8fafc")
+        f_alinan.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        tk.Label(f_alinan, text="Alınan Kutu (Faturadaki):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        var_alinan = tk.StringVar(value="100")
+        tk.Entry(f_alinan, textvariable=var_alinan, fg="#0f172a", **ent_s).pack(fill="x", ipady=5)
+
+        f_bedelsiz = tk.Frame(f_mf, bg="#f8fafc")
+        f_bedelsiz.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        tk.Label(f_bedelsiz, text="Bedelsiz (MF) Kutu:", **lbl_s).pack(anchor="w", pady=(0, 5))
+        var_mf = tk.StringVar(value="0")
+        tk.Entry(f_bedelsiz, textvariable=var_mf, fg="#166534", bg="#dcfce7", font=("Segoe UI", 12, "bold"), relief="solid", bd=1, justify="center").pack(fill="x", ipady=5)
+
+        # 3. İskonto ve Elden Nakit (Karmaşık Teklifler İçin)
+        f_isk_nakit = tk.Frame(f_form, bg="#f8fafc")
+        f_isk_nakit.pack(fill="x", pady=(0, 15))
+
+        f_isk1 = tk.Frame(f_isk_nakit, bg="#f8fafc")
+        f_isk1.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        tk.Label(f_isk1, text="Fatura İskontosu (%):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        var_isk = tk.StringVar(value="0")
+        tk.Entry(f_isk1, textvariable=var_isk, fg="#0f172a", **ent_s).pack(fill="x", ipady=5)
+
+        f_nakit = tk.Frame(f_isk_nakit, bg="#f8fafc")
+        f_nakit.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        tk.Label(f_nakit, text="Elden Verilen Nakit (TL):", **lbl_s).pack(anchor="w", pady=(0, 5))
+        var_nakit = tk.StringVar(value="0")
+        ent_nakit = tk.Entry(f_nakit, textvariable=var_nakit, fg="#1e3a8a", bg="#eff6ff", font=("Segoe UI", 12, "bold"), relief="solid", bd=1, justify="center")
+        ent_nakit.pack(fill="x", ipady=5)
+        ent_nakit.bind("<KeyRelease>", mask_para_birimi)
+
+        # 4. Kıyaslama Tabanı (Örn: 10+? veya 9+?)
+        tk.Label(f_form, text="Hesaplama Tabanı (Örn: '10' yazarsanız 10+? olarak gösterir):", **lbl_s).pack(anchor="w", pady=(10, 5))
+        var_taban = tk.StringVar(value="10")
+        tk.Entry(f_form, textvariable=var_taban, fg="#4c1d95", bg="#ede9fe", font=("Segoe UI", 12, "bold"), relief="solid", bd=1, justify="center").pack(fill="x", ipady=5)
+
+
+        # =========================================================
+        # SAĞ PANEL: ÇEVİRİ VE SONUÇLAR
+        # =========================================================
+        f_sonuc = tk.Frame(f_cols, bg="white")
+        f_sonuc.pack(side="right", fill="both", expand=True, padx=(10, 0))
+
+        # --- A. NET MALİYET KARTI ---
+        f_maliyet = tk.Frame(f_sonuc, bg="#0f172a", padx=25, pady=25, bd=0)
+        f_maliyet.pack(fill="x")
+
+        tk.Label(f_maliyet, text="BİRİM (KUTU) BAŞINA NET MALİYET", font=("Segoe UI", 11, "bold"), bg="#0f172a", fg="#94a3b8").pack(anchor="w")
+        lbl_net_maliyet = tk.Label(f_maliyet, text="0.00 ₺", font=("Segoe UI", 32, "bold"), bg="#0f172a", fg="#34d399")
+        lbl_net_maliyet.pack(anchor="w", pady=(0, 15))
+
+        tk.Frame(f_maliyet, height=1, bg="#334155").pack(fill="x", pady=5)
+
+        def satir_ciz(parent, baslik):
+            r = tk.Frame(parent, bg="#0f172a")
+            r.pack(fill="x", pady=4)
+            tk.Label(r, text=baslik, font=("Segoe UI", 11), bg="#0f172a", fg="#cbd5e1").pack(side="left")
+            lbl = tk.Label(r, text="-", font=("Segoe UI", 12, "bold"), bg="#0f172a", fg="white")
+            lbl.pack(side="right")
+            return lbl
+
+        lbl_toplam_odenen = satir_ciz(f_maliyet, "Cebinizden Çıkacak Toplam Para:")
+        lbl_gercek_iskonto = satir_ciz(f_maliyet, "Toplam Teklifin Gerçek İskontosu:")
+
+        # --- B. PLASİYER TEKLİF ÇEVİRMENİ (Vurucu Kısım) ---
+        f_cevirmen = tk.Frame(f_sonuc, bg="#f8fafc", padx=25, pady=25, bd=1, relief="solid", highlightbackground="#e2e8f0", highlightthickness=1)
+        f_cevirmen.pack(fill="both", expand=True, pady=(15, 0))
+
+        tk.Label(f_cevirmen, text="🎯 Teklifin Gerçek Karşılığı", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#4f46e5").pack(anchor="w", pady=(0, 10))
+        tk.Label(f_cevirmen, text="Nakitler, iskontolar ve bedelsizler hesaplandığında bu alışverişin eczaneye net olarak yansıması şudur:", font=("Segoe UI", 10), bg="#f8fafc", fg="#64748b", wraplength=400, justify="left").pack(anchor="w", pady=(0, 20))
+
+        lbl_cevirilen_mf = tk.Label(f_cevirmen, text="-", font=("Segoe UI", 26, "bold"), bg="#f8fafc", fg="#ea580c")
+        lbl_cevirilen_mf.pack(anchor="center", pady=10)
+
+        # =========================================================
+        # HESAPLAMA MOTORU (Canlı İzleme)
+        # =========================================================
+        def hesapla(*args):
+            try:
+                # Girdileri temizle ve sayıya çevir
+                L = float(var_fiyat.get().replace(".", "").replace(",", ".")) if var_fiyat.get() else 0.0
+                A = float(var_alinan.get()) if var_alinan.get() else 0.0
+                M = float(var_mf.get()) if var_mf.get() else 0.0
+                Isk = float(var_isk.get().replace(",", ".")) if var_isk.get() else 0.0
+                Nakit = float(var_nakit.get().replace(".", "").replace(",", ".")) if var_nakit.get() else 0.0
+                Taban = float(var_taban.get()) if var_taban.get() else 10.0
+
+                toplam_kutu = A + M
+
+                if L > 0 and toplam_kutu > 0:
+                    # 1. Faturada ödenecek tutarı bul
+                    fatura_tutari = A * L * (1 - Isk/100)
+                    
+                    # 2. Plasiyerin elden verdiği nakiti düş
+                    odenen_net_para = fatura_tutari - Nakit
+                    
+                    # 3. Birim Net Maliyet
+                    birim_maliyet = odenen_net_para / toplam_kutu
+                    
+                    # 4. Gerçek İskonto (Liste fiyatı ile Net maliyet arasındaki fark)
+                    gercek_iskonto = ((L - birim_maliyet) / L) * 100 if L > 0 else 0
+                    
+                    # 5. MF Karşılığı (Taban + X hesaplaması)
+                    # Matematik: (Taban * L) / (Taban + X) = Birim Maliyet -> X = (Taban * L / Birim Maliyet) - Taban
+                    if birim_maliyet > 0:
+                        esdeger_x = (Taban * L / birim_maliyet) - Taban
+                    else:
+                        esdeger_x = 0 # Bedava gelmiş demektir
+                    
+                    # --- Ekranı Güncelle ---
+                    lbl_net_maliyet.config(text=f"{birim_maliyet:,.2f} ₺")
+                    lbl_toplam_odenen.config(text=f"{odenen_net_para:,.2f} ₺")
+                    lbl_gercek_iskonto.config(text=f"%{gercek_iskonto:,.2f}")
+                    
+                    # Çevirmen Çıktısı
+                    if birim_maliyet <= 0:
+                        lbl_cevirilen_mf.config(text="🔥 Ürünler Bedavaya Geliyor!")
+                    else:
+                        lbl_cevirilen_mf.config(text=f"{int(Taban)} + {esdeger_x:.2f} MF")
+                else:
+                    lbl_net_maliyet.config(text="0.00 ₺")
+                    lbl_toplam_odenen.config(text="-")
+                    lbl_gercek_iskonto.config(text="-")
+                    lbl_cevirilen_mf.config(text="-")
+            except:
+                pass 
+
+        # Değişkenleri dinlemeye (trace) alıyoruz ki yazarken anında hesaplasın
+        for v in [var_fiyat, var_alinan, var_mf, var_isk, var_nakit, var_taban]:
+            v.trace_add("write", hesapla)
+
+        # İlk açılışta 1 kere hesaplasın
+        hesapla()
 
 # =========================================================================
 # SADE VE MODERN (YEŞİL VURGULU) KULLANICI GİRİŞ EKRANI
@@ -11202,6 +15877,18 @@ if __name__ == "__main__":
         import tkinter as tk
         root = tk.Tk()
         surukle_birak_aktif = False
+        # --- GLOBAL HATA YAKALAYICI (CRASH REPORTER) BAĞLANTILARI ---
+    import sys
+    
+    # 1. Python hatalarını yakala
+    sys.excepthook = global_hata_yakalayici
+    
+    # 2. Tkinter arayüz buton/tıklama hatalarını yakala
+    def tk_hata_yakalayici(exc, val, tb):
+        global_hata_yakalayici(exc, val, tb)
+        
+    root.report_callback_exception = tk_hata_yakalayici
+    # -------------------------------------------------------------
 
     root.title("Eczacı Defteri")
     root.configure(bg="#f8fafc") 
