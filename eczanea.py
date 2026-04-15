@@ -1519,7 +1519,7 @@ class EczaneAsistani:
         
         # 1. Dosyaların bulunduğu klasörün tam yolunu güvenli şekilde al
         if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
+            base_dir = sys._MEIPASS  # <--- SİHİRLİ KELİME BURASI! (Gömülü dosyaları bulur)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
 
