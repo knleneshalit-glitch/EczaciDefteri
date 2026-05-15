@@ -1971,12 +1971,12 @@ class EczaciDefteri:
             "kasa_defteri": {"text": "KASA DEFTERİ", "icon": "📒", "color": "#b45309", "cmd": lambda: self.sekme_degistir(11), "is_main": True},
             
             # --- YENİ EKLENEN BİREYSEL PRATİK ARAÇLAR ---
-            "pa_rapor": {"text": "RAPOR DEDEKTİFİ", "icon": "🕵️‍♂️", "color": "#0369a1", "cmd": lambda: self.ac_pratik_arac_sekmesi("rapor"), "is_main": True},
-            "pa_wp": {"text": "MEDULA -> WP", "icon": "📱", "color": "#16a34a", "cmd": lambda: self.ac_pratik_arac_sekmesi("wp"), "is_main": True},
-            "pa_sgk": {"text": "SGK HESAPLAYICI", "icon": "⏳", "color": "#ea580c", "cmd": lambda: self.ac_pratik_arac_sekmesi("sgk"), "is_main": True},
-            "pa_sure": {"text": "RAPOR SÜRESİ", "icon": "📅", "color": "#7c3aed", "cmd": lambda: self.ac_pratik_arac_sekmesi("sure"), "is_main": True},
-            "pa_mf": {"text": "KÂR ANALİZÖRÜ", "icon": "🧲", "color": "#e11d48", "cmd": lambda: self.ac_pratik_arac_sekmesi("mf"), "is_main": True},
-            "pa_its": {"text": "İTS SORGULAMA", "icon": "🔍", "color": "#0284c7", "cmd": lambda: self.ac_pratik_arac_sekmesi("its"), "is_main": True}
+            "pa_rapor": {"text": "RAPOR DEDEKTİFİ", "icon": "🕵️‍♂️", "color": "#0369a1", "cmd": lambda: self.sekme_degistir(21, alt_sekme="rapor"), "is_main": True},
+            "pa_wp": {"text": "MEDULA -> WP", "icon": "📱", "color": "#16a34a", "cmd": lambda: self.sekme_degistir(21, alt_sekme="wp"), "is_main": True},
+            "pa_sgk": {"text": "SGK HESAPLAYICI", "icon": "⏳", "color": "#ea580c", "cmd": lambda: self.sekme_degistir(21, alt_sekme="sgk"), "is_main": True},
+            "pa_sure": {"text": "RAPOR SÜRESİ", "icon": "📅", "color": "#7c3aed", "cmd": lambda: self.sekme_degistir(21, alt_sekme="sure"), "is_main": True},
+            "pa_mf": {"text": "KÂR ANALİZÖRÜ", "icon": "🧲", "color": "#e11d48", "cmd": lambda: self.sekme_degistir(21, alt_sekme="mf"), "is_main": True},
+            "pa_its": {"text": "İTS SORGULAMA", "icon": "🔍", "color": "#0284c7", "cmd": lambda: self.sekme_degistir(21, alt_sekme="its"), "is_main": True}
         }
 
         for k_id in aktif_kisayollar:
@@ -4242,40 +4242,22 @@ class EczaciDefteri:
 
         tk.Frame(self.ana_container, bg="#e2e8f0", height=1).pack(fill="x") # İnce alt gölge çizgisi
 
-        # 3 Ana Bölme: Sol (Geri), Orta (Menüler), Sağ (Araçlar & Çıkış)
+        # 3 Ana Bölme: Sol (İkonlar), Orta (Boşluk/Esneklik), Sağ (Menüler & Çıkış)
         f_left = tk.Frame(self.top_bar, bg="#ffffff")
         f_left.pack(side="left", fill="y", padx=15)
 
         f_right = tk.Frame(self.top_bar, bg="#ffffff")
         f_right.pack(side="right", fill="y", padx=15)
 
-        # Orta menüyü tam merkeze sabitleyen esnek yapı
+        # Orta alan artık sadece esnek bir boşluk olarak görev yapıyor. Sola ve sağa dayamayı sağlar.
         f_center = tk.Frame(self.top_bar, bg="#ffffff")
         f_center.pack(side="left", fill="y", expand=True)
 
         self.nav_buttons = []
 
-        # --- 1. SOL KISIM: GERİ BUTONU ---
-        f_geri = tk.Frame(f_left, bg="#f1f5f9", cursor="hand2", relief="flat", bd=0)
-        f_geri.pack(side="left", fill="y", pady=15)
-        self.btn_geri_lbl = tk.Label(f_geri, text="❮ GERİ DÖN", font=("Segoe UI", 9, "bold"), bg="#f1f5f9", fg="#475569", cursor="hand2", padx=15)
-        self.btn_geri_lbl.pack(expand=True, fill="both")
-        
-        def geri_enter(e): 
-            f_geri.config(bg="#e2e8f0")
-            self.btn_geri_lbl.config(bg="#e2e8f0", fg="#1e293b")
-        def geri_leave(e): 
-            f_geri.config(bg="#f1f5f9")
-            self.btn_geri_lbl.config(bg="#f1f5f9", fg="#475569")
-            
-        for w in (f_geri, self.btn_geri_lbl):
-            w.bind("<Enter>", geri_enter)
-            w.bind("<Leave>", geri_leave)
-            w.bind("<Button-1>", lambda e: self.sekme_degistir(0))
-
-        # --- 2. ORTA KISIM: ANA SEKMELER ---
-        def create_center_tab(text, icon, active_col, cmd):
-            tab = tk.Frame(f_center, bg="#ffffff", cursor="hand2")
+        # --- GENEL SEKME / BUTON OLUŞTURUCU ---
+        def create_center_tab(parent_frame, text, icon, active_col, cmd):
+            tab = tk.Frame(parent_frame, bg="#ffffff", cursor="hand2")
             tab.pack(side="left", fill="y", padx=2)
             
             indicator = tk.Frame(tab, bg="#ffffff", height=3)
@@ -4284,40 +4266,57 @@ class EczaciDefteri:
             content = tk.Frame(tab, bg="#ffffff", cursor="hand2")
             content.pack(expand=True, fill="both", padx=10, pady=5)
             
-            lbl_icon = tk.Label(content, text=icon, font=("Segoe UI", 12), bg="#ffffff", fg="#64748b", cursor="hand2")
-            lbl_icon.pack(side="left", padx=(0, 6))
+            is_icon_only = text == ""
+            icon_font_size = 15 if is_icon_only else 12
             
-            lbl_text = tk.Label(content, text=text, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#475569", cursor="hand2")
-            lbl_text.pack(side="left")
+            lbl_icon = tk.Label(content, text=icon, font=("Segoe UI", icon_font_size), bg="#ffffff", fg="#64748b", cursor="hand2")
+            
+            lbl_text = None
+            if is_icon_only:
+                lbl_icon.pack(expand=True)
+            else:
+                lbl_text = tk.Label(content, text=text, font=("Segoe UI", 10, "bold"), bg="#ffffff", fg="#475569", cursor="hand2")
+                lbl_icon.pack(side="left", padx=(0, 6))
+                lbl_text.pack(side="left")
             
             def on_enter(e):
                 content.config(bg="#f8fafc")
                 tab.config(bg="#f8fafc")
                 lbl_icon.config(bg="#f8fafc", fg=active_col)
-                lbl_text.config(bg="#f8fafc", fg=active_col)
+                if lbl_text: lbl_text.config(bg="#f8fafc", fg=active_col)
                 indicator.config(bg=active_col)
             
             def on_leave(e):
                 content.config(bg="#ffffff")
                 tab.config(bg="#ffffff")
                 lbl_icon.config(bg="#ffffff", fg="#64748b")
-                lbl_text.config(bg="#ffffff", fg="#475569")
+                if lbl_text: lbl_text.config(bg="#ffffff", fg="#475569")
                 indicator.config(bg="#ffffff")
                 
-            for w in (tab, content, lbl_icon, lbl_text, indicator):
+            elements_to_bind = [tab, content, lbl_icon, indicator]
+            if lbl_text: elements_to_bind.append(lbl_text)
+                
+            for w in elements_to_bind:
                 w.bind("<Enter>", on_enter)
                 w.bind("<Leave>", on_leave)
                 w.bind("<Button-1>", lambda e: cmd())
                 
-            self.nav_buttons.append({"lbl_icon": lbl_icon, "lbl_text": lbl_text, "content": content})
+            self.nav_buttons.append({"lbl_icon": lbl_icon, "lbl_text": lbl_text, "content": content, "is_icon_only": is_icon_only})
 
-        create_center_tab("ANA SAYFA", "🏠", "#3b82f6", lambda: self.sekme_degistir(0))
-        create_center_tab("EKSİKLER", "📝", "#f59e0b", self.toggle_eksik_sepeti)
-        create_center_tab("REÇETE EKSİĞİ", "🔖", "#8b5cf6", self.toggle_recete_eksikleri)
-        create_center_tab("VERESİYE", "💳", "#ef4444", lambda: self.toggle_ekstra_sepet("VERESİYE"))
-        create_center_tab("EMANET", "📦", "#10b981", lambda: self.toggle_ekstra_sepet("EMANET"))
+        # --- 1. SOL KISIM: ESTETİK EV VE GERİ İKONLARI ---
+        create_center_tab(f_left, "", "🏠", "#3b82f6", lambda: self.sekme_degistir(0))
+        create_center_tab(f_left, "", "❮", "#334155", lambda: self.sekme_degistir(0))
 
-        # --- 3. SAĞ KISIM: ARAÇLAR & ÇIKIŞ ---
+        # --- 2. SAĞ KISIM: İŞLEM MENÜLERİ, ARAÇLAR VE ÇIKIŞ ---
+        
+        # İşlem menülerini f_right içine sağa dayalı olarak taşıdık
+        create_center_tab(f_right, "EKSİKLER", "📝", "#f59e0b", self.toggle_eksik_sepeti)
+        create_center_tab(f_right, "REÇETE EKSİĞİ", "🔖", "#8b5cf6", self.toggle_recete_eksikleri)
+
+        # Sekmeler ile araç ikonları arasına şık bir ayraç
+        tk.Frame(f_right, bg="#e2e8f0", width=1).pack(side="left", fill="y", pady=20, padx=8)
+
+        # Araçlar (İkonlar)
         def create_tool(icon, h_bg, h_fg, cmd, is_bell=False):
             f_tool = tk.Frame(f_right, bg="#ffffff", cursor="hand2")
             f_tool.pack(side="left", fill="y", pady=15, padx=2)
@@ -4343,9 +4342,10 @@ class EczaciDefteri:
         self.btn_zil = create_tool("🔔", "#fef3c7", "#d97706", self.bildirim_panelini_ac, is_bell=True)
         create_tool("💬", "#dbeafe", "#2563eb", self.chat_panelini_ac)
         
-        tk.Frame(f_right, bg="#e2e8f0", width=1).pack(side="left", fill="y", pady=20, padx=12) # İnce dikey ayraç
+        # Çıkış butonu öncesi ayraç
+        tk.Frame(f_right, bg="#e2e8f0", width=1).pack(side="left", fill="y", pady=20, padx=12)
         
-        # ÇIKIŞ BUTONU (Kırmızı Hap Tasarım)
+        # ÇIKIŞ BUTONU
         f_exit = tk.Frame(f_right, bg="#fee2e2", cursor="hand2", relief="flat", bd=0)
         f_exit.pack(side="left", fill="y", pady=15)
         self.btn_cikis_lbl = tk.Label(f_exit, text="🚪 ÇIKIŞ YAP", font=("Segoe UI", 9, "bold"), bg="#fee2e2", fg="#ef4444", cursor="hand2", padx=15)
@@ -4372,11 +4372,14 @@ class EczaciDefteri:
             else: f_txt, f_icn, px = 8, 11, 2
 
             for btn in self.nav_buttons:
-                btn['lbl_icon'].config(font=("Segoe UI", f_icn))
-                btn['lbl_text'].config(font=("Segoe UI", f_txt, "bold"))
+                icon_size = f_icn + 3 if btn.get("is_icon_only") else f_icn
+                btn['lbl_icon'].config(font=("Segoe UI", icon_size))
+                
+                if btn.get('lbl_text'): # Eğer yazısı varsa boyutlandır
+                    btn['lbl_text'].config(font=("Segoe UI", f_txt, "bold"))
+                    
                 btn['content'].pack_configure(padx=px)
                     
-            if hasattr(self, 'btn_geri_lbl'): self.btn_geri_lbl.config(font=("Segoe UI", f_txt, "bold"))
             if hasattr(self, 'btn_cikis_lbl'): self.btn_cikis_lbl.config(font=("Segoe UI", f_txt, "bold"))
 
         self.top_bar.bind("<Configure>", on_nav_resize)
@@ -4494,8 +4497,13 @@ class EczaciDefteri:
                 elif index == 17: self.arayuz_grafikler()
                 elif index == 18: self.arayuz_satis_analizi() 
                 elif index == 19: self.arayuz_bilgi_bankasi()
-                elif index == 20: self.render_raporlar_sayfasi() # <--- BU SATIRI EKLE
+                elif index == 20: self.render_raporlar_sayfasi()
                 elif index == 21: self.arayuz_pratik_araclar()
+                # DÜZELTİLEN KISIM: sayfa_no yerine index kullanıldı
+                elif index == 22:
+                    self.arayuz_ekstra_sepet_sayfa("VERESİYE")
+                elif index == 23:
+                    self.arayuz_ekstra_sepet_sayfa("EMANET")
                 
             except Exception as e:
                 messagebox.showerror("Sayfa Çizim Hatası", f"Sayfa yüklenirken bir hata oluştu:\n{e}")
@@ -4533,7 +4541,7 @@ class EczaciDefteri:
             print(f"Raise hatası: {e}")
             if index in self.sayfa_katmanlari: 
                 del self.sayfa_katmanlari[index]
-
+                
     def tema_degistir_click(self):
         TM.toggle()
         self.modern_baslik_cubugu_ayarla(TM.is_dark) # Windows çerçevesinin rengini günceller
@@ -18007,8 +18015,9 @@ class EczaciDefteri:
         f_asistan_container.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         f_asistan, c_asistan = create_menu_card(f_asistan_container, "ASİSTAN İŞLEMLERİ", "🏷️", "#059669", side="top", fill="both", expand=True)
         
+        # MEVCUT KOD (arayuz_anasayfa içinde f_asistan_container kısmı)
         for i in range(2): f_asistan.grid_columnconfigure(i, weight=1)
-        for i in range(4): f_asistan.grid_rowconfigure(i, weight=1)
+        for i in range(5): f_asistan.grid_rowconfigure(i, weight=1) # 4 YERİNE 5 YAPIN
 
         # Okunaklı ve Premium Renk Kodlaması
         create_grid_button(f_asistan, "📅  SKT TAKİBİ", "#eff6ff", "#1d4ed8", 0, 0, wrap_cmd(1))
@@ -18017,7 +18026,14 @@ class EczaciDefteri:
         create_grid_button(f_asistan, "🔲  KAREKOD ÜRET", "#f5f3ff", "#6d28d9", 1, 1, wrap_cmd(4))
         create_grid_button(f_asistan, "📦  STOK SAYIM", "#fef2f2", "#b91c1c", 2, 0, wrap_cmd(5))
         create_grid_button(f_asistan, "📚  BİLGİ BANKASI", "#fef3c7", "#b45309", 2, 1, wrap_cmd(19))
+        
+        # Pratik Araçlar butonunun colspan'ını 1'e düşürüp yanına menüleri ekleyebilir veya alt satıra alabilirsiniz.
+        # Alt satıra alarak daha düzgün bir grid elde edelim:
         create_grid_button(f_asistan, "🛠️  PRATİK ARAÇLAR", "#f1f5f9", "#0f172a", 3, 0, wrap_cmd(21), colspan=2)
+
+        # --- YENİ EKLENEN BUTONLAR (Sayfa ID'leri 22 ve 23 olarak belirlendi) ---
+        create_grid_button(f_asistan, "🤝  VERESİYE", "#e0e7ff", "#4338ca", 4, 0, wrap_cmd(22))
+        create_grid_button(f_asistan, "📦  EMANET", "#fce7f3", "#be185d", 4, 1, wrap_cmd(23))
         
         finans_yetkisi_var_mi = (self.aktif_rol in ["Yönetici", "Ana PC"]) or getattr(self, 'personel_yetkileri', {}).get("finans_gorsun", False)
         
@@ -21883,19 +21899,795 @@ class EczaciDefteri:
         self.its_ent_qr.delete(0, tk.END)
 
     
+    def arayuz_ekstra_sepet_sayfa(self, tur):
+        from datetime import datetime, date, timedelta
+        import urllib.parse
+        import webbrowser
+        import tkinter as tk
+        from tkinter import ttk, messagebox
+        import json
+        from tkinter import simpledialog
+
+        # 1. Ana içerik alanını temizle
+        for w in self.content_area.winfo_children(): 
+            w.destroy()
+
+        # 2. Pop-up (Toplevel) yerine ana frame oluştur
+        win = tk.Frame(self.content_area, bg="#ffffff")
+        win.pack(fill="both", expand=True)
+        
+        db_key = f"sepet_{tur.lower()}"
+
+        # --- VERİTABANI VE REHBER HAFIZASI ---
+        try:
+            self.imlec.execute("CREATE TABLE IF NOT EXISTS hasta_kara_liste (ad TEXT PRIMARY KEY)")
+            self.imlec.execute("CREATE TABLE IF NOT EXISTS hasta_rehberi (ad TEXT PRIMARY KEY, telefon TEXT)")
+            self.baglanti_skt.commit()
+        except: pass
+
+        telefon_rehberi = {}
+        try:
+            self.imlec.execute("SELECT ad, telefon FROM hasta_rehberi")
+            for r in self.imlec.fetchall():
+                if r[0] and r[1]: telefon_rehberi[r[0].upper()] = r[1]
+        except: pass
+
+        def telefon_kaydet(isim, tel):
+            isim = isim.strip().upper()
+            tel = tel.strip()
+            if isim and tel:
+                telefon_rehberi[isim] = tel
+                try:
+                    self.imlec.execute("INSERT OR REPLACE INTO hasta_rehberi (ad, telefon) VALUES (?, ?)", (isim, tel))
+                    self.baglanti_skt.commit()
+                except: pass
+
+        def get_kara_liste():
+            try:
+                self.imlec.execute("SELECT ad FROM hasta_kara_liste")
+                return [r[0].upper() for r in self.imlec.fetchall()]
+            except: return []
+
+        # --- ÜST BAŞLIK ---
+        header_bg = "#1e293b"
+        header = tk.Frame(win, bg=header_bg, pady=12)
+        header.pack(fill="x")
+
+        lbl_title = tk.Label(header, text=f"{tur} DEFTERİ", font=("Segoe UI", 14, "bold"), bg=header_bg, fg="white")
+        lbl_title.pack(side="left", padx=20)
+
+        f_head_btns = tk.Frame(header, bg=header_bg)
+        f_head_btns.pack(side="right", padx=15)
+
+        def geri_don():
+            self.ekstra_sepet_kaydet(tur)
+            self.sekme_degistir(0)
+
+        btn_geri = tk.Button(f_head_btns, text="⬅ ANA SAYFAYA DÖN", font=("Segoe UI", 10, "bold"), bg="#ef4444", fg="white", cursor="hand2", relief="flat", padx=10, command=geri_don)
+        btn_geri.pack(side="right")
+
+        # --- ANA GÖVDE ---
+        body = tk.Frame(win, bg="white")
+        
+        # --- VERİ YÜKLEME ---
+        if not hasattr(self, 'ekstra_sepet_datalari'): self.ekstra_sepet_datalari = {}
+        self.ekstra_sepet_datalari[tur] = []
+        try:
+            self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar=?", (db_key,))
+            res = self.imlec.fetchone()
+            if res and res[0]:
+                for satir in res[0].split('\n'):
+                    if not satir.strip(): continue
+                    parts = satir.split("|")
+                    if tur == "EMANET":
+                        kisi = parts[0].strip() if len(parts) > 0 else ""
+                        ilac = parts[1].strip() if len(parts) > 1 else ""
+                        tarih = parts[2].strip() if len(parts) > 2 else date.today().strftime("%Y-%m-%d")
+                        self.ekstra_sepet_datalari[tur].append({"kisi": kisi, "ilac": ilac, "tarih": tarih})
+                    else:
+                        ad = parts[0].strip() if len(parts) > 0 else ""
+                        adet = parts[1].strip() if len(parts) > 1 else ""
+                        tarih = parts[2].strip() if len(parts) > 2 else date.today().strftime("%Y-%m-%d")
+                        tutar = parts[3].strip() if len(parts) > 3 else "" 
+                        self.ekstra_sepet_datalari[tur].append({"ad": ad, "adet": adet, "tarih": tarih, "tutar": tutar})
+        except: pass
+
+        setattr(self, f"sepet_sayfa_{tur.lower()}", 0)
+        body.pack(fill="both", expand=True, padx=20, pady=15)
+
+        table_frame = tk.Frame(body, bg="white")
+        table_frame.pack(fill="both", expand=True)
+
+        # --- SÜTUN GENİŞLİKLERİ VE ESNEME (TELEFON SÜTUNU EKLENDİ) ---
+        if tur == "EMANET":
+            table_frame.grid_columnconfigure(0, minsize=35)  
+            table_frame.grid_columnconfigure(1, minsize=35)  
+            table_frame.grid_columnconfigure(2, weight=1, minsize=140) # Kişi
+            table_frame.grid_columnconfigure(3, minsize=110) # Telefon
+            table_frame.grid_columnconfigure(4, weight=1, minsize=140) # İlaç
+            table_frame.grid_columnconfigure(5, minsize=100) # Tarih
+            table_frame.grid_columnconfigure(6, minsize=60)  # Gün
+            table_frame.grid_columnconfigure(7, minsize=40)  # KL
+            table_frame.grid_columnconfigure(8, minsize=40)  # Sil
+        else:
+            table_frame.grid_columnconfigure(0, minsize=35)
+            table_frame.grid_columnconfigure(1, minsize=35)
+            table_frame.grid_columnconfigure(2, weight=1, minsize=140) # Müşteri
+            table_frame.grid_columnconfigure(3, minsize=110) # Telefon
+            table_frame.grid_columnconfigure(4, weight=1, minsize=140) # Adet
+            table_frame.grid_columnconfigure(5, minsize=100) # Tarih
+            table_frame.grid_columnconfigure(6, minsize=90)  # Tutar
+            table_frame.grid_columnconfigure(7, minsize=60)  # Gün
+            table_frame.grid_columnconfigure(8, minsize=40)  # KL
+            table_frame.grid_columnconfigure(9, minsize=40)  # Sil
+
+        ortak_font = ("Segoe UI", 9, "bold")
+        
+        self.sepet_tum_tik = False
+        def toggle_tum_tik(e=None):
+            self.sepet_tum_tik = not self.sepet_tum_tik
+            ikon = "☑" if self.sepet_tum_tik else "☐"
+            lbl_tik_baslik.config(text=ikon)
+            for s in satirlar: s['btn_tik'].config(text=ikon)
+
+        # TABLO BAŞLIKLARI
+        lbl_tik_baslik = tk.Label(table_frame, text="☐", font=ortak_font, bg="white", fg="#3b82f6", cursor="hand2")
+        lbl_tik_baslik.grid(row=0, column=0, sticky="we", padx=1, pady=5)
+        lbl_tik_baslik.bind("<Button-1>", toggle_tum_tik)
+
+        tk.Label(table_frame, text="No", font=ortak_font, bg="white", fg="#64748b").grid(row=0, column=1, sticky="we", padx=1)
+        
+        if tur == "EMANET":
+            tk.Label(table_frame, text="Kişi Adı Soyadı", font=ortak_font, bg="white", fg="#64748b", anchor="w").grid(row=0, column=2, sticky="we", padx=1)
+            tk.Label(table_frame, text="Telefon", font=ortak_font, bg="white", fg="#10b981", anchor="w").grid(row=0, column=3, sticky="we", padx=1)
+            tk.Label(table_frame, text="İlaç Adı", font=ortak_font, bg="white", fg="#64748b", anchor="w").grid(row=0, column=4, sticky="we", padx=1)
+            tk.Label(table_frame, text="Tarih", font=ortak_font, bg="white", fg="#3b82f6").grid(row=0, column=5, sticky="we", padx=1)
+            tk.Label(table_frame, text="Gün", font=ortak_font, bg="white", fg="#f59e0b").grid(row=0, column=6, sticky="we", padx=1)
+            tk.Label(table_frame, text="KL", font=ortak_font, bg="white", fg="#ef4444").grid(row=0, column=7, sticky="we", padx=1)
+            tk.Label(table_frame, text="Sil", font=ortak_font, bg="white", fg="#ef4444").grid(row=0, column=8, sticky="we", padx=1)
+        else:
+            tk.Label(table_frame, text="Müşteri / Açıklama", font=ortak_font, bg="white", fg="#64748b", anchor="w").grid(row=0, column=2, sticky="we", padx=1)
+            tk.Label(table_frame, text="Telefon", font=ortak_font, bg="white", fg="#10b981", anchor="w").grid(row=0, column=3, sticky="we", padx=1)
+            tk.Label(table_frame, text="Açıklama / Adet", font=ortak_font, bg="white", fg="#64748b", anchor="w").grid(row=0, column=4, sticky="we", padx=1)
+            tk.Label(table_frame, text="Tarih", font=ortak_font, bg="white", fg="#3b82f6").grid(row=0, column=5, sticky="we", padx=1)
+            tk.Label(table_frame, text="Tutar", font=ortak_font, bg="white", fg="#ef4444").grid(row=0, column=6, sticky="we", padx=1)
+            tk.Label(table_frame, text="Gün", font=ortak_font, bg="white", fg="#f59e0b").grid(row=0, column=7, sticky="we", padx=1)
+            tk.Label(table_frame, text="KL", font=ortak_font, bg="white", fg="#ef4444").grid(row=0, column=8, sticky="we", padx=1)
+            tk.Label(table_frame, text="Sil", font=ortak_font, bg="white", fg="#ef4444").grid(row=0, column=9, sticky="we", padx=1)
+
+        satirlar = []
+        if not hasattr(self, 'uyarilan_kisiler'): self.uyarilan_kisiler = set()
+
+        def update_pagination():
+            liste = self.ekstra_sepet_datalari[tur]
+            sayfa = getattr(self, f"sepet_sayfa_{tur.lower()}")
+            last_filled = -1
+            for idx, item in enumerate(liste):
+                if tur == "EMANET":
+                    if item.get("kisi", "").strip() or item.get("ilac", "").strip() or item.get("tarih", "").strip(): last_filled = idx
+                else:
+                    if item.get("ad", "").strip() or item.get("adet", "").strip(): last_filled = idx
+                    
+            max_sayfa = (last_filled // 15) + 2 if last_filled >= 0 else 1
+            lbl_page.config(text=f"{sayfa + 1} / {max_sayfa}")
+            btn_prev.config(state="normal" if sayfa > 0 else "disabled", bg="#f1f5f9" if sayfa > 0 else "white", fg="#475569" if sayfa > 0 else "#cbd5e1")
+            btn_next.config(state="normal" if sayfa < max_sayfa - 1 else "disabled", bg="#eff6ff" if sayfa < max_sayfa - 1 else "white", fg="#2563eb" if sayfa < max_sayfa - 1 else "#cbd5e1")
+
+        def sil_satir(row_idx):
+            if satirlar[row_idx]['btn_x'].cget("text") == "": return
+            liste = self.ekstra_sepet_datalari[tur]
+            sayfa = getattr(self, f"sepet_sayfa_{tur.lower()}")
+            list_idx = (sayfa * 15) + row_idx
+            if list_idx < len(liste):
+                liste.pop(list_idx)
+                self.ekstra_sepet_kaydet(tur)
+                render_page()
+
+        def toggle_kara_liste(row_idx):
+            isim = satirlar[row_idx]['ent_kisi'].get().strip().upper() if tur == "EMANET" else satirlar[row_idx]['ent_ad'].get().strip().upper()
+            if not isim: return
+            kl_liste = get_kara_liste()
+            if isim in kl_liste:
+                self.imlec.execute("DELETE FROM hasta_kara_liste WHERE ad=?", (isim,))
+            else:
+                self.imlec.execute("INSERT OR IGNORE INTO hasta_kara_liste (ad) VALUES (?)", (isim,))
+            self.baglanti_skt.commit()
+            on_yazi_degisti(None, row_idx)
+
+        def manuel_gun_degisti(event, row_idx):
+            try:
+                gun_str = satirlar[row_idx]['ent_gun'].get().replace("GÜN", "").replace("G", "").strip()
+                if not gun_str: return
+                gun_val = int(gun_str)
+                yeni_dt = date.today() - timedelta(days=gun_val)
+                satirlar[row_idx]['ent_tarih'].delete(0, tk.END)
+                satirlar[row_idx]['ent_tarih'].insert(0, yeni_dt.strftime("%Y-%m-%d"))
+                on_yazi_degisti(None, row_idx) 
+            except: pass
+
+        def isim_cikis_kontrol(event, row_idx):
+            isim_widget = satirlar[row_idx].get('ent_kisi') if tur == "EMANET" else satirlar[row_idx].get('ent_ad')
+            isim = isim_widget.get().strip().upper()
+            if not isim: return
+            
+            # --- TELEFON OTOMATİK DOLDURMA ---
+            if isim in telefon_rehberi:
+                tel_widget = satirlar[row_idx]['ent_tel']
+                if not tel_widget.get().strip(): # Sadece içi boşsa doldur
+                    tel_widget.delete(0, tk.END)
+                    tel_widget.insert(0, telefon_rehberi[isim])
+
+            # Kara Liste Kontrolü
+            if len(isim) < 3: return
+            kl_liste = get_kara_liste()
+            if isim in kl_liste and isim not in self.uyarilan_kisiler:
+                messagebox.showwarning("KARA LİSTE UYARISI", f"⚠️ DİKKAT!\n\n'{isim}' adlı kişi KARA LİSTEDE yer alıyor.\nGeçmişte emanet/veresiye süresini (30 gün) aşmış veya tarafınızca mimlenmiş.\n\nLütfen işlem yaparken dikkatli olun!", parent=self.pencere)
+                self.uyarilan_kisiler.add(isim)
+
+        def telefon_guncelle(row_idx):
+            isim_widget = satirlar[row_idx].get('ent_kisi') if tur == "EMANET" else satirlar[row_idx].get('ent_ad')
+            isim = isim_widget.get().strip().upper()
+            tel = satirlar[row_idx]['ent_tel'].get().strip()
+            if isim and tel:
+                telefon_kaydet(isim, tel)
+
+        def on_yazi_degisti(event, row_idx):
+            try:
+                liste = self.ekstra_sepet_datalari[tur]
+                sayfa = getattr(self, f"sepet_sayfa_{tur.lower()}")
+                list_idx = (sayfa * 15) + row_idx
+                kl_liste = get_kara_liste() 
+                bugun = date.today()
+                
+                if tur == "EMANET":
+                    while len(liste) <= list_idx: liste.append({"kisi": "", "ilac": "", "tarih": bugun.strftime("%Y-%m-%d")})
+                    yk = satirlar[row_idx]['ent_kisi'].get().strip()
+                    yi = satirlar[row_idx]['ent_ilac'].get()
+                    yt = satirlar[row_idx]['ent_tarih'].get().strip()
+                    
+                    fark = 0
+                    if len(yt) == 10:
+                        try:
+                            bas_dt = datetime.strptime(yt, "%Y-%m-%d").date()
+                            fark = (bugun - bas_dt).days
+                            if win.focus_get() != satirlar[row_idx]['ent_gun']:
+                                satirlar[row_idx]['ent_gun'].delete(0, tk.END)
+                                satirlar[row_idx]['ent_gun'].insert(0, f"{fark} G")
+                        except: pass
+
+                    if yk.upper() in kl_liste or fark >= 30: 
+                        satirlar[row_idx]['ent_kisi'].config(bg="#fee2e2", fg="#991b1b")
+                        satirlar[row_idx]['ent_gun'].config(bg="#ef4444", fg="white")
+                        if fark >= 30 and yk and yk.upper() not in kl_liste:
+                            self.imlec.execute("INSERT OR IGNORE INTO hasta_kara_liste (ad) VALUES (?)", (yk.upper(),))
+                            self.baglanti_skt.commit()
+                            kl_liste.append(yk.upper())
+                    else: 
+                        satirlar[row_idx]['ent_kisi'].config(bg="#f8fafc", fg="#0f172a")
+                        satirlar[row_idx]['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+
+                    liste[list_idx].update({"kisi": yk, "ilac": yi, "tarih": yt})
+                    if yk or yi.strip() or yt.strip(): satirlar[row_idx]['btn_x'].config(text="✖")
+                    else: satirlar[row_idx]['btn_x'].config(text="")
+                else:
+                    while len(liste) <= list_idx: liste.append({"ad": "", "adet": "", "tarih": bugun.strftime("%Y-%m-%d"), "tutar": ""})
+                    ya = satirlar[row_idx]['ent_ad'].get().strip()
+                    yd = satirlar[row_idx]['ent_adet'].get()
+                    yt = satirlar[row_idx]['ent_tarih'].get().strip()
+                    yu = satirlar[row_idx]['ent_tutar'].get().strip()
+                    
+                    fark = 0
+                    if len(yt) == 10:
+                        try:
+                            bas_dt = datetime.strptime(yt, "%Y-%m-%d").date()
+                            fark = (bugun - bas_dt).days
+                            if win.focus_get() != satirlar[row_idx]['ent_gun']:
+                                satirlar[row_idx]['ent_gun'].delete(0, tk.END)
+                                satirlar[row_idx]['ent_gun'].insert(0, f"{fark} G")
+                        except: pass
+
+                    if ya.upper() in kl_liste or fark >= 30: 
+                        satirlar[row_idx]['ent_ad'].config(bg="#fee2e2", fg="#991b1b")
+                        satirlar[row_idx]['ent_gun'].config(bg="#ef4444", fg="white")
+                        if fark >= 30 and ya and ya.upper() not in kl_liste:
+                            self.imlec.execute("INSERT OR IGNORE INTO hasta_kara_liste (ad) VALUES (?)", (ya.upper(),))
+                            self.baglanti_skt.commit()
+                            kl_liste.append(ya.upper())
+                    else: 
+                        satirlar[row_idx]['ent_ad'].config(bg="#f8fafc", fg="#0f172a")
+                        satirlar[row_idx]['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+
+                    liste[list_idx].update({"ad": ya, "adet": yd, "tarih": yt, "tutar": yu})
+                    if ya or yd.strip() or yu.strip(): satirlar[row_idx]['btn_x'].config(text="✖")
+                    else: satirlar[row_idx]['btn_x'].config(text="")
+                    
+                update_pagination()
+                self._ekstra_sepet_kaydet_delayed(tur)
+            except Exception as e: print(e)
+
+        def tik_isaretle(event, b_tik):
+            b_tik.config(text="☑" if b_tik.cget("text") == "☐" else "☐")
+
+        # SATIR OLUŞTURMA DÖNGÜSÜ
+        for i in range(15):
+            btn_tik = tk.Label(table_frame, text="☐", font=("Segoe UI", 11, "bold"), bg="#ffffff", fg="#3b82f6", cursor="hand2")
+            btn_tik.grid(row=i+1, column=0, sticky="we", padx=1, pady=2)
+            btn_tik.bind("<Button-1>", lambda e, b=btn_tik: tik_isaretle(e, b))
+
+            lbl_no = tk.Label(table_frame, text=f"{i+1}.", font=ortak_font, bg="#ffffff", fg="#94a3b8")
+            lbl_no.grid(row=i+1, column=1, sticky="we", padx=1)
+            
+            if tur == "EMANET":
+                ent_kisi = tk.Entry(table_frame, font=ortak_font, relief="solid", bd=1, fg="#0f172a", bg="#f8fafc", insertbackground="#0f172a")
+                ent_kisi.grid(row=i+1, column=2, sticky="we", padx=1, ipady=5)
+                ent_kisi.bind("<KeyRelease>", lambda e, idx=i: on_yazi_degisti(e, idx))
+                ent_kisi.bind("<FocusOut>", lambda e, idx=i: isim_cikis_kontrol(e, idx))
+
+                ent_tel = tk.Entry(table_frame, font=ortak_font, width=13, justify="center", relief="solid", bd=1, fg="#059669", bg="#ecfdf5", insertbackground="#059669")
+                ent_tel.grid(row=i+1, column=3, sticky="we", padx=1, ipady=5)
+                ent_tel.bind("<FocusOut>", lambda e, idx=i: telefon_guncelle(idx))
+
+                ent_ilac = tk.Entry(table_frame, font=("Segoe UI", 9), relief="solid", bd=1, fg="#0f172a", bg="white", insertbackground="#0f172a")
+                ent_ilac.grid(row=i+1, column=4, sticky="we", padx=1, ipady=5)
+                ent_ilac.bind("<KeyRelease>", lambda e, idx=i: on_yazi_degisti(e, idx))
+
+                ent_tarih = tk.Entry(table_frame, font=ortak_font, width=11, justify="center", relief="solid", bd=1, fg="#2563eb", bg="#f8fafc")
+                ent_tarih.grid(row=i+1, column=5, sticky="we", padx=1, ipady=5)
+                ent_tarih.bind("<KeyRelease>", lambda e, idx=i: [mask_tarih_otomatik(e), on_yazi_degisti(e, idx)])
+                try: ent_tarih.bind("<Double-Button-1>", lambda e, ent=ent_tarih: TakvimPopup(self.pencere, ent))
+                except: pass
+
+                ent_gun = tk.Entry(table_frame, font=ortak_font, width=6, justify="center", relief="solid", bd=1, fg="#6366f1", bg="#f8fafc")
+                ent_gun.grid(row=i+1, column=6, sticky="we", padx=1, ipady=5)
+                ent_gun.bind("<KeyRelease>", lambda e, idx=i: manuel_gun_degisti(e, idx))
+
+                btn_kara = tk.Label(table_frame, text="🏴‍☠️", fg="#000000", bg="#ffffff", cursor="hand2", font=ortak_font)
+                btn_kara.grid(row=i+1, column=7, sticky="we", padx=1)
+                btn_kara.bind("<Button-1>", lambda e, idx=i: toggle_kara_liste(idx))
+
+                btn_x = tk.Label(table_frame, text="", fg="#ef4444", bg="#ffffff", cursor="hand2", font=ortak_font)
+                btn_x.grid(row=i+1, column=8, sticky="we", padx=1)
+                btn_x.bind("<Button-1>", lambda e, idx=i: sil_satir(idx) if e.widget.cget("text") == "✖" else None)
+                
+                satirlar.append({'btn_tik': btn_tik, 'lbl_no': lbl_no, 'ent_kisi': ent_kisi, 'ent_tel': ent_tel, 'ent_ilac': ent_ilac, 'ent_tarih': ent_tarih, 'ent_gun': ent_gun, 'btn_kara': btn_kara, 'btn_x': btn_x})
+            else:
+                ent_ad = tk.Entry(table_frame, font=ortak_font, relief="solid", bd=1, fg="#0f172a", bg="#f8fafc", insertbackground="#0f172a")
+                ent_ad.grid(row=i+1, column=2, sticky="we", padx=1, ipady=5)
+                ent_ad.bind("<KeyRelease>", lambda e, idx=i: on_yazi_degisti(e, idx))
+                ent_ad.bind("<FocusOut>", lambda e, idx=i: isim_cikis_kontrol(e, idx))
+
+                ent_tel = tk.Entry(table_frame, font=ortak_font, width=13, justify="center", relief="solid", bd=1, fg="#059669", bg="#ecfdf5", insertbackground="#059669")
+                ent_tel.grid(row=i+1, column=3, sticky="we", padx=1, ipady=5)
+                ent_tel.bind("<FocusOut>", lambda e, idx=i: telefon_guncelle(idx))
+
+                ent_adet = tk.Entry(table_frame, font=("Segoe UI", 9), relief="solid", bd=1, fg="#0f172a", bg="white", insertbackground="#0f172a")
+                ent_adet.grid(row=i+1, column=4, sticky="we", padx=1, ipady=5)
+                ent_adet.bind("<KeyRelease>", lambda e, idx=i: on_yazi_degisti(e, idx))
+                
+                ent_tarih = tk.Entry(table_frame, font=ortak_font, width=11, justify="center", relief="solid", bd=1, fg="#2563eb", bg="#f8fafc")
+                ent_tarih.grid(row=i+1, column=5, sticky="we", padx=1, ipady=5)
+                ent_tarih.bind("<KeyRelease>", lambda e, idx=i: [mask_tarih_otomatik(e), on_yazi_degisti(e, idx)])
+                try: ent_tarih.bind("<Double-Button-1>", lambda e, ent=ent_tarih: TakvimPopup(self.pencere, ent))
+                except: pass
+
+                ent_tutar = tk.Entry(table_frame, font=ortak_font, width=10, justify="center", relief="solid", bd=1, fg="#ef4444", bg="#fef2f2")
+                ent_tutar.grid(row=i+1, column=6, sticky="we", padx=1, ipady=5)
+                ent_tutar.bind("<KeyRelease>", lambda e, idx=i: [mask_para_birimi(e), on_yazi_degisti(e, idx)])
+
+                ent_gun = tk.Entry(table_frame, font=ortak_font, width=6, justify="center", relief="solid", bd=1, fg="#6366f1", bg="#f8fafc")
+                ent_gun.grid(row=i+1, column=7, sticky="we", padx=1, ipady=5)
+                ent_gun.bind("<KeyRelease>", lambda e, idx=i: manuel_gun_degisti(e, idx))
+
+                btn_kara = tk.Label(table_frame, text="🏴‍☠️", fg="#000000", bg="#ffffff", cursor="hand2", font=ortak_font)
+                btn_kara.grid(row=i+1, column=8, sticky="we", padx=1)
+                btn_kara.bind("<Button-1>", lambda e, idx=i: toggle_kara_liste(idx))
+
+                btn_x = tk.Label(table_frame, text="", fg="#ef4444", bg="#ffffff", cursor="hand2", font=ortak_font)
+                btn_x.grid(row=i+1, column=9, sticky="we", padx=1)
+                btn_x.bind("<Button-1>", lambda e, idx=i: sil_satir(idx) if e.widget.cget("text") == "✖" else None)
+                
+                satirlar.append({'btn_tik': btn_tik, 'lbl_no': lbl_no, 'ent_ad': ent_ad, 'ent_tel': ent_tel, 'ent_adet': ent_adet, 'ent_tarih': ent_tarih, 'ent_tutar': ent_tutar, 'ent_gun': ent_gun, 'btn_kara': btn_kara, 'btn_x': btn_x})
+
+        def render_page():
+            liste = self.ekstra_sepet_datalari[tur]
+            sayfa = getattr(self, f"sepet_sayfa_{tur.lower()}")
+            start_idx = sayfa * 15
+            bugun = date.today()
+            kl_liste = get_kara_liste() 
+
+            lbl_tik_baslik.config(text="☐")
+            self.sepet_tum_tik = False
+
+            for i in range(15):
+                list_idx = start_idx + i
+                satir = satirlar[i]
+                satir['lbl_no'].config(text=f"{list_idx + 1}.")
+                satir['btn_tik'].config(text="☐")
+                
+                if tur == "EMANET":
+                    satir['ent_kisi'].delete(0, tk.END)
+                    satir['ent_kisi'].config(fg="#0f172a", bg="#f8fafc")
+                    satir['ent_tel'].delete(0, tk.END)
+                    satir['ent_ilac'].delete(0, tk.END)
+                    satir['ent_tarih'].delete(0, tk.END)
+                    satir['ent_gun'].delete(0, tk.END)
+                    satir['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+                    
+                    if list_idx < len(liste):
+                        veri = liste[list_idx]
+                        kisi_ad = veri.get("kisi", "").strip()
+                        satir['ent_kisi'].insert(0, kisi_ad)
+                        
+                        if kisi_ad.upper() in telefon_rehberi:
+                            satir['ent_tel'].insert(0, telefon_rehberi[kisi_ad.upper()])
+
+                        satir['ent_ilac'].insert(0, veri.get("ilac", ""))
+                        satir['ent_tarih'].insert(0, veri.get("tarih", ""))
+                        
+                        try:
+                            t_str = veri.get("tarih", bugun.strftime("%Y-%m-%d"))
+                            bas_dt = datetime.strptime(t_str, "%Y-%m-%d").date()
+                            fark = (bugun - bas_dt).days
+                            satir['ent_gun'].insert(0, f"{fark} G")
+
+                            if kisi_ad.upper() in kl_liste or fark >= 30:
+                                satir['ent_gun'].config(bg="#ef4444", fg="white")
+                                satir['ent_kisi'].config(bg="#fee2e2", fg="#991b1b")
+                            else:
+                                satir['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+                                satir['ent_kisi'].config(bg="#f8fafc", fg="#0f172a")
+                        except: pass
+
+                        if kisi_ad or veri.get("ilac", "").strip() or veri.get("tarih", "").strip():
+                            satir['btn_x'].config(text="✖")
+                        else: satir['btn_x'].config(text="")
+                    else: satir['btn_x'].config(text="")
+                else:
+                    satir['ent_ad'].delete(0, tk.END)
+                    satir['ent_ad'].config(fg="#0f172a", bg="#f8fafc")
+                    satir['ent_tel'].delete(0, tk.END)
+                    satir['ent_adet'].delete(0, tk.END)
+                    satir['ent_tutar'].delete(0, tk.END)
+                    satir['ent_tarih'].delete(0, tk.END)
+                    satir['ent_gun'].delete(0, tk.END)
+                    satir['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+                    
+                    if list_idx < len(liste):
+                        veri = liste[list_idx]
+                        kisi_ad = veri.get("ad", "").strip()
+                        satir['ent_ad'].insert(0, kisi_ad)
+                        
+                        if kisi_ad.upper() in telefon_rehberi:
+                            satir['ent_tel'].insert(0, telefon_rehberi[kisi_ad.upper()])
+
+                        satir['ent_adet'].insert(0, veri.get("adet", ""))
+                        satir['ent_tutar'].insert(0, veri.get("tutar", ""))
+                        satir['ent_tarih'].insert(0, veri.get("tarih", bugun.strftime("%Y-%m-%d")))
+                        
+                        try:
+                            t_str = veri.get("tarih", bugun.strftime("%Y-%m-%d"))
+                            bas_dt = datetime.strptime(t_str, "%Y-%m-%d").date()
+                            fark = (bugun - bas_dt).days
+                            satir['ent_gun'].insert(0, f"{fark} G")
+
+                            if kisi_ad.upper() in kl_liste or fark >= 30:
+                                satir['ent_gun'].config(bg="#ef4444", fg="white")
+                                satir['ent_ad'].config(bg="#fee2e2", fg="#991b1b")
+                            else:
+                                satir['ent_gun'].config(bg="#f8fafc", fg="#6366f1")
+                                satir['ent_ad'].config(bg="#f8fafc", fg="#0f172a")
+                        except: pass
+
+                        if kisi_ad or veri.get("adet", "").strip():
+                            satir['btn_x'].config(text="✖")
+                        else: satir['btn_x'].config(text="")
+                    else: satir['btn_x'].config(text="")
+
+            update_pagination()
+
+        # FocusIn algılamasını sayfa geneline uygula
+        def win_focus_in(event):
+            for i in range(15): on_yazi_degisti(None, i)
+        win.bind("<Enter>", win_focus_in)
+
+        # --- ARAYÜZÜN EN ALTI (PAGINATION VE BUTONLAR) ---
+        f_bot = tk.Frame(body, bg="white", pady=10)
+        f_bot.pack(side="bottom", fill="x")
+
+        f_page = tk.Frame(f_bot, bg="white")
+        f_page.pack(side="top", fill="x", pady=(0, 10))
+        
+        btn_prev = tk.Button(f_page, text="❮ ÖNCEKİ", bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", font=("Segoe UI", 8, "bold"), relief="flat", bd=0, cursor="hand2", padx=10, pady=5)
+        btn_prev.pack(side="left")
+        
+        lbl_page = tk.Label(f_page, text="1 / 1", bg="white", fg="#0f172a", font=("Segoe UI", 10, "bold"))
+        lbl_page.pack(side="left", expand=True)
+        
+        btn_next = tk.Button(f_page, text="SONRAKİ ❯", bg="#f1f5f9", fg="#475569", activebackground="#e2e8f0", font=("Segoe UI", 8, "bold"), relief="flat", bd=0, cursor="hand2", padx=10, pady=5)
+        btn_next.pack(side="right")
+
+        def ileri():
+            setattr(self, f"sepet_sayfa_{tur.lower()}", getattr(self, f"sepet_sayfa_{tur.lower()}") + 1)
+            render_page()
+        def geri():
+            sayfa = getattr(self, f"sepet_sayfa_{tur.lower()}")
+            if sayfa > 0:
+                setattr(self, f"sepet_sayfa_{tur.lower()}", sayfa - 1)
+                render_page()
+        btn_prev.config(command=geri)
+        btn_next.config(command=ileri)
+
+        # --- KARA LİSTE PENCERESİ ---
+        def ac_kara_liste():
+            pop = tk.Toplevel(self.pencere)
+            pop.title(f"🏴‍☠️ {tur} Kara Listesi")
+            pop.geometry("450x500")
+            pop.configure(bg="#f8fafc")
+            pop.transient(self.pencere)
+            pop.grab_set()
+
+            x = self.pencere.winfo_rootx() + 50
+            y = self.pencere.winfo_rooty() + 50
+            pop.geometry(f"+{x}+{y}")
+
+            tk.Label(pop, text="🏴‍☠️ KALICI KARA LİSTE", font=("Segoe UI", 14, "bold"), bg="#f8fafc", fg="#ef4444").pack(pady=(15, 5))
+            tk.Label(pop, text="Bu kişiler listeden silinse bile aylar sonra\nadını yazdığınızda sistem onları kırmızıya boyar.", font=("Segoe UI", 9), bg="#f8fafc", fg="#64748b").pack(pady=(0, 10))
+            
+            f_liste = tk.Frame(pop, bg="white", bd=1, relief="solid")
+            f_liste.pack(fill="both", expand=True, padx=15, pady=10)
+            
+            sc = tk.Scrollbar(f_liste)
+            sc.pack(side="right", fill="y")
+            lb = tk.Listbox(f_liste, font=("Segoe UI", 11, "bold"), fg="#991b1b", yscrollcommand=sc.set, selectmode="single")
+            lb.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+            sc.config(command=lb.yview)
+
+            def doldur():
+                lb.delete(0, tk.END)
+                for ad in get_kara_liste(): lb.insert(tk.END, ad)
+            doldur()
+                
+            def kl_sil():
+                sel = lb.curselection()
+                if not sel: return messagebox.showwarning("Hata", "Lütfen affedeceğiniz kişiyi seçin.", parent=pop)
+                kisi = lb.get(sel[0])
+                if messagebox.askyesno("Onay", f"'{kisi}' adlı kişiyi kara listeden çıkarmak (affetmek) istiyor musunuz?", parent=pop):
+                    self.imlec.execute("DELETE FROM hasta_kara_liste WHERE ad=?", (kisi,))
+                    self.baglanti_skt.commit()
+                    doldur()
+                    render_page() 
+                    
+            f_btn = tk.Frame(pop, bg="#f8fafc")
+            f_btn.pack(fill="x", padx=15, pady=15)
+            tk.Button(f_btn, text="TEMİZE ÇIKAR (AFFET)", command=kl_sil, bg="#10b981", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", pady=8).pack(side="left", fill="x", expand=True, padx=(0, 5))
+            tk.Button(f_btn, text="KAPAT", command=pop.destroy, bg="#cbd5e1", fg="#0f172a", font=("Segoe UI", 10, "bold"), relief="flat", pady=8).pack(side="right", fill="x", expand=True, padx=(5, 0))
+
+        # --- TASLAKLI WP PENCERESİ ---
+        def ac_wp_mesaj():
+            secili_isimler = []
+            secili_nolar = {} # Grid üzerindeki numaraları WP paneline aktarmak için
+            
+            for i in range(15):
+                if satirlar[i]['btn_tik'].cget("text") == "☑":
+                    isim = satirlar[i]['ent_kisi'].get().strip() if tur == "EMANET" else satirlar[i]['ent_ad'].get().strip()
+                    tel = satirlar[i]['ent_tel'].get().strip()
+                    if isim: 
+                        secili_isimler.append(isim)
+                        if tel: secili_nolar[isim.upper()] = tel
+                    
+            if not secili_isimler:
+                messagebox.showwarning("Seçim Yapılmadı", "Lütfen WhatsApp'tan mesaj göndermek istediğiniz kişileri soldaki ☑ kutucuğundan seçin.", parent=self.pencere)
+                return
+
+            pop = tk.Toplevel(self.pencere)
+            pop.title(f"📱 WhatsApp İle Hatırlat")
+            pop.geometry("520x580") 
+            pop.configure(bg="#f0fdf4")
+            pop.transient(self.pencere)
+            pop.grab_set()
+            
+            x = self.pencere.winfo_rootx() + 50
+            y = self.pencere.winfo_rooty() + 50
+            pop.geometry(f"+{x}+{y}")
+
+            f_head = tk.Frame(pop, bg="#16a34a", pady=15)
+            f_head.pack(fill="x")
+            tk.Label(f_head, text="💬 WhatsApp Asistanı", font=("Segoe UI", 14, "bold"), bg="#16a34a", fg="white").pack()
+
+            b_body = tk.Frame(pop, bg="#f0fdf4", padx=25, pady=20)
+            b_body.pack(fill="both", expand=True)
+
+            tk.Label(b_body, text="Kişi Seçin (Sadece ☑ İşaretliler):", font=("Segoe UI", 10, "bold"), bg="#f0fdf4", fg="#166534").pack(anchor="w")
+            cmb_kisi = ttk.Combobox(b_body, values=secili_isimler, state="readonly", font=("Segoe UI", 12))
+            cmb_kisi.pack(fill="x", pady=(2, 15), ipady=4)
+
+            tk.Label(b_body, text="Telefon No (Örn: 5551234567):", font=("Segoe UI", 10, "bold"), bg="#f0fdf4", fg="#166534").pack(anchor="w")
+            ent_tel = tk.Entry(b_body, font=("Segoe UI", 14, "bold"), justify="center", relief="solid", bd=1, fg="#1e293b", bg="white")
+            ent_tel.pack(fill="x", pady=(2, 15), ipady=6)
+
+            def kisi_degisti(event=None):
+                secilen = cmb_kisi.get().strip().upper()
+                if not secilen: return
+                
+                ent_tel.delete(0, tk.END)
+                # Önce tablodaki veriye bak, yoksa genel rehberden al
+                if secilen in secili_nolar:
+                    ent_tel.insert(0, secili_nolar[secilen])
+                elif secilen in telefon_rehberi:
+                    ent_tel.insert(0, telefon_rehberi[secilen])
+
+            cmb_kisi.bind("<<ComboboxSelected>>", kisi_degisti)
+            if secili_isimler: 
+                cmb_kisi.current(0)
+                kisi_degisti()
+
+            f_taslak = tk.Frame(b_body, bg="#f0fdf4")
+            f_taslak.pack(fill="x", pady=(5, 5))
+            
+            tk.Label(f_taslak, text="Mesaj Taslağı:", font=("Segoe UI", 10, "bold"), bg="#f0fdf4", fg="#166534").pack(side="left")
+            
+            taslaklar = {}
+            try:
+                self.imlec.execute("SELECT deger FROM ayarlar WHERE anahtar=?", (f"wp_taslaklar_{tur}",))
+                res = self.imlec.fetchone()
+                if res and res[0]:
+                    taslaklar = json.loads(res[0])
+            except: pass
+            
+            if not taslaklar:
+                if tur == "EMANET":
+                    taslaklar = {
+                        "Genel Hatırlatma": "Merhaba, Eczanemizden aldığınız emanet ilacın süresi dolmuştur. Lütfen en kısa sürede eczanemize uğrayınız. Sağlıklı günler dileriz.",
+                        "10 Günlük (Kibar)": "Merhaba, Eczanemizden aldığınız emanet ilacın üzerinden 10 gün geçmiştir. Müsait olduğunuzda eczanemize uğramanızı rica ederiz. Sağlıklı günler.",
+                        "30 Günlük (Acil)": "Merhaba, Eczanemizden aldığınız emanet ilacın süresi 30 günü aşmıştır. Kayıtlarımızın güncellenmesi adına acilen eczanemize uğramanız gerekmektedir."
+                    }
+                else:
+                    taslaklar = {
+                        "Genel Hatırlatma": "Merhaba, Eczanemize ait veresiye bakiyeniz bulunmaktadır. Lütfen en kısa sürede ödeme yapınız. Sağlıklı günler dileriz.",
+                        "10 Günlük (Kibar)": "Merhaba, Eczanemize ait veresiye bakiyeniz bulunmaktadır. Müsait olduğunuzda ödemenizi rica ederiz. Sağlıklı günler.",
+                        "30 Günlük (Acil)": "Merhaba, Eczanemize ait veresiye bakiyenizin üzerinden 1 aydan fazla zaman geçmiştir. Acilen ödeme yapmanız rica olunur."
+                    }
+
+            f_taslak_btns = tk.Frame(f_taslak, bg="#f0fdf4")
+            f_taslak_btns.pack(side="right")
+            
+            tk.Button(f_taslak_btns, text="💾 Kaydet", font=("Segoe UI", 9, "bold"), bg="#dcfce7", fg="#166534", relief="flat", cursor="hand2").pack(side="left", padx=2)
+            tk.Button(f_taslak_btns, text="🗑️", font=("Segoe UI", 9), bg="#fef2f2", fg="#ef4444", relief="flat", cursor="hand2").pack(side="left", padx=2)
+
+            cmb_taslak = ttk.Combobox(f_taslak, values=list(taslaklar.keys()), state="readonly", font=("Segoe UI", 10))
+            cmb_taslak.pack(side="left", fill="x", expand=True, padx=5, ipady=2)
+            
+            txt_msg = tk.Text(b_body, font=("Segoe UI", 11), height=6, relief="solid", bd=1, bg="white", fg="#0f172a", padx=10, pady=10, wrap=tk.WORD)
+            txt_msg.pack(fill="x", pady=(2, 15))
+            
+            def taslak_kaydet():
+                yeni_mesaj = txt_msg.get("1.0", tk.END).strip()
+                if not yeni_mesaj: return messagebox.showwarning("Hata", "Kaydedilecek mesaj boş olamaz!", parent=pop)
+                isim = simpledialog.askstring("Taslak Kaydet", "Bu mesaj taslağı için bir isim belirleyin:\n(Örn: 15 Gün Uyarısı)", parent=pop)
+                if isim:
+                    taslaklar[isim] = yeni_mesaj
+                    try:
+                        self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES (?, ?)", (f"wp_taslaklar_{tur}", json.dumps(taslaklar)))
+                        self.baglanti_skt.commit()
+                    except: pass
+                    cmb_taslak['values'] = list(taslaklar.keys())
+                    cmb_taslak.set(isim)
+                    messagebox.showinfo("Başarılı", "Taslak kaydedildi.", parent=pop)
+
+            def taslak_sil():
+                secim = cmb_taslak.get()
+                if not secim: return
+                if messagebox.askyesno("Sil", f"'{secim}' isimli taslağı silmek istiyor musunuz?", parent=pop):
+                    if secim in taslaklar:
+                        del taslaklar[secim]
+                        try:
+                            self.imlec.execute("INSERT OR REPLACE INTO ayarlar (anahtar, deger) VALUES (?, ?)", (f"wp_taslaklar_{tur}", json.dumps(taslaklar)))
+                            self.baglanti_skt.commit()
+                        except: pass
+                        cmb_taslak['values'] = list(taslaklar.keys())
+                        if taslaklar:
+                            cmb_taslak.current(0)
+                            taslak_degisti()
+                        else:
+                            cmb_taslak.set('')
+                            txt_msg.delete("1.0", tk.END)
+                            
+            f_taslak_btns.winfo_children()[1].config(command=taslak_sil)
+            f_taslak_btns.winfo_children()[0].config(command=taslak_kaydet)
+
+            def taslak_degisti(e=None):
+                secim = cmb_taslak.get()
+                if secim in taslaklar:
+                    txt_msg.delete("1.0", tk.END)
+                    txt_msg.insert("1.0", taslaklar[secim])
+
+            cmb_taslak.bind("<<ComboboxSelected>>", taslak_degisti)
+            if taslaklar:
+                cmb_taslak.current(0)
+                taslak_degisti()
+
+            def gonder():
+                import re
+                numara = ent_tel.get().strip()
+                mesaj = txt_msg.get("1.0", tk.END).strip()
+                isim = cmb_kisi.get().strip().upper()
+                
+                if not numara or not mesaj: return messagebox.showwarning("Hata", "Telefon veya mesaj boş olamaz.", parent=pop)
+                
+                # Numarayı gönderirken rehbere de kaydet
+                if isim: telefon_kaydet(isim, numara)
+
+                temiz_numara = re.sub(r'\D', '', numara)
+                if len(temiz_numara) == 10: temiz_numara = "90" + temiz_numara
+                elif len(temiz_numara) == 11 and temiz_numara.startswith("0"): temiz_numara = "9" + temiz_numara
+                elif not temiz_numara.startswith("90"): temiz_numara = "90" + temiz_numara
+                    
+                url_mesaj = urllib.parse.quote(mesaj)
+                webbrowser.open(f"whatsapp://send?phone={temiz_numara}&text={url_mesaj}")
+                pop.destroy()
+
+            tk.Button(pop, text="🚀 WHATSAPP İLE GÖNDER", command=gonder, font=("Segoe UI", 11, "bold"), bg="#25D366", fg="white", relief="flat", pady=12, cursor="hand2").pack(fill="x", padx=25, pady=(0,15))
+
+        # --- ALT İŞLEM BUTONLARI ---
+        f_islemler = tk.Frame(f_bot, bg="white")
+        f_islemler.pack(fill="x", pady=(5,0), padx=5)
+
+        f_islemler.grid_columnconfigure(0, weight=1, uniform="b")
+        f_islemler.grid_columnconfigure(1, weight=1, uniform="b")
+        f_islemler.grid_columnconfigure(2, weight=1, uniform="b")
+
+        btn_style_alt = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "cursor": "hand2", "pady": 10}
+
+        btn_kl = tk.Button(f_islemler, text="🏴‍☠️ KARA LİSTE", command=ac_kara_liste, bg="#fee2e2", fg="#991b1b", **btn_style_alt)
+        btn_kl.grid(row=0, column=0, sticky="nsew", padx=4)
+
+        btn_wp = tk.Button(f_islemler, text="📱 WP GÖNDER", command=ac_wp_mesaj, bg="#dcfce7", fg="#166534", **btn_style_alt)
+        btn_wp.grid(row=0, column=1, sticky="nsew", padx=4)
+
+        def listeyi_kopyala():
+            liste = self.ekstra_sepet_datalari[tur]
+            kopyalanacaklar = []
+            for item in liste:
+                if tur == "EMANET":
+                    kisi = item.get("kisi", "").strip()
+                    ilac = item.get("ilac", "").strip()
+                    tarih = item.get("tarih", "").strip()
+                    if kisi or ilac or tarih: kopyalanacaklar.append(f"{kisi} - {ilac} - {tarih}")
+                else:
+                    ad = item.get("ad", "").strip()
+                    adet = item.get("adet", "").strip()
+                    tarih = item.get("tarih", "").strip()
+                    tutar = item.get("tutar", "").strip()
+                    if ad or adet or tutar: kopyalanacaklar.append(f"{ad} - {adet} - {tarih} - {tutar}")
+            
+            if kopyalanacaklar:
+                metin = "\n".join(kopyalanacaklar)
+                self.pencere.clipboard_clear()
+                self.pencere.clipboard_append(metin)
+                messagebox.showinfo("Başarılı", f"Tüm {tur} listesi panoya kopyalandı.", parent=self.pencere)
+            else:
+                messagebox.showwarning("Uyarı", "Kopyalanacak kayıt bulunamadı.", parent=self.pencere)
+
+        btn_kop = tk.Button(f_islemler, text="📋 KOPYALA", command=listeyi_kopyala, bg="#eff6ff", fg="#1e3a8a", **btn_style_alt)
+        btn_kop.grid(row=0, column=2, sticky="nsew", padx=4)
+
+        render_page()
 
 # =========================================================================
 # ULTRA MODERN, SOFT VE CANLI ATMOSFERLİ KULLANICI GİRİŞ EKRANI
 # =========================================================================
+import os
+import sys
+import socket
+import sqlite3
+import subprocess
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+
 class GirisEkrani:
     def __init__(self, root, basari_tetikleyici):
         self.root = root
         self.basari_tetikleyici = basari_tetikleyici
-        
-        import sqlite3
-        import os
-        import tkinter as tk
-        from tkinter import ttk, messagebox
         
         # --- UYGULAMAYI TAM EKRAN (MAXIMIZED) BAŞLAT ---
         try:
@@ -21909,7 +22701,9 @@ class GirisEkrani:
             try: os.makedirs(self.ortak_yol)
             except: self.ortak_yol = ""
             
-        db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db") if self.ortak_yol else "kullanicilar.db"
+        # Merkezi DB Yolu Getirici (Kod tekrarını önler, güvenlidir)
+        self.db_yolu_getir = lambda: os.path.join(self.ortak_yol, "kullanicilar.db") if getattr(self, 'ortak_yol', '') else "kullanicilar.db"
+        db_yolu = self.db_yolu_getir()
         
         # KİLİTLENMEYİ ÖNLEME: timeout süresi 25 saniyeye çıkarıldı ve bağlantı anında kapatılıyor
         try:
@@ -21936,16 +22730,13 @@ class GirisEkrani:
                 self.imlec.execute("INSERT INTO kullanicilar (k_adi, sifre, rol) VALUES ('admin', '1234', 'Ana PC')")
                 self.vt.commit()
         except sqlite3.OperationalError as e:
-            messagebox.showerror("Veritabanı Hatası", f"Veritabanı dosyasına ulaşılamıyor veya kilitli!\n\nDetay: {e}\n\nLütfen Ana PC'nin açık olduğundan ve ağ paylaşımının çalıştığından emin olun.")
-            return
+            messagebox.showwarning("Veritabanı Uyarısı", f"Veritabanına şu an ulaşılamıyor.\nTerminal PC iseniz sağ üstten 'Ağ Ayarları'na girerek sunucu IP'sini tanımlayınız.\n\nDetay: {e}")
         finally:
-            # Init bloğunda işimiz bitti, dosya kilidini hemen serbest bırakıyoruz
             try: self.vt.close()
             except: pass
 
         # =========================================================================
         # İKON VE GÖREV ÇUBUĞU AYARI
-        import sys
         if getattr(sys, 'frozen', False):
             base_dir = sys._MEIPASS
         else:
@@ -21960,7 +22751,7 @@ class GirisEkrani:
             if os.path.exists(png_yolu):
                 hd_ikon = tk.PhotoImage(file=png_yolu)
                 self.root.iconphoto(True, hd_ikon)
-        except Exception as e: pass
+        except Exception: pass
 
         # =========================================================================
         # CANLI VE SOFT ARKA PLAN TASARIMI (AMBIENT GLOW)
@@ -22018,7 +22809,7 @@ class GirisEkrani:
             img = Image.open(logo_yolu).resize((180, 160), Image.Resampling.LANCZOS)
             self.logo_img = ImageTk.PhotoImage(img)
             tk.Label(self.left_content, image=self.logo_img, bg="#0284c7").pack(pady=(100, 15))
-        except:
+        except Exception:
             tk.Label(self.left_content, text="⚕️", font=("Segoe UI", 75), bg="#0284c7", fg="#ffffff").pack(pady=(90, 15))
 
         tk.Label(self.left_content, text="Eczacı Defteri", font=("Segoe UI", 26, "bold"), bg="#0284c7", fg="#ffffff").pack(pady=(0, 2))
@@ -22026,7 +22817,6 @@ class GirisEkrani:
         
         tk.Frame(self.left_content, bg="#10b981", height=4, width=80).pack(pady=25)
         
-        # Bağlantı durumunu gösteren etiket
         baglanti_turu = "Ağ Sunucusu (Terminal)" if self.ortak_yol and self.ortak_yol.startswith(r"\\") else "Yerel Disk (Ana PC)"
         tk.Label(self.left_content, text=f"● {baglanti_turu}", font=("Segoe UI", 9, "bold"), bg="#0369a1", fg="#a7f3d0", padx=12, pady=4, relief="flat").pack(side="bottom", pady=30)
 
@@ -22108,7 +22898,7 @@ class GirisEkrani:
                                                  bg_color="#10b981", hover_color="#059669", corner_radius=8, 
                                                  width=400, height=50, font=("Segoe UI", 12, "bold"))
             self.btn_giris_modern.pack(anchor="center", pady=5)
-        except:
+        except Exception:
             self.btn_giris_modern = tk.Button(f_btn, text="SİSTEME GİRİŞ YAP", command=self.giris_yap,
                                               font=("Segoe UI", 12, "bold"), bg="#10b981", fg="white",
                                               activebackground="#059669", activeforeground="white",
@@ -22129,7 +22919,7 @@ class GirisEkrani:
         )
         btn_login_ag.pack()
         
-        # Hafızadan Bilgileri Çek (Bağlantıyı anlık açıp kapatıyoruz)
+        # Hafızadan Bilgileri Çek
         try:
             vt = sqlite3.connect(db_yolu, timeout=20)
             imlec = vt.cursor()
@@ -22145,7 +22935,7 @@ class GirisEkrani:
                 except: pass
             else:
                 self.ent_kadi.focus()
-        except:
+        except Exception:
             self.ent_kadi.focus()
 
         self.root.bind('<Control-Alt-Shift-P>', lambda e: self.gelistirici_kurtarma_paneli())
@@ -22154,16 +22944,12 @@ class GirisEkrani:
     def giris_yap(self):
         k_adi = self.ent_kadi.get().strip()
         sifre = self.ent_sifre.get().strip()
-        import tkinter.messagebox as messagebox
-        import tkinter as tk
-        import sqlite3
-        import os
         
         if not k_adi or not sifre:
             messagebox.showwarning("Eksik Bilgi", "Lütfen kullanıcı adı ve şifrenizi eksiksiz girin.")
             return
 
-        db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db") if self.ortak_yol else "kullanicilar.db"
+        db_yolu = self.db_yolu_getir()
         
         try:
             vt = sqlite3.connect(db_yolu, timeout=20)
@@ -22213,18 +22999,12 @@ class GirisEkrani:
             messagebox.showerror("Bağlantı Hatası", f"Veritabanı işlem yaparken kilitlendi veya ağ koptu.\n\nDetay: {e}")
 
     def login_ag_ayari_ac(self):
-        import socket
-        import os
-        import subprocess
-        import tkinter as tk
-        from tkinter import messagebox
-        
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80)) 
             benim_ip = s.getsockname()[0]
             s.close()
-        except:
+        except Exception:
             benim_ip = "Bulunamadı (İnternet Yok)"
 
         ayar_dosyasi = "db_yolu.txt"
@@ -22233,7 +23013,7 @@ class GirisEkrani:
             try:
                 with open(ayar_dosyasi, "r", encoding="utf-8") as f:
                     mevcut_ip = f.read().strip()
-            except: pass
+            except Exception: pass
                 
         pop = tk.Toplevel(self.root)
         pop.title("Ağ ve Sunucu Bağlantısı")
@@ -22279,7 +23059,6 @@ class GirisEkrani:
         ent_ip.pack(side="left", fill="x", expand=True, ipady=7)
         ent_ip.insert(0, mevcut_ip)
 
-        # --- CANLI BAĞLANTI TEST METODU ---
         def baglantiyi_test_et():
             hedef = ent_ip.get().strip()
             if not hedef:
@@ -22289,29 +23068,24 @@ class GirisEkrani:
             lbl_test_durum.config(text="⏳ Bağlantı test ediliyor, lütfen bekleyin...", fg="#d97706")
             pop.update()
             
-            # 1. Aşama: IP Adresini Temizle ve Ping At
             ip_sadece = hedef.replace(r"\\", "").split("\\")[0].split("/")[0]
             param = "-n" if os.name == "nt" else "-c"
             
             try:
-                # Ping atarak ana makine açık mı bakıyoruz
                 tepki = subprocess.call(["ping", param, "1", "-w", "2000", ip_sadece], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if tepki != 0:
                     lbl_test_durum.config(text="❌ HATA: Ana PC'ye ulaşılamadı! (Cihaz kapalı veya IP yanlış)", fg="#dc2626")
                     messagebox.showerror("Ping Başarısız", f"'{ip_sadece}' IP adresine ulaşılamıyor.\n\nÇözüm:\n1. Ana PC'nin açık olduğundan emin olun.\n2. IP adresinin doğru yazıldığını kontrol edin.\n3. Ana PC'de Ağ türünün 'Özel Ağ' olduğunu doğrulayın.", parent=pop)
                     return
-            except: pass # Ping komutu çalışmazsa doğrudan dosya testine geç
+            except Exception: pass 
 
-            # 2. Aşama: Veritabanı Paylaşım Yoluna Canlı Erişim Testi
             if hedef.startswith(r"\\"): test_yolu = hedef
-            else: test_yolu = rf"\\{hedef}\EczaciDefteri_Veri" # Varsayılan paylaşım klasörü
+            else: test_yolu = rf"\\{hedef}\EczaciDefteri_Veri" 
             
             db_test_dosyasi = os.path.join(test_yolu, "kullanicilar.db")
             
             if os.path.exists(db_test_dosyasi):
-                # Dosya var, peki YAZMA iznimiz var mı?
                 try:
-                    import sqlite3
                     v_test = sqlite3.connect(db_test_dosyasi, timeout=5)
                     c_test = v_test.cursor()
                     c_test.execute("SELECT COUNT(*) FROM kullanicilar")
@@ -22356,11 +23130,6 @@ class GirisEkrani:
         pop.bind("<Escape>", lambda e: pop.destroy())
 
     def guvenlik_sorusu_belirle(self, k_adi, rol):
-        import tkinter as tk
-        from tkinter import ttk, messagebox
-        import sqlite3
-        import os
-        
         pop = tk.Toplevel(self.root)
         pop.title("Güvenlik Ayarları")
         pop.geometry("450x420")
@@ -22401,7 +23170,7 @@ class GirisEkrani:
                 return
                 
             try:
-                db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+                db_yolu = self.db_yolu_getir()
                 vt = sqlite3.connect(db_yolu, timeout=20)
                 imlec = vt.cursor()
                 imlec.execute("UPDATE kullanicilar SET gizli_soru=?, gizli_cevap=? WHERE k_adi=?", (soru, cevap, k_adi))
@@ -22420,17 +23189,12 @@ class GirisEkrani:
 
     def sifremi_unuttum(self):
         k_adi = self.ent_kadi.get().strip()
-        import tkinter.messagebox as messagebox
-        import tkinter as tk
-        import sqlite3
-        import os
-        
         if not k_adi:
             messagebox.showwarning("Hata", "Lütfen şifresini sıfırlamak istediğiniz kullanıcı adını girin.")
             return
 
         try:
-            db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+            db_yolu = self.db_yolu_getir()
             vt = sqlite3.connect(db_yolu, timeout=20)
             imlec = vt.cursor()
             imlec.execute("SELECT gizli_soru, gizli_cevap FROM kullanicilar WHERE k_adi=?", (k_adi,))
@@ -22488,13 +23252,6 @@ class GirisEkrani:
         kurtar_pop.bind("<Return>", lambda e: dogrula_ve_gec())
 
     def gelistirici_kurtarma_paneli(self):
-        from tkinter import simpledialog
-        import tkinter.messagebox as messagebox
-        import tkinter as tk
-        from tkinter import ttk
-        import sqlite3
-        import os
-
         sifre = simpledialog.askstring("Geliştirici Erişimi", "Sistem Yöneticisi Şifresi:", show='*', parent=self.root)
         if sifre != "patron123":
             if sifre is not None: messagebox.showerror("Erişim Engellendi", "Hatalı şifre!", parent=self.root)
@@ -22534,7 +23291,7 @@ class GirisEkrani:
         def listeyi_doldur():
             tree.delete(*tree.get_children())
             try:
-                db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+                db_yolu = self.db_yolu_getir()
                 vt = sqlite3.connect(db_yolu, timeout=20)
                 imlec = vt.cursor()
                 imlec.execute("SELECT id, k_adi, rol, gizli_soru FROM kullanicilar")
@@ -22542,7 +23299,7 @@ class GirisEkrani:
                     soru_durum = "✅ Belirlenmiş" if r[3] else "❌ Yok"
                     tree.insert("", "end", values=(r[0], r[1], r[2], soru_durum))
                 vt.close()
-            except Exception as e: pass
+            except Exception: pass
 
         listeyi_doldur()
 
@@ -22551,11 +23308,13 @@ class GirisEkrani:
 
         def sifre_sifirla():
             sel = tree.selection()
-            if not sel: return messagebox.showwarning("Uyarı", "Lütfen bir kullanıcı seçin.", parent=pop)
+            if not sel: 
+                messagebox.showwarning("Uyarı", "Lütfen bir kullanıcı seçin.", parent=pop)
+                return
             k_adi = tree.item(sel[0], "values")[1]
             if messagebox.askyesno("Şifre Sıfırla", f"'{k_adi}' kullanıcısının şifresi '1234' yapılacak.\nOnaylıyor musunuz?", parent=pop):
                 try:
-                    db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+                    db_yolu = self.db_yolu_getir()
                     vt = sqlite3.connect(db_yolu, timeout=20)
                     imlec = vt.cursor()
                     imlec.execute("UPDATE kullanicilar SET sifre='1234' WHERE k_adi=?", (k_adi,))
@@ -22566,11 +23325,13 @@ class GirisEkrani:
 
         def soru_sifirla():
             sel = tree.selection()
-            if not sel: return messagebox.showwarning("Uyarı", "Lütfen bir kullanıcı seçin.", parent=pop)
+            if not sel: 
+                messagebox.showwarning("Uyarı", "Lütfen bir kullanıcı seçin.", parent=pop)
+                return
             k_adi = tree.item(sel[0], "values")[1]
             if messagebox.askyesno("Soru Sıfırla", f"'{k_adi}' kullanıcısının güvenlik sorusu silinecek.\nOnaylıyor musunuz?", parent=pop):
                 try:
-                    db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+                    db_yolu = self.db_yolu_getir()
                     vt = sqlite3.connect(db_yolu, timeout=20)
                     imlec = vt.cursor()
                     imlec.execute("UPDATE kullanicilar SET gizli_soru=NULL, gizli_cevap=NULL WHERE k_adi=?", (k_adi,))
@@ -22584,11 +23345,6 @@ class GirisEkrani:
         tk.Button(f_btn, text="🛡️ GÜVENLİK SORUSUNU SİL", command=soru_sifirla, bg="#ef4444", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2", pady=8).pack(side="right", fill="x", expand=True, padx=(5, 0))
 
     def yeni_sifre_belirle_ekrani(self, k_adi):
-        import tkinter as tk
-        from tkinter import messagebox
-        import sqlite3
-        import os
-        
         pop = tk.Toplevel(self.root)
         pop.title("Yeni Şifre Belirle")
         pop.geometry("400x420") 
@@ -22618,18 +23374,26 @@ class GirisEkrani:
             p1 = e1.get().strip()
             p2 = e2.get().strip()
             
-            if not p1 or not p2: return messagebox.showwarning("Eksik", "Lütfen şifre alanlarını boş bırakmayın.", parent=pop)
-            if p1 != p2: return messagebox.showerror("Hata", "Şifreler birbiriyle uyuşmuyor!", parent=pop)
-            if len(p1) < 4: return messagebox.showerror("Hata", "Şifreniz en az 4 karakter uzunluğunda olmalıdır.", parent=pop)
+            if not p1 or not p2: 
+                messagebox.showwarning("Eksik", "Lütfen şifre alanlarını boş bırakmayın.", parent=pop)
+                return
+            if p1 != p2: 
+                messagebox.showerror("Hata", "Şifreler birbiriyle uyuşmuyor!", parent=pop)
+                return
+            if len(p1) < 4: 
+                messagebox.showerror("Hata", "Şifreniz en az 4 karakter uzunluğunda olmalıdır.", parent=pop)
+                return
                 
             try:
-                db_yolu = os.path.join(self.ortak_yol, "kullanicilar.db").replace("\\", "/") if hasattr(self, 'ortak_yol') and self.ortak_yol else "kullanicilar.db"
+                db_yolu = self.db_yolu_getir()
                 vt = sqlite3.connect(db_yolu, timeout=20)
                 imlec = vt.cursor()
                 imlec.execute("UPDATE kullanicilar SET sifre=? WHERE k_adi=?", (p1, k_adi))
                 vt.commit()
                 vt.close()
-            except Exception as e: return messagebox.showerror("Hata", f"Güncelleme hatası:\n{e}", parent=pop)
+            except Exception as e: 
+                messagebox.showerror("Hata", f"Güncelleme hatası:\n{e}", parent=pop)
+                return
             
             messagebox.showinfo("Başarılı", "Şifreniz başarıyla güncellendi!\nSisteme giriş yapılıyor...", parent=pop)
             pop.destroy()
@@ -22647,28 +23411,26 @@ class GirisEkrani:
 if __name__ == "__main__":
     try:
         import ctypes
-        from ctypes import windll
         myappid = 'eczacidefteri.uygulama.v1' 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        windll.shcore.SetProcessDpiAwareness(1)
-    except Exception as e: pass
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception: pass
 
     try:
         from tkinterdnd2 import TkinterDnD, DND_FILES
         root = TkinterDnD.Tk()
         surukle_birak_aktif = True
     except ImportError:
-        import tkinter as tk
         root = tk.Tk()
         surukle_birak_aktif = False
 
-    import sys
-    sys.excepthook = global_hata_yakalayici
-    
-    def tk_hata_yakalayici(exc, val, tb):
-        global_hata_yakalayici(exc, val, tb)
-        
-    root.report_callback_exception = tk_hata_yakalayici
+    # Projenizin diğer yerlerinde tanımlı olduğunu varsaydığımız global hata yakalayıcı ataması
+    try:
+        sys.excepthook = global_hata_yakalayici
+        def tk_hata_yakalayici(exc, val, tb):
+            global_hata_yakalayici(exc, val, tb)
+        root.report_callback_exception = tk_hata_yakalayici
+    except NameError: pass
 
     root.title("Eczacı Defteri")
     root.configure(bg="#f8fafc") 
@@ -22683,17 +23445,27 @@ if __name__ == "__main__":
 
     def uygulamayi_baslat(aktif_rol="Yönetici"):
         def asil_baslat():
+            # EczaciDefteri sınıfının ana projede import edildiği varsayılmıştır.
             app = EczaciDefteri(root, aktif_rol)
             if surukle_birak_aktif:
                 root.drop_target_register(DND_FILES)
                 root.dnd_bind('<<Drop>>', app.surukle_birak_yoneticisi)
 
-        OtoGuncelleyici(root, asil_baslat)
+        try:
+            OtoGuncelleyici(root, asil_baslat)
+        except NameError:
+            asil_baslat() # OtoGuncelleyici yoksa direkt başlat
 
     try:
+        # Harici fonksiyonların (yerel_db_yolunu_getir vb.) hata vermemesi için mock/fallback
+        if 'yerel_db_yolunu_getir' not in globals():
+            yerel_db_yolunu_getir = lambda: ""
+            
         GirisEkrani(root, uygulamayi_baslat)
         root.mainloop()
     except KeyboardInterrupt: pass
-    except Exception as e:
-        import sys
-        global_hata_yakalayici(*sys.exc_info())
+    except Exception:
+        try:
+            global_hata_yakalayici(*sys.exc_info())
+        except NameError:
+            pass
