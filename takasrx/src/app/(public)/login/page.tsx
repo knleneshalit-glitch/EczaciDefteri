@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
+import { LogIn } from "lucide-react";
 import { loginAction } from "@/app/actions/auth";
 
 export default function LoginPage() {
@@ -9,7 +10,10 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="text-2xl font-bold text-slate-100">Giriş Yap</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <LogIn className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Giriş Yap
+      </h1>
 
       <form action={formAction} className="mt-8 flex flex-col gap-4">
         <div>
@@ -45,8 +49,9 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={pending}
-          className="mt-2 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          className="mt-2 flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
+          <LogIn className="h-4 w-4" strokeWidth={1.75} />
           {pending ? "Giriş yapılıyor..." : "Giriş Yap"}
         </button>
       </form>

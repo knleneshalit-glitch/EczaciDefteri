@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Wallet, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 
@@ -16,7 +17,10 @@ export default async function LedgerPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-slate-100">Cari Hareketler</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <Wallet className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Cari Hareketler
+      </h1>
       <p className="mt-1 text-sm text-slate-400">
         Tamamlanan alım ve satış hareketleriniz (ürün gönderimleri).
       </p>
@@ -47,12 +51,17 @@ export default async function LedgerPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded px-2 py-0.5 text-xs font-medium ${
+                      className={`flex w-fit items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
                         isBuyer
                           ? "bg-red-500/10 text-red-400"
                           : "bg-emerald-500/10 text-emerald-400"
                       }`}
                     >
+                      {isBuyer ? (
+                        <ArrowDownCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      ) : (
+                        <ArrowUpCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      )}
                       {isBuyer ? "Alım" : "Satış"}
                     </span>
                   </td>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
 
 type Tier = {
   minQuantity: string;
@@ -76,7 +77,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     min={1}
                     value={t.minQuantity}
                     onChange={(e) => updateTier(i, { minQuantity: e.target.value })}
-                    className="w-24 rounded border border-slate-700 px-2 py-1 text-sm"
+                    className="w-24 rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-sm text-slate-100"
                     placeholder="ör. 100"
                   />
                 </td>
@@ -86,7 +87,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     min={0}
                     value={t.bonusQuantity}
                     onChange={(e) => updateTier(i, { bonusQuantity: e.target.value })}
-                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-sm text-slate-100"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -97,7 +98,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     step="0.01"
                     value={t.discountPercent}
                     onChange={(e) => updateTier(i, { discountPercent: e.target.value })}
-                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-sm text-slate-100"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -107,7 +108,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     step="0.01"
                     value={t.discountAmount}
                     onChange={(e) => updateTier(i, { discountAmount: e.target.value })}
-                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-sm text-slate-100"
                   />
                 </td>
                 <td className="px-3 py-1.5 font-medium text-slate-300">
@@ -118,8 +119,9 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     <button
                       type="button"
                       onClick={() => removeTier(i)}
-                      className="text-xs text-red-400 hover:underline"
+                      className="flex items-center gap-1 text-xs text-red-400 hover:underline"
                     >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                       Sil
                     </button>
                   )}
@@ -133,9 +135,10 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
       <button
         type="button"
         onClick={addTier}
-        className="mt-2 rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10"
+        className="mt-2 flex items-center gap-1 rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10"
       >
-        + Yeni Şart
+        <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+        Yeni Şart
       </button>
       <p className="mt-1 text-xs text-slate-400">
         Alım miktarı boş bırakılan satırlar dikkate alınmaz. Birden fazla eşik girerseniz, alıcının miktarına en yakın (en yüksek) eşik uygulanır.

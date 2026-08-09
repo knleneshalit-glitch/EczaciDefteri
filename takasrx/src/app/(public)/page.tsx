@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MapPin, ShieldCheck, Zap } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
@@ -32,19 +33,28 @@ export default async function Home() {
 
       <div className="mt-20 grid max-w-3xl gap-8 text-left sm:grid-cols-3">
         <div>
-          <h3 className="font-semibold text-slate-100">Bölge Bazlı Gruplar</h3>
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+            <MapPin className="h-5 w-5" strokeWidth={1.75} />
+          </span>
+          <h3 className="mt-3 font-semibold text-slate-100">Bölge Bazlı Gruplar</h3>
           <p className="mt-1 text-sm text-slate-400">
             İlinize ait takas grubuna katılın ya da yenisini kurun.
           </p>
         </div>
         <div>
-          <h3 className="font-semibold text-slate-100">Sadece Üyelere Özel</h3>
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+            <ShieldCheck className="h-5 w-5" strokeWidth={1.75} />
+          </span>
+          <h3 className="mt-3 font-semibold text-slate-100">Sadece Üyelere Özel</h3>
           <p className="mt-1 text-sm text-slate-400">
             Takas ilanları yalnızca onaylı grup üyeleri tarafından görülür.
           </p>
         </div>
         <div>
-          <h3 className="font-semibold text-slate-100">Hızlı Teklif</h3>
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+            <Zap className="h-5 w-5" strokeWidth={1.75} />
+          </span>
+          <h3 className="mt-3 font-semibold text-slate-100">Hızlı Teklif</h3>
           <p className="mt-1 text-sm text-slate-400">
             İlana doğrudan teklif verin, eczane sahibi kabul etsin.
           </p>

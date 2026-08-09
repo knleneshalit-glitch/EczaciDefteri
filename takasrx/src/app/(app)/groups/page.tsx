@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Users, Plus, CheckCircle2, Clock, Send, Search } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { REGIONS } from "@/lib/regions";
@@ -23,11 +24,15 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-100">Takas Grupları</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+          <Users className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+          Takas Grupları
+        </h1>
         <Link
           href="/groups/new"
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
+          <Plus className="h-4 w-4" strokeWidth={2} />
           Yeni Grup Kur
         </Link>
       </div>
@@ -40,7 +45,7 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
           id="region"
           name="region"
           defaultValue={selectedRegion}
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
+          className="rounded-md border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-sm text-slate-100"
         >
           {REGIONS.map((r) => (
             <option key={r} value={r}>
@@ -50,8 +55,9 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
         </select>
         <button
           type="submit"
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+          className="flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
         >
+          <Search className="h-3.5 w-3.5" strokeWidth={1.75} />
           Filtrele
         </button>
       </form>
@@ -72,7 +78,7 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
               <div>
                 <Link
                   href={`/groups/${group.id}`}
-                  className="font-medium text-slate-100 hover:text-emerald-700"
+                  className="font-medium text-slate-100 hover:text-emerald-400"
                 >
                   {group.name}
                 </Link>
@@ -85,16 +91,19 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
               </div>
 
               {membership?.status === "APPROVED" ? (
-                <span className="rounded bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
+                <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Üyesiniz
                 </span>
               ) : membership?.status === "PENDING" ? (
-                <span className="rounded bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400">
+                <span className="flex items-center gap-1 rounded bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400">
+                  <Clock className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Onay Bekliyor
                 </span>
               ) : (
                 <form action={requestJoinAction.bind(null, group.id)}>
-                  <button className="rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10">
+                  <button className="flex items-center gap-1 rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10">
+                    <Send className="h-3.5 w-3.5" strokeWidth={1.75} />
                     Katılma İsteği Gönder
                   </button>
                 </form>

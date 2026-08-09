@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import { ClipboardList, Plus, CircleDot, CheckCircle2, Lock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 
@@ -6,6 +8,12 @@ const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
   MATCHED: "Eşleşti",
   CLOSED: "Kapandı",
+};
+
+const STATUS_ICON: Record<string, LucideIcon> = {
+  OPEN: CircleDot,
+  MATCHED: CheckCircle2,
+  CLOSED: Lock,
 };
 
 export default async function MyListingsPage() {
@@ -21,15 +29,19 @@ export default async function MyListingsPage() {
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Talep Oluştur - Yönet</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+            <ClipboardList className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+            Talep Oluştur - Yönet
+          </h1>
           <p className="mt-1 text-sm text-slate-400">
             Verdiğiniz tüm takas ilanları burada listelenir.
           </p>
         </div>
         <Link
           href="/groups"
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
+          <Plus className="h-4 w-4" strokeWidth={2} />
           Yeni İlan Ver
         </Link>
       </div>
@@ -55,12 +67,15 @@ export default async function MyListingsPage() {
               </tr>
             </thead>
             <tbody>
-              {listings.map((l) => (
+              {listings.map((l) => {
+                const StatusIcon = STATUS_ICON[l.status];
+                return (
                 <tr key={l.id} className="border-b border-slate-800/60 last:border-0">
                   <td className="px-4 py-3 font-medium text-slate-100">{l.title}</td>
                   <td className="px-4 py-3 text-slate-400">{l.group.name}</td>
                   <td className="px-4 py-3">
-                    <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                    <span className="flex w-fit items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                      <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                       {STATUS_LABEL[l.status]}
                     </span>
                   </td>
@@ -74,7 +89,8 @@ export default async function MyListingsPage() {
                     </Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

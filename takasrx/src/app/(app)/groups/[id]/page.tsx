@@ -1,5 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  Users,
+  Wallet,
+  Plus,
+  Lock,
+  Clock,
+  XCircle,
+  Check,
+  X,
+  Send,
+  ShoppingBag,
+  ArrowRight,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import {
@@ -63,20 +76,23 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
           <div className="flex gap-2">
             <Link
               href={`/groups/${group.id}/members`}
-              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
             >
+              <Users className="h-4 w-4" strokeWidth={1.75} />
               Grup Üyeleri
             </Link>
             <Link
               href={`/groups/${group.id}/balances`}
-              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
             >
+              <Wallet className="h-4 w-4" strokeWidth={1.75} />
               Grup Bakiyeleri
             </Link>
             <Link
               href={`/groups/${group.id}/new`}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+              className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
             >
+              <Plus className="h-4 w-4" strokeWidth={2} />
               Yeni İlan Ver
             </Link>
           </div>
@@ -85,11 +101,13 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
       {!membership && (
         <div className="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center">
-          <p className="text-sm text-slate-400">
+          <Lock className="mx-auto h-6 w-6 text-slate-500" strokeWidth={1.5} />
+          <p className="mt-2 text-sm text-slate-400">
             Bu grubun takas ilanlarını görmek için üye olmanız gerekiyor.
           </p>
           <form action={requestJoinAction.bind(null, group.id)} className="mt-4">
-            <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+            <button className="mx-auto flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+              <Send className="h-4 w-4" strokeWidth={1.75} />
               Katılma İsteği Gönder
             </button>
           </form>
@@ -97,20 +115,23 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       )}
 
       {membership?.status === "PENDING" && (
-        <div className="mt-8 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-300">
+          <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Katılım isteğiniz grup yöneticisinin onayını bekliyor.
         </div>
       )}
 
       {membership?.status === "REJECTED" && (
-        <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-300">
+          <XCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Bu gruba katılım isteğiniz reddedildi.
         </div>
       )}
 
       {isManager && pendingMembers.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-slate-100">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <Clock className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
@@ -124,12 +145,14 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                 </span>
                 <div className="flex gap-2">
                   <form action={approveMemberAction.bind(null, group.id, m.id)}>
-                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                    <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
                       Onayla
                     </button>
                   </form>
                   <form action={rejectMemberAction.bind(null, group.id, m.id)}>
-                    <button className="rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
+                    <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
+                      <X className="h-3.5 w-3.5" strokeWidth={2} />
                       Reddet
                     </button>
                   </form>
@@ -142,7 +165,8 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
       {isApproved && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-slate-100">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <ShoppingBag className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
             Grubun Teklifleri ({listings.length})
           </h2>
           {listings.length === 0 ? (
@@ -230,8 +254,11 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                           </p>
                         )}
                       </div>
-                      <span className="rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white">
+                      <span className="flex items-center gap-1 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white">
                         {STATUS_LABEL[listing.status] === "Açık" ? "KATIL" : STATUS_LABEL[listing.status]}
+                        {STATUS_LABEL[listing.status] === "Açık" && (
+                          <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
+                        )}
                       </span>
                     </div>
                   </Link>

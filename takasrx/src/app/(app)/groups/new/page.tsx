@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { UsersRound, Plus } from "lucide-react";
 import { createGroupAction } from "@/app/actions/groups";
 import RegionSelect from "@/components/RegionSelect";
 
@@ -9,7 +10,10 @@ export default function NewGroupPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="text-2xl font-bold text-slate-100">Yeni Grup Kur</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <UsersRound className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Yeni Grup Kur
+      </h1>
       <p className="mt-1 text-sm text-slate-400">
         Kurduğunuz grubun yöneticisi siz olursunuz; katılım isteklerini siz onaylarsınız.
       </p>
@@ -54,8 +58,9 @@ export default function NewGroupPage() {
         <button
           type="submit"
           disabled={pending}
-          className="mt-2 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          className="mt-2 flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
+          <Plus className="h-4 w-4" strokeWidth={2} />
           {pending ? "Oluşturuluyor..." : "Grubu Oluştur"}
         </button>
       </form>

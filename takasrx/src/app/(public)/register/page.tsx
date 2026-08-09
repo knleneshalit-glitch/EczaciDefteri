@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
+import { UserPlus } from "lucide-react";
 import { registerAction } from "@/app/actions/auth";
 import RegionSelect from "@/components/RegionSelect";
 
@@ -10,7 +11,10 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="text-2xl font-bold text-slate-100">Üye Ol</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <UserPlus className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Üye Ol
+      </h1>
       <p className="mt-1 text-sm text-slate-400">
         Eczanenizi kaydedin, bölgenizdeki takas grubuna katılın.
       </p>
@@ -121,8 +125,9 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={pending}
-          className="mt-2 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+          className="mt-2 flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
+          <UserPlus className="h-4 w-4" strokeWidth={1.75} />
           {pending ? "Kaydediliyor..." : "Üye Ol"}
         </button>
       </form>

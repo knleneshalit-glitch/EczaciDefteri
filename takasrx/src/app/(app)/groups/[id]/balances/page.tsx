@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Wallet } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
@@ -34,7 +35,10 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-slate-100">Grup Bakiyeleri / Grup Yükü</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <Wallet className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Grup Bakiyeleri / Grup Yükü
+      </h1>
       <p className="mt-1 text-sm text-slate-400">{group.name}</p>
       <p className="mt-1 text-xs text-slate-400">
         Bakiye: alım/satım hareketlerinden oluşan cari tutar. Grup Yükü: bakiyeye işlenen

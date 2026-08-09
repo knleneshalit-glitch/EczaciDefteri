@@ -1,4 +1,17 @@
 import { notFound } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
+import {
+  ListChecks,
+  MessagesSquare,
+  Send,
+  Check,
+  X,
+  CircleDot,
+  CheckCircle2,
+  Lock,
+  Clock,
+  XCircle,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
@@ -10,10 +23,22 @@ const STATUS_LABEL: Record<string, string> = {
   CLOSED: "Kapandı",
 };
 
+const STATUS_ICON: Record<string, LucideIcon> = {
+  OPEN: CircleDot,
+  MATCHED: CheckCircle2,
+  CLOSED: Lock,
+};
+
 const OFFER_STATUS_LABEL: Record<string, string> = {
   PENDING: "Bekliyor",
   ACCEPTED: "Kabul Edildi",
   REJECTED: "Reddedildi",
+};
+
+const OFFER_STATUS_ICON: Record<string, LucideIcon> = {
+  PENDING: Clock,
+  ACCEPTED: CheckCircle2,
+  REJECTED: XCircle,
 };
 
 export default async function ListingDetailPage(
@@ -35,13 +60,15 @@ export default async function ListingDetailPage(
 
   const isOwner = listing.userId === user.id;
   const alreadyOffered = listing.offers.some((o) => o.userId === user.id);
+  const StatusIcon = STATUS_ICON[listing.status];
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
       <div className="rounded-lg border border-slate-800 bg-slate-900 p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-slate-100">{listing.title}</h1>
-          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+          <span className="flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+            <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
             {STATUS_LABEL[listing.status]}
           </span>
         </div>
@@ -92,7 +119,10 @@ export default async function ListingDetailPage(
 
       {listing.tiers.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-sm font-semibold text-slate-100">Teklif Şartları</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <ListChecks className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
+            Teklif Şartları
+          </h2>
           <div className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
             <table className="w-full min-w-[480px] text-left text-sm">
               <thead className="border-b border-slate-800 bg-slate-800/40 text-xs uppercase text-slate-500">
@@ -149,7 +179,8 @@ export default async function ListingDetailPage(
               />
             </div>
           </div>
-          <button className="mt-3 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+          <button className="mt-3 flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+            <Send className="h-4 w-4" strokeWidth={1.75} />
             Alım Teklifi Ver
           </button>
         </form>
@@ -160,11 +191,14 @@ export default async function ListingDetailPage(
       )}
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-100">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+          <MessagesSquare className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
           Teklifler ({listing.offers.length})
         </h2>
         <ul className="mt-3 flex flex-col gap-2">
-          {listing.offers.map((offer) => (
+          {listing.offers.map((offer) => {
+            const OfferStatusIcon = OFFER_STATUS_ICON[offer.status];
+            return (
             <li
               key={offer.id}
               className="rounded-lg border border-slate-800 bg-slate-900 p-3"
@@ -173,7 +207,8 @@ export default async function ListingDetailPage(
                 <span className="text-sm font-medium text-slate-200">
                   {offer.user.pharmacyName}
                 </span>
-                <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                <span className="flex items-center gap-1 rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                  <OfferStatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                   {OFFER_STATUS_LABEL[offer.status]}
                 </span>
               </div>
@@ -191,21 +226,24 @@ export default async function ListingDetailPage(
                   <form
                     action={respondOfferAction.bind(null, id, listing.id, offer.id, true)}
                   >
-                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                    <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
                       Kabul Et
                     </button>
                   </form>
                   <form
                     action={respondOfferAction.bind(null, id, listing.id, offer.id, false)}
                   >
-                    <button className="rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
+                    <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
+                      <X className="h-3.5 w-3.5" strokeWidth={2} />
                       Reddet
                     </button>
                   </form>
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
           {listing.offers.length === 0 && (
             <p className="text-sm text-slate-400">Henüz teklif yok.</p>
           )}

@@ -1,4 +1,15 @@
 import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import {
+  Search,
+  PackageOpen,
+  Inbox,
+  Send,
+  Wallet,
+  Users,
+  Clock,
+  Crown,
+} from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 
@@ -6,11 +17,13 @@ function StatCard({
   label,
   value,
   href,
+  Icon,
   accent,
 }: {
   label: string;
   value: string | number;
   href: string;
+  Icon: LucideIcon;
   accent?: "emerald" | "amber" | "red" | "slate";
 }) {
   const color =
@@ -21,13 +34,22 @@ function StatCard({
         : accent === "emerald"
           ? "text-emerald-400"
           : "text-slate-100";
+  const badgeBg =
+    accent === "amber"
+      ? "bg-amber-500/10"
+      : accent === "red"
+        ? "bg-red-500/10"
+        : "bg-emerald-500/10";
 
   return (
     <Link
       href={href}
       className="rounded-lg border border-slate-800 bg-slate-900 p-5 hover:border-emerald-400"
     >
-      <p className={`text-3xl font-bold ${color}`}>{value}</p>
+      <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${badgeBg} ${color}`}>
+        <Icon className="h-5 w-5" strokeWidth={1.75} />
+      </span>
+      <p className={`mt-3 text-3xl font-bold ${color}`}>{value}</p>
       <p className="mt-1 text-sm text-slate-500">{label}</p>
     </Link>
   );
@@ -74,36 +96,49 @@ export default async function DashboardPage() {
         </div>
         <Link
           href="/groups"
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
+          <Search className="h-4 w-4" strokeWidth={1.75} />
           Grupları Keşfet
         </Link>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Açık İlanlarım" value={openListingsCount} href="/listings" />
+        <StatCard
+          label="Açık İlanlarım"
+          value={openListingsCount}
+          href="/listings"
+          Icon={PackageOpen}
+          accent="emerald"
+        />
         <StatCard
           label="Gelen Bekleyen Teklif"
           value={receivedPendingCount}
           href="/offers/received"
+          Icon={Inbox}
           accent="amber"
         />
         <StatCard
           label="Gönderdiğim Bekleyen Teklif"
           value={sentPendingCount}
           href="/offers/sent"
+          Icon={Send}
           accent="amber"
         />
         <StatCard
           label="Toplam Cari (Bakiye+Yük)"
           value={`${toplamCari.toFixed(2)} ₺`}
           href="/groups"
+          Icon={Wallet}
           accent={toplamCari >= 0 ? "emerald" : "red"}
         />
       </div>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-slate-100">Gruplarım</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
+          <Users className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
+          Gruplarım
+        </h2>
         {approved.length === 0 ? (
           <p className="mt-2 text-sm text-slate-400">
             Henüz onaylı bir gruba üye değilsiniz.{" "}
@@ -122,7 +157,8 @@ export default async function DashboardPage() {
                   <p className="font-medium text-slate-100">{m.group.name}</p>
                   <p className="text-sm text-slate-500">{m.group.region}</p>
                   {m.role === "MANAGER" && (
-                    <span className="mt-2 inline-block rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                    <span className="mt-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                      <Crown className="h-3 w-3" strokeWidth={1.75} />
                       Yönetici
                     </span>
                   )}
@@ -135,7 +171,8 @@ export default async function DashboardPage() {
 
       {pending.length > 0 && (
         <section className="mt-10">
-          <h2 className="text-lg font-semibold text-slate-100">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
+            <Clock className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">

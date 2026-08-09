@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Users, Crown } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
@@ -19,7 +20,10 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-slate-100">Grup Üyeleri</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <Users className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Grup Üyeleri
+      </h1>
       <p className="mt-1 text-sm text-slate-400">{group.name}</p>
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
@@ -40,7 +44,8 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
                 <td className="px-4 py-3 font-medium text-slate-100">
                   {m.user.pharmacyName}
                   {m.role === "MANAGER" && (
-                    <span className="ml-2 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400">
+                    <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400">
+                      <Crown className="h-3 w-3" strokeWidth={1.75} />
                       Yönetici
                     </span>
                   )}

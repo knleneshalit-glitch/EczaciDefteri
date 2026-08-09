@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useActionState, useState } from "react";
+import { PackagePlus, Send } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
 import TierEditor from "@/components/TierEditor";
 
@@ -12,7 +13,10 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-slate-100">Yeni Talep / Teklif Oluştur</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
+        <PackagePlus className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+        Yeni Talep / Teklif Oluştur
+      </h1>
 
       <form action={formAction} className="mt-8 flex flex-col gap-8">
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">
@@ -204,8 +208,9 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+          className="flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
+          <Send className="h-4 w-4" strokeWidth={1.75} />
           {pending ? "Yayınlanıyor..." : "Teklifi Yayınla"}
         </button>
       </form>
