@@ -12,6 +12,7 @@ import {
   Send,
   ShoppingBag,
   ArrowRight,
+  HelpCircle,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -87,6 +88,13 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
             >
               <Wallet className="h-4 w-4" strokeWidth={1.75} />
               Grup Bakiyeleri
+            </Link>
+            <Link
+              href={`/groups/${group.id}/needs`}
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <HelpCircle className="h-4 w-4" strokeWidth={1.75} />
+              İhtiyaç Bildirimleri
             </Link>
             <Link
               href={`/groups/${group.id}/new`}

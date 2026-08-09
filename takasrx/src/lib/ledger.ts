@@ -25,7 +25,7 @@ export async function recordTrade(params: {
   buyerId: string;
   sellerId: string;
   amount: number;
-  offerId: string;
+  offerId?: string;
   note?: string;
 }) {
   const { groupId, buyerId, sellerId, amount, offerId, note } = params;

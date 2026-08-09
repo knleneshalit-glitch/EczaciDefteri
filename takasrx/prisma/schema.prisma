@@ -47,6 +47,12 @@ enum ShipmentStatus {
   TESLIM_EDILDI
 }
 
+enum NeedStatus {
+  OPEN
+  FULFILLED
+  CLOSED
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -66,6 +72,8 @@ model User {
   offers        Offer[]
   ledgerEntries LedgerEntry[]
   notifications Notification[]
+  needRequests  NeedRequest[]
+  needResponses NeedResponse[]
 
   courierFor    CourierAssignment[] @relation("CourierAssignmentCourier")
   assignedTo    CourierAssignment[] @relation("CourierAssignmentPharmacy")
@@ -124,6 +132,7 @@ model Group {
   members       GroupMember[]
   listings      Listing[]
   ledgerEntries LedgerEntry[]
+  needRequests  NeedRequest[]
 
   @@index([region])
 }
@@ -189,6 +198,42 @@ model Offer {
   ledgerEntries LedgerEntry[]
 
   @@index([listingId])
+}
+
+model NeedRequest {
+  id           String     @id @default(cuid())
+  groupId      String
+  userId       String
+  title        String
+  medicineName String
+  barkod       String?
+  quantity     Int?
+  description  String?
+  status       NeedStatus @default(OPEN)
+  createdAt    DateTime   @default(now())
+
+  group     Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses NeedResponse[]
+
+  @@index([groupId])
+}
+
+model NeedResponse {
+  id            String      @id @default(cuid())
+  needRequestId String
+  userId        String
+  quantity      Int         @default(1)
+  unitPrice     Float?
+  totalPrice    Float?
+  message       String?
+  status        OfferStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+
+  needRequest NeedRequest @relation(fields: [needRequestId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([needRequestId])
 }
 
 model LedgerEntry {
