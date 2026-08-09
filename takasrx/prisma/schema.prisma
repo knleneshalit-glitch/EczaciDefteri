@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MembershipRole {
+  MEMBER
+  MANAGER
+}
+
+enum ListingStatus {
+  OPEN
+  MATCHED
+  CLOSED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  pharmacyName String
+  region       String
+  createdAt    DateTime @default(now())
+
+  memberships    GroupMember[]
+  createdGroups  Group[]       @relation("GroupCreator")
+  listings       Listing[]
+  offers         Offer[]
+}
+
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  region      String
+  description String?
+  createdAt   DateTime @default(now())
+
+  creatorId String
+  creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])
+
+  members  GroupMember[]
+  listings Listing[]
+
+  @@index([region])
+}
+
+model GroupMember {
+  id       String            @id @default(cuid())
+  groupId  String
+  userId   String
+  role     MembershipRole    @default(MEMBER)
+  status   MembershipStatus  @default(PENDING)
+  joinedAt DateTime          @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model Listing {
+  id           String        @id @default(cuid())
+  groupId      String
+  userId       String
+  title        String
+  description  String?
+  medicineName String
+  quantity     String?
+  expiryDate   DateTime?
+  status       ListingStatus @default(OPEN)
+  createdAt    DateTime      @default(now())
+
+  group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offers Offer[]
+
+  @@index([groupId])
+}
+
+model Offer {
+  id        String      @id @default(cuid())
+  listingId String
+  userId    String
+  message   String?
+  status    OfferStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
