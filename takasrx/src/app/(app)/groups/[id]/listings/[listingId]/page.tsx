@@ -28,6 +28,7 @@ export default async function ListingDetailPage(
     include: {
       user: true,
       offers: { include: { user: true }, orderBy: { createdAt: "desc" } },
+      tiers: { orderBy: { minQuantity: "asc" } },
     },
   });
   if (!listing || listing.groupId !== id) notFound();
@@ -36,7 +37,7 @@ export default async function ListingDetailPage(
   const alreadyOffered = listing.offers.some((o) => o.userId === user.id);
 
   return (
-    <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">
+    <div className="mx-auto w-full max-w-2xl px-6 py-10">
       <div className="rounded-lg border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-slate-900">{listing.title}</h1>
@@ -46,10 +47,33 @@ export default async function ListingDetailPage(
         </div>
         <p className="mt-2 text-sm text-slate-700">
           <span className="font-medium">İlaç:</span> {listing.medicineName}
+          {listing.barkod ? ` · ${listing.barkod}` : ""}
         </p>
         {listing.quantity && (
           <p className="text-sm text-slate-700">
             <span className="font-medium">Miktar:</span> {listing.quantity}
+          </p>
+        )}
+        {listing.totalStock != null && (
+          <p className="text-sm text-slate-700">
+            <span className="font-medium">Toplam Stok:</span> {listing.totalStock} adet
+          </p>
+        )}
+        {listing.birimFiyat != null && (
+          <p className="text-sm text-slate-700">
+            <span className="font-medium">Depo Fiyatı:</span>{" "}
+            {listing.birimFiyat.toFixed(2)} ₺
+            {listing.etiketFiyati != null && (
+              <span className="text-slate-400"> (Etiket: {listing.etiketFiyati.toFixed(2)} ₺)</span>
+            )}
+          </p>
+        )}
+        {(listing.minAlim || listing.maxAlim || listing.alimKatlari) && (
+          <p className="text-sm text-slate-700">
+            <span className="font-medium">Alım Şartları:</span>{" "}
+            {listing.minAlim ? `min ${listing.minAlim}` : ""}
+            {listing.maxAlim ? ` · maks ${listing.maxAlim}` : ""}
+            {listing.alimKatlari ? ` · ${listing.alimKatlari}'lü katlar` : ""}
           </p>
         )}
         {listing.expiryDate && (
@@ -66,22 +90,67 @@ export default async function ListingDetailPage(
         </p>
       </div>
 
+      {listing.tiers.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-sm font-semibold text-slate-900">Teklif Şartları</h2>
+          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <table className="w-full min-w-[480px] text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Alım Miktarı ≥</th>
+                  <th className="px-3 py-2">Mal Fazlası</th>
+                  <th className="px-3 py-2">İskonto %</th>
+                  <th className="px-3 py-2">İskonto TL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listing.tiers.map((t) => (
+                  <tr key={t.id} className="border-b border-slate-100 last:border-0">
+                    <td className="px-3 py-2">{t.minQuantity}</td>
+                    <td className="px-3 py-2">{t.bonusQuantity}</td>
+                    <td className="px-3 py-2">%{t.discountPercent}</td>
+                    <td className="px-3 py-2">{t.discountAmount} ₺</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {!isOwner && !alreadyOffered && listing.status === "OPEN" && (
         <form
           action={createOfferAction.bind(null, id, listing.id)}
           className="mt-6 rounded-lg border border-slate-200 bg-white p-4"
         >
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            Teklif Mesajınız
-          </label>
-          <textarea
-            name="message"
-            rows={2}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-            placeholder="Karşılığında şunu teklif ediyorum..."
-          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Alım Miktarı
+              </label>
+              <input
+                type="number"
+                name="quantity"
+                required
+                min={listing.minAlim ?? 1}
+                max={listing.maxAlim ?? undefined}
+                step={listing.alimKatlari ?? 1}
+                defaultValue={listing.minAlim ?? 1}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Not (opsiyonel)
+              </label>
+              <input
+                name="message"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+          </div>
           <button className="mt-3 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-            Teklif Ver
+            Alım Teklifi Ver
           </button>
         </form>
       )}
@@ -108,8 +177,14 @@ export default async function ListingDetailPage(
                   {OFFER_STATUS_LABEL[offer.status]}
                 </span>
               </div>
+              <p className="mt-1 text-sm text-slate-600">
+                {offer.quantity} adet
+                {offer.bonusQuantity ? ` (+${offer.bonusQuantity} mal fazlası)` : ""}
+                {offer.unitPrice != null ? ` · ${offer.unitPrice.toFixed(2)} ₺/adet` : ""}
+                {offer.totalPrice != null ? ` · Toplam: ${offer.totalPrice.toFixed(2)} ₺` : ""}
+              </p>
               {offer.message && (
-                <p className="mt-1 text-sm text-slate-600">{offer.message}</p>
+                <p className="mt-1 text-sm text-slate-500">{offer.message}</p>
               )}
               {isOwner && offer.status === "PENDING" && listing.status === "OPEN" && (
                 <div className="mt-2 flex gap-2">

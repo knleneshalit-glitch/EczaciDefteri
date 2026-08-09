@@ -55,12 +55,20 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
           )}
         </div>
         {isApproved && (
-          <Link
-            href={`/groups/${group.id}/new`}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-          >
-            Yeni İlan Ver
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href={`/groups/${group.id}/balances`}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Grup Bakiyeleri
+            </Link>
+            <Link
+              href={`/groups/${group.id}/new`}
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Yeni İlan Ver
+            </Link>
+          </div>
         )}
       </div>
 
@@ -145,6 +153,7 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                     <p className="mt-1 text-sm text-slate-600">
                       {listing.medicineName}
                       {listing.quantity ? ` · ${listing.quantity}` : ""}
+                      {listing.birimFiyat != null ? ` · ${listing.birimFiyat.toFixed(2)} ₺` : ""}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       {listing.user.pharmacyName} · {listing._count.offers} teklif

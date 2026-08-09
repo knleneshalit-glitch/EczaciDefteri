@@ -30,9 +30,36 @@ export default function RegisterPage() {
 
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">
-            Bölge
+            GLN Numarası
           </label>
-          <RegionSelect name="region" />
+          <input
+            name="gln"
+            required
+            pattern="\d{13}"
+            title="13 haneli GLN numarası"
+            inputMode="numeric"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            placeholder="8680001234567"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Bölge (İl)
+            </label>
+            <RegionSelect name="region" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              İlçe (opsiyonel)
+            </label>
+            <input
+              name="district"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              placeholder="Kadıköy"
+            />
+          </div>
         </div>
 
         <div>

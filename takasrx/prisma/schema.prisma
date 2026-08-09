@@ -24,18 +24,33 @@ enum ListingStatus {
   CLOSED
 }
 
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum LedgerEntryType {
+  TRADE
+  INTEREST
+  MANUAL
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
   pharmacyName String
+  gln          String   @unique
   region       String
+  district     String?
   createdAt    DateTime @default(now())
 
-  memberships    GroupMember[]
-  createdGroups  Group[]       @relation("GroupCreator")
-  listings       Listing[]
-  offers         Offer[]
+  memberships   GroupMember[]
+  createdGroups Group[]       @relation("GroupCreator")
+  listings      Listing[]
+  offers        Offer[]
+  ledgerEntries LedgerEntry[]
 }
 
 model Group {
@@ -48,19 +63,20 @@ model Group {
   creatorId String
   creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])
 
-  members  GroupMember[]
-  listings Listing[]
+  members       GroupMember[]
+  listings      Listing[]
+  ledgerEntries LedgerEntry[]
 
   @@index([region])
 }
 
 model GroupMember {
-  id       String            @id @default(cuid())
+  id       String           @id @default(cuid())
   groupId  String
   userId   String
-  role     MembershipRole    @default(MEMBER)
-  status   MembershipStatus  @default(PENDING)
-  joinedAt DateTime          @default(now())
+  role     MembershipRole   @default(MEMBER)
+  status   MembershipStatus @default(PENDING)
+  joinedAt DateTime         @default(now())
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -75,34 +91,77 @@ model Listing {
   title        String
   description  String?
   medicineName String
+  barkod       String?
   quantity     String?
+  totalStock   Int?
+  birimFiyat   Float?
+  etiketFiyati Float?
+  startDate    DateTime?
+  endDate      DateTime?
+  hedefAlim    Int?
+  maxAlim      Int?
+  minAlim      Int?
+  alimKatlari  Int?
   expiryDate   DateTime?
   status       ListingStatus @default(OPEN)
   createdAt    DateTime      @default(now())
 
-  group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group  Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   offers Offer[]
+  tiers  ListingTier[]
 
   @@index([groupId])
 }
 
-model Offer {
-  id        String      @id @default(cuid())
-  listingId String
-  userId    String
-  message   String?
-  status    OfferStatus @default(PENDING)
-  createdAt DateTime    @default(now())
+model ListingTier {
+  id              String  @id @default(cuid())
+  listingId       String
+  order           Int     @default(0)
+  minQuantity     Int
+  bonusQuantity   Int     @default(0)
+  discountPercent Float   @default(0)
+  discountAmount  Float   @default(0)
 
   listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
 }
 
-enum OfferStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
+model Offer {
+  id            String      @id @default(cuid())
+  listingId     String
+  userId        String
+  message       String?
+  quantity      Int         @default(1)
+  unitPrice     Float?
+  bonusQuantity Int         @default(0)
+  totalPrice    Float?
+  status        OfferStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+
+  listing       Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledgerEntries LedgerEntry[]
+
+  @@index([listingId])
+}
+
+model LedgerEntry {
+  id           String          @id @default(cuid())
+  groupId      String
+  userId       String
+  type         LedgerEntryType
+  amount       Float
+  note         String?
+  offerId      String?
+  interestDate DateTime?
+  createdAt    DateTime        @default(now())
+
+  group Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer Offer? @relation(fields: [offerId], references: [id])
+
+  @@unique([groupId, userId, interestDate])
+  @@index([groupId, userId])
 }

@@ -2,23 +2,72 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 
+function StatCard({
+  label,
+  value,
+  href,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  href: string;
+  accent?: "emerald" | "amber" | "red" | "slate";
+}) {
+  const color =
+    accent === "amber"
+      ? "text-amber-600"
+      : accent === "red"
+        ? "text-red-600"
+        : accent === "emerald"
+          ? "text-emerald-600"
+          : "text-slate-900";
+
+  return (
+    <Link
+      href={href}
+      className="rounded-lg border border-slate-200 bg-white p-5 hover:border-emerald-400"
+    >
+      <p className={`text-3xl font-bold ${color}`}>{value}</p>
+      <p className="mt-1 text-sm text-slate-500">{label}</p>
+    </Link>
+  );
+}
+
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const memberships = await prisma.groupMember.findMany({
-    where: { userId: user.id },
-    include: { group: true },
-    orderBy: { joinedAt: "desc" },
-  });
+  const [memberships, openListingsCount, receivedPendingCount, sentPendingCount, ledgerEntries] =
+    await Promise.all([
+      prisma.groupMember.findMany({
+        where: { userId: user.id },
+        include: { group: true },
+        orderBy: { joinedAt: "desc" },
+      }),
+      prisma.listing.count({ where: { userId: user.id, status: "OPEN" } }),
+      prisma.offer.count({ where: { listing: { userId: user.id }, status: "PENDING" } }),
+      prisma.offer.count({ where: { userId: user.id, status: "PENDING" } }),
+      prisma.ledgerEntry.findMany({
+        where: { userId: user.id },
+        select: { type: true, amount: true },
+      }),
+    ]);
 
   const approved = memberships.filter((m) => m.status === "APPROVED");
   const pending = memberships.filter((m) => m.status === "PENDING");
 
+  const bakiye = ledgerEntries
+    .filter((e) => e.type !== "INTEREST")
+    .reduce((sum, e) => sum + e.amount, 0);
+  const grupYuku = ledgerEntries
+    .filter((e) => e.type === "INTEREST")
+    .reduce((sum, e) => sum + e.amount, 0);
+  const toplamCari = bakiye + grupYuku;
+
   return (
-    <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+    <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Panelim</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Ana Sayfa</h1>
           <p className="mt-1 text-sm text-slate-600">
             {user.pharmacyName} · {user.region}
           </p>
@@ -29,6 +78,28 @@ export default async function DashboardPage() {
         >
           Grupları Keşfet
         </Link>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatCard label="Açık İlanlarım" value={openListingsCount} href="/listings" />
+        <StatCard
+          label="Gelen Bekleyen Teklif"
+          value={receivedPendingCount}
+          href="/offers/received"
+          accent="amber"
+        />
+        <StatCard
+          label="Gönderdiğim Bekleyen Teklif"
+          value={sentPendingCount}
+          href="/offers/sent"
+          accent="amber"
+        />
+        <StatCard
+          label="Toplam Cari (Bakiye+Yük)"
+          value={`${toplamCari.toFixed(2)} ₺`}
+          href="/groups"
+          accent={toplamCari >= 0 ? "emerald" : "red"}
+        />
       </div>
 
       <section className="mt-10">
