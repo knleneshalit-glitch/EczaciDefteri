@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import { effectiveUnitPrice } from "@/lib/pricing";
 import {
   approveMemberAction,
   rejectMemberAction,
@@ -48,7 +49,6 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
           include: {
             user: true,
             _count: { select: { offers: true } },
-            tiers: { orderBy: { minQuantity: "asc" } },
             offers: { where: { status: "ACCEPTED" }, select: { quantity: true } },
           },
           orderBy: { createdAt: "desc" },
@@ -66,24 +66,24 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">{group.name}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{group.name}</h1>
           <p className="mt-1 text-sm text-slate-500">{group.region}</p>
           {group.description && (
-            <p className="mt-2 max-w-xl text-sm text-slate-400">{group.description}</p>
+            <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-400">{group.description}</p>
           )}
         </div>
         {isApproved && (
           <div className="flex gap-2">
             <Link
               href={`/groups/${group.id}/members`}
-              className="flex items-center gap-1.5 rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <Users className="h-4 w-4" strokeWidth={1.75} />
               Grup Üyeleri
             </Link>
             <Link
               href={`/groups/${group.id}/balances`}
-              className="flex items-center gap-1.5 rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <Wallet className="h-4 w-4" strokeWidth={1.75} />
               Grup Bakiyeleri
@@ -100,9 +100,9 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       </div>
 
       {!membership && (
-        <div className="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center">
+        <div className="mt-8 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center">
           <Lock className="mx-auto h-6 w-6 text-slate-500" strokeWidth={1.5} />
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Bu grubun takas ilanlarını görmek için üye olmanız gerekiyor.
           </p>
           <form action={requestJoinAction.bind(null, group.id)} className="mt-4">
@@ -115,14 +115,14 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       )}
 
       {membership?.status === "PENDING" && (
-        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-800 dark:text-amber-300">
           <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Katılım isteğiniz grup yöneticisinin onayını bekliyor.
         </div>
       )}
 
       {membership?.status === "REJECTED" && (
-        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-800 dark:text-red-300">
           <XCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Bu gruba katılım isteğiniz reddedildi.
         </div>
@@ -130,17 +130,17 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
       {isManager && pendingMembers.length > 0 && (
         <section className="mt-8">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <Clock className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
             {pendingMembers.map((m) => (
               <li
                 key={m.id}
-                className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 p-3"
+                className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
               >
-                <span className="text-sm text-slate-300">
+                <span className="text-sm text-slate-700 dark:text-slate-300">
                   {m.user.pharmacyName} ({m.user.email})
                 </span>
                 <div className="flex gap-2">
@@ -151,7 +151,7 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                     </button>
                   </form>
                   <form action={rejectMemberAction.bind(null, group.id, m.id)}>
-                    <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
+                    <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10">
                       <X className="h-3.5 w-3.5" strokeWidth={2} />
                       Reddet
                     </button>
@@ -165,23 +165,30 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
       {isApproved && (
         <section className="mt-8">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <ShoppingBag className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <ShoppingBag className="h-4 w-4 text-slate-600 dark:text-slate-400" strokeWidth={1.75} />
             Grubun Teklifleri ({listings.length})
           </h2>
           {listings.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
               Bu grupta henüz ilan yok. İlk ilanı siz verin.
             </p>
           ) : (
             <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {listings.map((listing) => {
-                const baseTier = listing.tiers[0] ?? null;
                 const acceptedQty = listing.offers.reduce((sum, o) => sum + o.quantity, 0);
-                const hedef = listing.hedefAlim;
-                const kalan = hedef != null ? Math.max(0, hedef - acceptedQty) : null;
+                const remaining =
+                  listing.totalStock != null ? Math.max(0, listing.totalStock - acceptedQty) : null;
                 const progress =
-                  hedef && hedef > 0 ? Math.min(100, (acceptedQty / hedef) * 100) : 0;
+                  listing.totalStock && listing.totalStock > 0
+                    ? Math.min(100, (acceptedQty / listing.totalStock) * 100)
+                    : 0;
+                const hasBonus =
+                  listing.dealBonusQuantity != null &&
+                  listing.totalStock != null &&
+                  listing.dealBonusQuantity > 0 &&
+                  listing.dealBonusQuantity < listing.totalStock;
+                const netFiyat = effectiveUnitPrice(listing);
                 const daysLeft = listing.endDate
                   ? Math.ceil((listing.endDate.getTime() - Date.now()) / 86400000)
                   : null;
@@ -190,13 +197,19 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                   <Link
                     key={listing.id}
                     href={`/groups/${group.id}/listings/${listing.id}`}
-                    className="flex flex-col rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-lg shadow-black/20 transition hover:border-emerald-500/70 hover:shadow-emerald-950/40"
+                    className="flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-lg shadow-black/20 transition hover:border-emerald-500/70 hover:shadow-emerald-950/40"
                   >
                     <div className="flex items-start justify-between">
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[11px] font-bold leading-tight text-emerald-400">
-                        {baseTier ? `${baseTier.minQuantity}+${baseTier.bonusQuantity}` : "1+0"}
-                        <br />
-                        MF
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[11px] font-bold leading-tight text-emerald-600 dark:text-emerald-400">
+                        {hasBonus
+                          ? `${listing.totalStock! - listing.dealBonusQuantity!}+${listing.dealBonusQuantity}`
+                          : "MF–"}
+                        {hasBonus && (
+                          <>
+                            <br />
+                            MF
+                          </>
+                        )}
                       </span>
                       <div className="text-right">
                         {listing.expiryDate && (
@@ -205,51 +218,44 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                           </p>
                         )}
                         {daysLeft != null && daysLeft >= 0 && (
-                          <p className="text-[11px] text-amber-400">{daysLeft} gün kaldı</p>
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400">{daysLeft} gün kaldı</p>
                         )}
                       </div>
                     </div>
 
-                    <p className="mt-3 font-medium text-slate-100">{listing.title}</p>
+                    <p className="mt-3 font-medium text-slate-900 dark:text-slate-100">{listing.title}</p>
                     <p className="text-xs text-slate-500">
                       {listing.medicineName}
                       {listing.barkod ? ` · ${listing.barkod}` : ""}
                     </p>
 
-                    <span className="mt-2 inline-block w-fit rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                    <span className="mt-2 inline-block w-fit rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-400">
                       {group.name}
                     </span>
 
-                    {hedef != null && (
+                    {listing.totalStock != null && (
                       <div className="mt-3">
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                           <div
                             className="h-full rounded-full bg-emerald-500"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          Alım: {acceptedQty} · Hedef: {hedef} · Kalan: {kalan}
+                          Satılan: {acceptedQty} · Stok: {listing.totalStock} · Kalan: {remaining}
                         </p>
                       </div>
                     )}
 
                     <div className="mt-auto flex items-end justify-between pt-3">
                       <div>
-                        {baseTier && listing.birimFiyat != null && (
-                          <p className="text-sm font-semibold text-slate-100">
-                            Net:{" "}
-                            {Math.max(
-                              0,
-                              listing.birimFiyat -
-                                (listing.birimFiyat * baseTier.discountPercent) / 100 -
-                                baseTier.discountAmount
-                            ).toFixed(2)}{" "}
-                            ₺
+                        {netFiyat != null && (
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            Net: {netFiyat.toFixed(2)} ₺
                           </p>
                         )}
-                        {listing.birimFiyat != null && (
-                          <p className="text-xs text-slate-500">
+                        {hasBonus && listing.birimFiyat != null && (
+                          <p className="text-xs text-slate-500 line-through">
                             Depo: {listing.birimFiyat.toFixed(2)} ₺
                           </p>
                         )}

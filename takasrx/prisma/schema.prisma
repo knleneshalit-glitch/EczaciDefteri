@@ -87,60 +87,45 @@ model GroupMember {
 }
 
 model Listing {
-  id           String        @id @default(cuid())
-  groupId      String
-  userId       String
-  title        String
-  description  String?
-  medicineName String
-  barkod       String?
-  quantity     String?
-  totalStock   Int?
-  birimFiyat   Float?
-  etiketFiyati Float?
-  startDate    DateTime?
-  endDate      DateTime?
-  hedefAlim    Int?
-  maxAlim      Int?
-  minAlim      Int?
-  alimKatlari  Int?
-  expiryDate   DateTime?
-  status       ListingStatus @default(OPEN)
-  createdAt    DateTime      @default(now())
+  id                String        @id @default(cuid())
+  groupId           String
+  userId            String
+  title             String
+  description       String?
+  medicineName      String
+  barkod            String?
+  quantity          String?
+  totalStock        Int?
+  birimFiyat        Float?
+  dealBonusQuantity Int?
+  etiketFiyati      Float?
+  startDate         DateTime?
+  endDate           DateTime?
+  hedefAlim         Int?
+  maxAlim           Int?
+  minAlim           Int?
+  alimKatlari       Int?
+  expiryDate        DateTime?
+  status            ListingStatus @default(OPEN)
+  createdAt         DateTime      @default(now())
 
-  group  Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   offers Offer[]
-  tiers  ListingTier[]
 
   @@index([groupId])
 }
 
-model ListingTier {
-  id              String  @id @default(cuid())
-  listingId       String
-  order           Int     @default(0)
-  minQuantity     Int
-  bonusQuantity   Int     @default(0)
-  discountPercent Float   @default(0)
-  discountAmount  Float   @default(0)
-
-  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
-  @@index([listingId])
-}
-
 model Offer {
-  id            String      @id @default(cuid())
-  listingId     String
-  userId        String
-  message       String?
-  quantity      Int         @default(1)
-  unitPrice     Float?
-  bonusQuantity Int         @default(0)
-  totalPrice    Float?
-  status        OfferStatus @default(PENDING)
-  createdAt     DateTime    @default(now())
+  id         String      @id @default(cuid())
+  listingId  String
+  userId     String
+  message    String?
+  quantity   Int         @default(1)
+  unitPrice  Float?
+  totalPrice Float?
+  status     OfferStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
 
   listing       Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)

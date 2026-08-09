@@ -20,15 +20,15 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
-        <Users className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+        <Users className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Grup Üyeleri
       </h1>
-      <p className="mt-1 text-sm text-slate-400">{group.name}</p>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{group.name}</p>
 
-      <div className="mt-6 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="border-b border-slate-800 bg-slate-800/40 text-xs uppercase text-slate-500">
+          <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/40 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Eczane Adı</th>
               <th className="px-4 py-3">Eczane GLN</th>
@@ -40,20 +40,20 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
           </thead>
           <tbody>
             {members.map((m) => (
-              <tr key={m.id} className="border-b border-slate-800/60 last:border-0">
-                <td className="px-4 py-3 font-medium text-slate-100">
+              <tr key={m.id} className="border-b border-slate-200 dark:border-slate-800/60 last:border-0">
+                <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                   {m.user.pharmacyName}
                   {m.role === "MANAGER" && (
-                    <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400">
+                    <span className="ml-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
                       <Crown className="h-3 w-3" strokeWidth={1.75} />
                       Yönetici
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-slate-400">{m.user.gln}</td>
-                <td className="px-4 py-3 text-slate-300">{m.user.contactName}</td>
-                <td className="px-4 py-3 text-slate-400">{m.user.email}</td>
-                <td className="px-4 py-3 text-slate-400">
+                <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{m.user.gln}</td>
+                <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{m.user.contactName}</td>
+                <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{m.user.email}</td>
+                <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                   {m.user.region}
                   {m.user.district ? ` / ${m.user.district}` : ""}
                 </td>

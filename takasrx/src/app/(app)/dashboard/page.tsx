@@ -28,12 +28,12 @@ function StatCard({
 }) {
   const color =
     accent === "amber"
-      ? "text-amber-400"
+      ? "text-amber-600 dark:text-amber-400"
       : accent === "red"
-        ? "text-red-400"
+        ? "text-red-600 dark:text-red-400"
         : accent === "emerald"
-          ? "text-emerald-400"
-          : "text-slate-100";
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-slate-900 dark:text-slate-100";
   const badgeBg =
     accent === "amber"
       ? "bg-amber-500/10"
@@ -44,7 +44,7 @@ function StatCard({
   return (
     <Link
       href={href}
-      className="rounded-lg border border-slate-800 bg-slate-900 p-5 hover:border-emerald-400"
+      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:border-emerald-400"
     >
       <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${badgeBg} ${color}`}>
         <Icon className="h-5 w-5" strokeWidth={1.75} />
@@ -89,8 +89,8 @@ export default async function DashboardPage() {
     <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Ana Sayfa</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Ana Sayfa</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             {user.pharmacyName} · {user.region}
           </p>
         </div>
@@ -135,14 +135,14 @@ export default async function DashboardPage() {
       </div>
 
       <section className="mt-10">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
-          <Users className="h-4 w-4 text-slate-400" strokeWidth={1.75} />
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <Users className="h-4 w-4 text-slate-600 dark:text-slate-400" strokeWidth={1.75} />
           Gruplarım
         </h2>
         {approved.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Henüz onaylı bir gruba üye değilsiniz.{" "}
-            <Link href="/groups" className="text-emerald-400 hover:underline">
+            <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
               Bölgenizdeki grupları keşfedin.
             </Link>
           </p>
@@ -152,12 +152,12 @@ export default async function DashboardPage() {
               <li key={m.id}>
                 <Link
                   href={`/groups/${m.group.id}`}
-                  className="block rounded-lg border border-slate-800 bg-slate-900 p-4 hover:border-emerald-500"
+                  className="block rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:border-emerald-500"
                 >
-                  <p className="font-medium text-slate-100">{m.group.name}</p>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">{m.group.name}</p>
                   <p className="text-sm text-slate-500">{m.group.region}</p>
                   {m.role === "MANAGER" && (
-                    <span className="mt-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                    <span className="mt-2 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                       <Crown className="h-3 w-3" strokeWidth={1.75} />
                       Yönetici
                     </span>
@@ -171,15 +171,15 @@ export default async function DashboardPage() {
 
       {pending.length > 0 && (
         <section className="mt-10">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
-            <Clock className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+            <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
             {pending.map((m) => (
               <li
                 key={m.id}
-                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300"
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300"
               >
                 <span className="font-medium">{m.group.name}</span> —
                 katılım isteğiniz grup yöneticisinin onayını bekliyor.

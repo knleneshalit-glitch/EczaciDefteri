@@ -10,47 +10,47 @@ export default function NewGroupPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-100">
-        <UsersRound className="h-6 w-6 text-emerald-400" strokeWidth={1.75} />
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+        <UsersRound className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Yeni Grup Kur
       </h1>
-      <p className="mt-1 text-sm text-slate-400">
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         Kurduğunuz grubun yöneticisi siz olursunuz; katılım isteklerini siz onaylarsınız.
       </p>
 
       <form action={formAction} className="mt-8 flex flex-col gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-300">
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
             Grup Adı
           </label>
           <input
             name="name"
             required
-            className="w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
             placeholder="Kadıköy Eczacılar Takas Grubu"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-300">
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
             Bölge
           </label>
           <RegionSelect name="region" />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-300">
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
             Açıklama (opsiyonel)
           </label>
           <textarea
             name="description"
             rows={3}
-            className="w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
           />
         </div>
 
         {state?.error && (
-          <p className="text-sm text-red-400" aria-live="polite">
+          <p className="text-sm text-red-600 dark:text-red-400" aria-live="polite">
             {state.error}
           </p>
         )}

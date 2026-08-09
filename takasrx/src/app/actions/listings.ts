@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
-import { matchTier, netUnitPrice, type TierInput } from "@/lib/tiers";
+import { effectiveUnitPrice } from "@/lib/pricing";
 import { recordTrade } from "@/lib/ledger";
 
 export type ListingState = { error?: string } | undefined;
@@ -44,22 +44,10 @@ export async function createListingAction(
     return { error: "Geçerli bir depo (birim) fiyatı girin." };
   }
 
-  let tiers: TierInput[] = [];
-  const tiersRaw = String(formData.get("tiers") ?? "[]");
-  try {
-    const parsed = JSON.parse(tiersRaw);
-    if (Array.isArray(parsed)) {
-      tiers = parsed
-        .map((t) => ({
-          minQuantity: Number(t.minQuantity) || 0,
-          bonusQuantity: Number(t.bonusQuantity) || 0,
-          discountPercent: Number(t.discountPercent) || 0,
-          discountAmount: Number(t.discountAmount) || 0,
-        }))
-        .filter((t) => t.minQuantity > 0);
-    }
-  } catch {
-    return { error: "Teklif şartları geçersiz." };
+  const totalStock = numberOrNull(formData.get("totalStock"));
+  const dealBonusQuantity = numberOrNull(formData.get("dealBonusQuantity"));
+  if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
+    return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
   }
 
   await prisma.listing.create({
@@ -71,8 +59,9 @@ export async function createListingAction(
       barkod: barkod || null,
       quantity: quantity || null,
       description: description || null,
-      totalStock: numberOrNull(formData.get("totalStock")),
+      totalStock,
       birimFiyat,
+      dealBonusQuantity,
       etiketFiyati: numberOrNull(formData.get("etiketFiyati")),
       startDate: dateOrNull(formData.get("startDate")),
       endDate: dateOrNull(formData.get("endDate")),
@@ -81,15 +70,6 @@ export async function createListingAction(
       minAlim: numberOrNull(formData.get("minAlim")),
       alimKatlari: numberOrNull(formData.get("alimKatlari")),
       expiryDate: dateOrNull(formData.get("expiryDate")),
-      tiers: {
-        create: tiers.map((t, i) => ({
-          order: i,
-          minQuantity: t.minQuantity,
-          bonusQuantity: t.bonusQuantity,
-          discountPercent: t.discountPercent,
-          discountAmount: t.discountAmount,
-        })),
-      },
     },
   });
 
@@ -110,7 +90,7 @@ export async function createOfferAction(
 
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
-    include: { tiers: true },
+    include: { offers: { where: { status: "ACCEPTED" }, select: { quantity: true } } },
   });
   if (!listing || listing.groupId !== groupId) {
     throw new Error("İlan bulunamadı.");
@@ -121,10 +101,15 @@ export async function createOfferAction(
   if (listing.maxAlim && quantity > listing.maxAlim) {
     throw new Error(`Maksimum alım miktarı ${listing.maxAlim}.`);
   }
+  if (listing.totalStock != null) {
+    const soldQty = listing.offers.reduce((sum, o) => sum + o.quantity, 0);
+    const remaining = listing.totalStock - soldQty;
+    if (quantity > remaining) {
+      throw new Error(`Stokta sadece ${remaining} adet kaldı.`);
+    }
+  }
 
-  const birimFiyat = listing.birimFiyat ?? 0;
-  const tier = matchTier(listing.tiers, quantity);
-  const unitPrice = netUnitPrice(birimFiyat, tier);
+  const unitPrice = effectiveUnitPrice(listing) ?? 0;
   const totalPrice = unitPrice * quantity;
 
   await prisma.offer.create({
@@ -135,7 +120,6 @@ export async function createOfferAction(
       quantity,
       unitPrice,
       totalPrice,
-      bonusQuantity: tier?.bonusQuantity ?? 0,
     },
   });
 
@@ -166,10 +150,16 @@ export async function respondOfferAction(
   });
 
   if (accept) {
-    await prisma.listing.update({
-      where: { id: listingId },
-      data: { status: "MATCHED" },
-    });
+    if (listing.totalStock != null) {
+      const acceptedOffers = await prisma.offer.findMany({
+        where: { listingId, status: "ACCEPTED" },
+        select: { quantity: true },
+      });
+      const soldQty = acceptedOffers.reduce((sum, o) => sum + o.quantity, 0);
+      if (soldQty >= listing.totalStock) {
+        await prisma.listing.update({ where: { id: listingId }, data: { status: "CLOSED" } });
+      }
+    }
 
     if (offer.totalPrice && offer.totalPrice > 0) {
       await recordTrade({

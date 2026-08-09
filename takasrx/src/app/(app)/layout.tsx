@@ -7,7 +7,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen flex-1">
       <Sidebar user={{ pharmacyName: user.pharmacyName, email: user.email }} />
-      <div className="flex-1 overflow-x-hidden bg-slate-950">{children}</div>
+      <div className="flex-1 overflow-x-hidden bg-slate-50 dark:bg-slate-950">{children}</div>
     </div>
   );
 }
