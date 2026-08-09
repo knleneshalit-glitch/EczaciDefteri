@@ -2,22 +2,29 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import { UserPlus } from "lucide-react";
-import { registerAction } from "@/app/actions/auth";
+import { UserPlus, Truck } from "lucide-react";
+import { registerPharmacyAction } from "@/app/actions/auth";
 import RegionSelect from "@/components/RegionSelect";
 
 export default function RegisterPage() {
-  const [state, formAction, pending] = useActionState(registerAction, undefined);
+  const [state, formAction, pending] = useActionState(registerPharmacyAction, undefined);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <UserPlus className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
-        Üye Ol
+        Eczane Olarak Üye Ol
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         Eczanenizi kaydedin, bölgenizdeki takas grubuna katılın.
       </p>
+      <Link
+        href="/register/courier"
+        className="mt-3 flex w-fit items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+      >
+        <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
+        Sevkiyatçı olarak kayıt olmak için tıklayın
+      </Link>
 
       <form action={formAction} className="mt-8 flex flex-col gap-4">
         <div>

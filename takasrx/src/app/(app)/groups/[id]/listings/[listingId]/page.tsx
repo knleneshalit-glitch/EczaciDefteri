@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -11,12 +12,22 @@ import {
   Lock,
   Clock,
   XCircle,
+  Pencil,
+  Truck,
+  Tag,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
-import { createOfferAction, respondOfferAction } from "@/app/actions/listings";
+import { createOfferAction, respondOfferAction, closeListingAction } from "@/app/actions/listings";
+import { prepareShipmentAction } from "@/app/actions/shipments";
 import { effectiveUnitPrice } from "@/lib/pricing";
+
+const SHIPMENT_STATUS_LABEL: Record<string, string> = {
+  HAZIRLANIYOR: "Sevkiyata Hazırlanıyor",
+  TESLIM_ALINDI: "Sevkiyatçı Teslim Aldı",
+  TESLIM_EDILDI: "Teslim Edildi",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
@@ -53,7 +64,7 @@ export default async function ListingDetailPage(
     where: { id: listingId },
     include: {
       user: true,
-      offers: { include: { user: true }, orderBy: { createdAt: "desc" } },
+      offers: { include: { user: true, shipment: true }, orderBy: { createdAt: "desc" } },
     },
   });
   if (!listing || listing.groupId !== id) notFound();
@@ -83,10 +94,29 @@ export default async function ListingDetailPage(
       <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">{listing.title}</h1>
-          <span className="flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
-            <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
-            {STATUS_LABEL[listing.status]}
-          </span>
+          <div className="flex items-center gap-2">
+            {isOwner && listing.status === "OPEN" && (
+              <>
+                <Link
+                  href={`/groups/${id}/listings/${listingId}/edit`}
+                  className="flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Düzenle
+                </Link>
+                <form action={closeListingAction.bind(null, id, listingId)}>
+                  <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10">
+                    <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    İlanı Kapat
+                  </button>
+                </form>
+              </>
+            )}
+            <span className="flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
+              <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+              {STATUS_LABEL[listing.status]}
+            </span>
+          </div>
         </div>
         <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
           <span className="font-medium">İlaç:</span> {listing.medicineName}
@@ -238,6 +268,37 @@ export default async function ListingDetailPage(
                         Reddet
                       </button>
                     </form>
+                  </div>
+                )}
+
+                {offer.status === "ACCEPTED" && (
+                  <div className="mt-2 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800 pt-2">
+                    {offer.shipment ? (
+                      <>
+                        <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                          <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          {SHIPMENT_STATUS_LABEL[offer.shipment.status]}
+                        </span>
+                        <Link
+                          href={`/groups/${id}/listings/${listingId}/offers/${offer.id}/label`}
+                          className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline"
+                        >
+                          <Tag className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          Etiketi Görüntüle
+                        </Link>
+                      </>
+                    ) : isOwner ? (
+                      <form action={prepareShipmentAction.bind(null, id, listingId, offer.id)}>
+                        <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                          <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          Sevkiyata Hazırla
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        İlan sahibi sevkiyatı hazırlıyor.
+                      </span>
+                    )}
                   </div>
                 )}
               </li>

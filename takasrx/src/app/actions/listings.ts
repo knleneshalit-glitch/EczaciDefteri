@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { recordTrade } from "@/lib/ledger";
+import { createNotification } from "@/lib/notifications";
 
 export type ListingState = { error?: string } | undefined;
 
@@ -77,6 +78,82 @@ export async function createListingAction(
   redirect(`/groups/${groupId}`);
 }
 
+export async function updateListingAction(
+  groupId: string,
+  listingId: string,
+  _prevState: ListingState,
+  formData: FormData
+): Promise<ListingState> {
+  const user = await requireUser();
+
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    include: { offers: { where: { status: "ACCEPTED" }, select: { id: true } } },
+  });
+  if (!listing || listing.groupId !== groupId || listing.userId !== user.id) {
+    return { error: "Bu ilana ait değilsiniz." };
+  }
+
+  const title = String(formData.get("title") ?? "").trim();
+  const medicineName = String(formData.get("medicineName") ?? "").trim();
+  const barkod = String(formData.get("barkod") ?? "").trim();
+  const quantity = String(formData.get("quantity") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+
+  if (!title) return { error: "Başlık gerekli." };
+  if (!medicineName) return { error: "İlaç adı gerekli." };
+
+  const hasAcceptedOffers = listing.offers.length > 0;
+
+  const data: Parameters<typeof prisma.listing.update>[0]["data"] = {
+    title,
+    medicineName,
+    barkod: barkod || null,
+    quantity: quantity || null,
+    description: description || null,
+    etiketFiyati: numberOrNull(formData.get("etiketFiyati")),
+    startDate: dateOrNull(formData.get("startDate")),
+    endDate: dateOrNull(formData.get("endDate")),
+    maxAlim: numberOrNull(formData.get("maxAlim")),
+    minAlim: numberOrNull(formData.get("minAlim")),
+    expiryDate: dateOrNull(formData.get("expiryDate")),
+  };
+
+  if (!hasAcceptedOffers) {
+    const birimFiyat = numberOrNull(formData.get("birimFiyat"));
+    if (birimFiyat === null || birimFiyat <= 0) {
+      return { error: "Geçerli bir depo (birim) fiyatı girin." };
+    }
+    const totalStock = numberOrNull(formData.get("totalStock"));
+    const dealBonusQuantity = numberOrNull(formData.get("dealBonusQuantity"));
+    if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
+      return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
+    }
+    data.birimFiyat = birimFiyat;
+    data.totalStock = totalStock;
+    data.dealBonusQuantity = dealBonusQuantity;
+  }
+
+  await prisma.listing.update({ where: { id: listingId }, data });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+  redirect(`/groups/${groupId}/listings/${listingId}`);
+}
+
+export async function closeListingAction(groupId: string, listingId: string) {
+  const user = await requireUser();
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.groupId !== groupId || listing.userId !== user.id) {
+    throw new Error("Bu ilana ait değilsiniz.");
+  }
+
+  await prisma.listing.update({ where: { id: listingId }, data: { status: "CLOSED" } });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+  revalidatePath(`/groups/${groupId}`);
+}
+
 export async function createOfferAction(
   groupId: string,
   listingId: string,
@@ -121,6 +198,12 @@ export async function createOfferAction(
       unitPrice,
       totalPrice,
     },
+  });
+
+  await createNotification({
+    userId: listing.userId,
+    message: `${user.pharmacyName ?? user.contactName} eczanesi "${listing.title}" ilanınızdan ${quantity} adet almak istiyor.`,
+    link: `/groups/${groupId}/listings/${listingId}`,
   });
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
@@ -172,6 +255,14 @@ export async function respondOfferAction(
       });
     }
   }
+
+  await createNotification({
+    userId: offer.userId,
+    message: accept
+      ? `Teklifiniz kabul edildi: ${listing.title}.`
+      : `Teklifiniz reddedildi: ${listing.title}.`,
+    link: `/groups/${groupId}/listings/${listingId}`,
+  });
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath(`/groups/${groupId}/balances`);

@@ -8,7 +8,7 @@ import { REGIONS } from "@/lib/regions";
 
 export type AuthState = { error?: string } | undefined;
 
-export async function registerAction(
+export async function registerPharmacyAction(
   _prevState: AuthState,
   formData: FormData
 ): Promise<AuthState> {
@@ -56,6 +56,7 @@ export async function registerAction(
     data: {
       email,
       passwordHash,
+      accountType: "PHARMACY",
       pharmacyName,
       contactName,
       gln,
@@ -67,6 +68,48 @@ export async function registerAction(
 
   await createSession({ userId: user.id, email: user.email });
   redirect("/dashboard");
+}
+
+export async function registerCourierAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  const contactName = String(formData.get("contactName") ?? "").trim();
+  const region = String(formData.get("region") ?? "");
+
+  if (!email || !email.includes("@")) {
+    return { error: "Geçerli bir e-posta girin." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (!contactName) {
+    return { error: "Ad soyad gerekli." };
+  }
+  if (!REGIONS.includes(region as (typeof REGIONS)[number])) {
+    return { error: "Geçerli bir bölge seçin." };
+  }
+
+  const existingEmail = await prisma.user.findUnique({ where: { email } });
+  if (existingEmail) {
+    return { error: "Bu e-posta ile zaten bir hesap var." };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      accountType: "COURIER",
+      contactName,
+      region,
+    },
+  });
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect("/courier/dashboard");
 }
 
 export async function loginAction(
@@ -86,7 +129,7 @@ export async function loginAction(
   }
 
   await createSession({ userId: user.id, email: user.email });
-  redirect("/dashboard");
+  redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
 }
 
 export async function logoutAction() {

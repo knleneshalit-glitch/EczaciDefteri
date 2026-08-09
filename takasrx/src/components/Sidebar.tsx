@@ -7,6 +7,8 @@ import {
   Inbox,
   Send,
   Wallet,
+  Truck,
+  Bell,
   LogOut,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
@@ -19,22 +21,33 @@ const NAV_ITEMS = [
   { href: "/offers/received", label: "Gelen Teklifler", Icon: Inbox },
   { href: "/offers/sent", label: "Gönderdiğim Teklifler", Icon: Send },
   { href: "/ledger", label: "Cari Hareketler", Icon: Wallet },
+  { href: "/couriers", label: "Sevkiyatçılarım", Icon: Truck },
 ];
 
 export default function Sidebar({
   user,
+  unreadCount = 0,
 }: {
   user: { pharmacyName: string; email: string };
+  unreadCount?: number;
 }) {
   return (
     <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-      <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
         <Link
           href="/dashboard"
           className="flex items-center gap-2 text-lg font-bold text-emerald-600 dark:text-emerald-400"
         >
           <ArrowLeftRight className="h-5 w-5" strokeWidth={2.5} />
           TakasRX
+        </Link>
+        <Link href="/notifications" className="relative text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+          <Bell className="h-5 w-5" strokeWidth={1.75} />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </Link>
       </div>
 

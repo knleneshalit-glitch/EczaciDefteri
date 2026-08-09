@@ -36,23 +36,79 @@ enum LedgerEntryType {
   MANUAL
 }
 
+enum AccountType {
+  PHARMACY
+  COURIER
+}
+
+enum ShipmentStatus {
+  HAZIRLANIYOR
+  TESLIM_ALINDI
+  TESLIM_EDILDI
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String      @id @default(cuid())
+  email        String      @unique
   passwordHash String
-  pharmacyName String
+  accountType  AccountType @default(PHARMACY)
+  pharmacyName String?
   contactName  String
-  gln          String   @unique
+  gln          String?     @unique
   region       String
   district     String?
   address      String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime    @default(now())
 
   memberships   GroupMember[]
   createdGroups Group[]       @relation("GroupCreator")
   listings      Listing[]
   offers        Offer[]
   ledgerEntries LedgerEntry[]
+  notifications Notification[]
+
+  courierFor    CourierAssignment[] @relation("CourierAssignmentCourier")
+  assignedTo    CourierAssignment[] @relation("CourierAssignmentPharmacy")
+  shipments     Shipment[]          @relation("ShipmentCourier")
+}
+
+model CourierAssignment {
+  id         String   @id @default(cuid())
+  courierId  String
+  pharmacyId String
+  createdAt  DateTime @default(now())
+
+  courier  User @relation("CourierAssignmentCourier", fields: [courierId], references: [id], onDelete: Cascade)
+  pharmacy User @relation("CourierAssignmentPharmacy", fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([courierId, pharmacyId])
+}
+
+model Shipment {
+  id          String         @id @default(cuid())
+  offerId     String         @unique
+  courierId   String?
+  code        String         @unique
+  status      ShipmentStatus @default(HAZIRLANIYOR)
+  createdAt   DateTime       @default(now())
+  pickedUpAt  DateTime?
+  deliveredAt DateTime?
+
+  offer   Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  courier User? @relation("ShipmentCourier", fields: [courierId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
 }
 
 model Group {
@@ -129,6 +185,7 @@ model Offer {
 
   listing       Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shipment      Shipment?
   ledgerEntries LedgerEntry[]
 
   @@index([listingId])

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 export default async function Home() {
   const user = await getCurrentUser();
-  if (user) redirect("/dashboard");
+  if (user) redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-24 text-center">
