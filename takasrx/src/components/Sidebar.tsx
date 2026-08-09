@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: "/listings", label: "Talep Oluştur - Yönet", icon: "📝" },
   { href: "/offers/received", label: "Gelen Teklifler", icon: "📥" },
   { href: "/offers/sent", label: "Gönderdiğim Teklifler", icon: "📤" },
+  { href: "/ledger", label: "Cari Hareketler", icon: "💰" },
 ];
 
 export default function Sidebar({

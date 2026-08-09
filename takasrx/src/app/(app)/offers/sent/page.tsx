@@ -19,17 +19,17 @@ export default async function SentOffersPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-slate-900">Gönderdiğim Teklifler</h1>
-      <p className="mt-1 text-sm text-slate-600">
+      <h1 className="text-2xl font-bold text-slate-100">Gönderdiğim Teklifler</h1>
+      <p className="mt-1 text-sm text-slate-400">
         Başkalarının ilanlarına verdiğiniz alım teklifleri.
       </p>
 
       {offers.length === 0 ? (
-        <p className="mt-8 text-sm text-slate-600">Henüz teklif vermediniz.</p>
+        <p className="mt-8 text-sm text-slate-400">Henüz teklif vermediniz.</p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <div className="mt-6 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+            <thead className="border-b border-slate-800 bg-slate-800/40 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3">İlan</th>
                 <th className="px-4 py-3">İlan Sahibi</th>
@@ -41,26 +41,26 @@ export default async function SentOffersPage() {
             </thead>
             <tbody>
               {offers.map((o) => (
-                <tr key={o.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-medium text-slate-900">
+                <tr key={o.id} className="border-b border-slate-800/60 last:border-0">
+                  <td className="px-4 py-3 font-medium text-slate-100">
                     {o.listing.title}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-slate-400">
                     {o.listing.user.pharmacyName}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{o.quantity}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-slate-400">{o.quantity}</td>
+                  <td className="px-4 py-3 text-slate-400">
                     {o.totalPrice != null ? `${o.totalPrice.toFixed(2)} ₺` : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                    <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                       {OFFER_STATUS_LABEL[o.status]}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link
                       href={`/groups/${o.listing.groupId}/listings/${o.listingId}`}
-                      className="text-emerald-700 hover:underline"
+                      className="text-emerald-400 hover:underline"
                     >
                       Görüntüle
                     </Link>

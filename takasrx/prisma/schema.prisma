@@ -41,9 +41,11 @@ model User {
   email        String   @unique
   passwordHash String
   pharmacyName String
+  contactName  String
   gln          String   @unique
   region       String
   district     String?
+  address      String?
   createdAt    DateTime @default(now())
 
   memberships   GroupMember[]

@@ -15,17 +15,17 @@ function StatCard({
 }) {
   const color =
     accent === "amber"
-      ? "text-amber-600"
+      ? "text-amber-400"
       : accent === "red"
-        ? "text-red-600"
+        ? "text-red-400"
         : accent === "emerald"
-          ? "text-emerald-600"
-          : "text-slate-900";
+          ? "text-emerald-400"
+          : "text-slate-100";
 
   return (
     <Link
       href={href}
-      className="rounded-lg border border-slate-200 bg-white p-5 hover:border-emerald-400"
+      className="rounded-lg border border-slate-800 bg-slate-900 p-5 hover:border-emerald-400"
     >
       <p className={`text-3xl font-bold ${color}`}>{value}</p>
       <p className="mt-1 text-sm text-slate-500">{label}</p>
@@ -67,14 +67,14 @@ export default async function DashboardPage() {
     <div className="mx-auto w-full max-w-4xl flex-1 px-6 py-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Ana Sayfa</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-2xl font-bold text-slate-100">Ana Sayfa</h1>
+          <p className="mt-1 text-sm text-slate-400">
             {user.pharmacyName} · {user.region}
           </p>
         </div>
         <Link
           href="/groups"
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
           Grupları Keşfet
         </Link>
@@ -103,11 +103,11 @@ export default async function DashboardPage() {
       </div>
 
       <section className="mt-10">
-        <h2 className="text-lg font-semibold text-slate-900">Gruplarım</h2>
+        <h2 className="text-lg font-semibold text-slate-100">Gruplarım</h2>
         {approved.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-400">
             Henüz onaylı bir gruba üye değilsiniz.{" "}
-            <Link href="/groups" className="text-emerald-700 hover:underline">
+            <Link href="/groups" className="text-emerald-400 hover:underline">
               Bölgenizdeki grupları keşfedin.
             </Link>
           </p>
@@ -117,12 +117,12 @@ export default async function DashboardPage() {
               <li key={m.id}>
                 <Link
                   href={`/groups/${m.group.id}`}
-                  className="block rounded-lg border border-slate-200 bg-white p-4 hover:border-emerald-400"
+                  className="block rounded-lg border border-slate-800 bg-slate-900 p-4 hover:border-emerald-500"
                 >
-                  <p className="font-medium text-slate-900">{m.group.name}</p>
+                  <p className="font-medium text-slate-100">{m.group.name}</p>
                   <p className="text-sm text-slate-500">{m.group.region}</p>
                   {m.role === "MANAGER" && (
-                    <span className="mt-2 inline-block rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    <span className="mt-2 inline-block rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
                       Yönetici
                     </span>
                   )}
@@ -135,14 +135,14 @@ export default async function DashboardPage() {
 
       {pending.length > 0 && (
         <section className="mt-10">
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-lg font-semibold text-slate-100">
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
             {pending.map((m) => (
               <li
                 key={m.id}
-                className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300"
               >
                 <span className="font-medium">{m.group.name}</span> —
                 katılım isteğiniz grup yöneticisinin onayını bekliyor.

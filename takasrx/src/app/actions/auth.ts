@@ -15,9 +15,11 @@ export async function registerAction(
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const pharmacyName = String(formData.get("pharmacyName") ?? "").trim();
+  const contactName = String(formData.get("contactName") ?? "").trim();
   const gln = String(formData.get("gln") ?? "").trim();
   const region = String(formData.get("region") ?? "");
   const district = String(formData.get("district") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
 
   if (!email || !email.includes("@")) {
     return { error: "Geçerli bir e-posta girin." };
@@ -27,6 +29,9 @@ export async function registerAction(
   }
   if (!pharmacyName) {
     return { error: "Eczane adı gerekli." };
+  }
+  if (!contactName) {
+    return { error: "Yetkili adı soyadı gerekli." };
   }
   if (!/^\d{13}$/.test(gln)) {
     return { error: "GLN numarası 13 haneli olmalı." };
@@ -48,7 +53,16 @@ export async function registerAction(
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
-    data: { email, passwordHash, pharmacyName, gln, region, district: district || null },
+    data: {
+      email,
+      passwordHash,
+      pharmacyName,
+      contactName,
+      gln,
+      region,
+      district: district || null,
+      address: address || null,
+    },
   });
 
   await createSession({ userId: user.id, email: user.email });

@@ -23,24 +23,24 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Takas Grupları</h1>
+        <h1 className="text-2xl font-bold text-slate-100">Takas Grupları</h1>
         <Link
           href="/groups/new"
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
           Yeni Grup Kur
         </Link>
       </div>
 
       <form className="mt-6 flex items-center gap-2">
-        <label className="text-sm text-slate-600" htmlFor="region">
+        <label className="text-sm text-slate-400" htmlFor="region">
           Bölge:
         </label>
         <select
           id="region"
           name="region"
           defaultValue={selectedRegion}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm"
         >
           {REGIONS.map((r) => (
             <option key={r} value={r}>
@@ -50,7 +50,7 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
         </select>
         <button
           type="submit"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
         >
           Filtrele
         </button>
@@ -58,7 +58,7 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
 
       <ul className="mt-6 flex flex-col gap-3">
         {groups.length === 0 && (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-400">
             {selectedRegion} bölgesinde henüz bir grup yok. İlk grubu siz kurun.
           </p>
         )}
@@ -67,12 +67,12 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
           return (
             <li
               key={group.id}
-              className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4"
+              className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 p-4"
             >
               <div>
                 <Link
                   href={`/groups/${group.id}`}
-                  className="font-medium text-slate-900 hover:text-emerald-700"
+                  className="font-medium text-slate-100 hover:text-emerald-700"
                 >
                   {group.name}
                 </Link>
@@ -80,21 +80,21 @@ export default async function GroupsPage(props: PageProps<"/groups">) {
                   {group.region} · {group._count.members} üye
                 </p>
                 {group.description && (
-                  <p className="mt-1 text-sm text-slate-600">{group.description}</p>
+                  <p className="mt-1 text-sm text-slate-400">{group.description}</p>
                 )}
               </div>
 
               {membership?.status === "APPROVED" ? (
-                <span className="rounded bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+                <span className="rounded bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
                   Üyesiniz
                 </span>
               ) : membership?.status === "PENDING" ? (
-                <span className="rounded bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">
+                <span className="rounded bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400">
                   Onay Bekliyor
                 </span>
               ) : (
                 <form action={requestJoinAction.bind(null, group.id)}>
-                  <button className="rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
+                  <button className="rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10">
                     Katılma İsteği Gönder
                   </button>
                 </form>

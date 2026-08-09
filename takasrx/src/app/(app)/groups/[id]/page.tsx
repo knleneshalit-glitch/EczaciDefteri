@@ -32,7 +32,12 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
     isApproved
       ? prisma.listing.findMany({
           where: { groupId: id },
-          include: { user: true, _count: { select: { offers: true } } },
+          include: {
+            user: true,
+            _count: { select: { offers: true } },
+            tiers: { orderBy: { minQuantity: "asc" } },
+            offers: { where: { status: "ACCEPTED" }, select: { quantity: true } },
+          },
           orderBy: { createdAt: "desc" },
         })
       : Promise.resolve([]),
@@ -45,26 +50,32 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+    <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{group.name}</h1>
+          <h1 className="text-2xl font-bold text-slate-100">{group.name}</h1>
           <p className="mt-1 text-sm text-slate-500">{group.region}</p>
           {group.description && (
-            <p className="mt-2 max-w-xl text-sm text-slate-600">{group.description}</p>
+            <p className="mt-2 max-w-xl text-sm text-slate-400">{group.description}</p>
           )}
         </div>
         {isApproved && (
           <div className="flex gap-2">
             <Link
+              href={`/groups/${group.id}/members`}
+              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
+            >
+              Grup Üyeleri
+            </Link>
+            <Link
               href={`/groups/${group.id}/balances`}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
             >
               Grup Bakiyeleri
             </Link>
             <Link
               href={`/groups/${group.id}/new`}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
             >
               Yeni İlan Ver
             </Link>
@@ -73,12 +84,12 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       </div>
 
       {!membership && (
-        <div className="mt-8 rounded-lg border border-slate-200 bg-white p-6 text-center">
-          <p className="text-sm text-slate-600">
+        <div className="mt-8 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center">
+          <p className="text-sm text-slate-400">
             Bu grubun takas ilanlarını görmek için üye olmanız gerekiyor.
           </p>
           <form action={requestJoinAction.bind(null, group.id)} className="mt-4">
-            <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+            <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
               Katılma İsteği Gönder
             </button>
           </form>
@@ -86,39 +97,39 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       )}
 
       {membership?.status === "PENDING" && (
-        <div className="mt-8 rounded-lg border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-800">
+        <div className="mt-8 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-300">
           Katılım isteğiniz grup yöneticisinin onayını bekliyor.
         </div>
       )}
 
       {membership?.status === "REJECTED" && (
-        <div className="mt-8 rounded-lg border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+        <div className="mt-8 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-300">
           Bu gruba katılım isteğiniz reddedildi.
         </div>
       )}
 
       {isManager && pendingMembers.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-slate-900">
+          <h2 className="text-sm font-semibold text-slate-100">
             Onay Bekleyen Katılım İstekleri
           </h2>
           <ul className="mt-3 flex flex-col gap-2">
             {pendingMembers.map((m) => (
               <li
                 key={m.id}
-                className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3"
+                className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 p-3"
               >
-                <span className="text-sm text-slate-700">
+                <span className="text-sm text-slate-300">
                   {m.user.pharmacyName} ({m.user.email})
                 </span>
                 <div className="flex gap-2">
                   <form action={approveMemberAction.bind(null, group.id, m.id)}>
-                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700">
+                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
                       Onayla
                     </button>
                   </form>
                   <form action={rejectMemberAction.bind(null, group.id, m.id)}>
-                    <button className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+                    <button className="rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
                       Reddet
                     </button>
                   </form>
@@ -131,37 +142,102 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
       {isApproved && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold text-slate-900">Takas İlanları</h2>
+          <h2 className="text-sm font-semibold text-slate-100">
+            Grubun Teklifleri ({listings.length})
+          </h2>
           {listings.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-slate-400">
               Bu grupta henüz ilan yok. İlk ilanı siz verin.
             </p>
           ) : (
-            <ul className="mt-3 flex flex-col gap-3">
-              {listings.map((listing) => (
-                <li key={listing.id}>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {listings.map((listing) => {
+                const baseTier = listing.tiers[0] ?? null;
+                const acceptedQty = listing.offers.reduce((sum, o) => sum + o.quantity, 0);
+                const hedef = listing.hedefAlim;
+                const kalan = hedef != null ? Math.max(0, hedef - acceptedQty) : null;
+                const progress =
+                  hedef && hedef > 0 ? Math.min(100, (acceptedQty / hedef) * 100) : 0;
+                const daysLeft = listing.endDate
+                  ? Math.ceil((listing.endDate.getTime() - Date.now()) / 86400000)
+                  : null;
+
+                return (
                   <Link
+                    key={listing.id}
                     href={`/groups/${group.id}/listings/${listing.id}`}
-                    className="block rounded-lg border border-slate-200 bg-white p-4 hover:border-emerald-400"
+                    className="flex flex-col rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-lg shadow-black/20 transition hover:border-emerald-500/70 hover:shadow-emerald-950/40"
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-slate-900">{listing.title}</p>
-                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                        {STATUS_LABEL[listing.status]}
+                    <div className="flex items-start justify-between">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-[11px] font-bold leading-tight text-emerald-400">
+                        {baseTier ? `${baseTier.minQuantity}+${baseTier.bonusQuantity}` : "1+0"}
+                        <br />
+                        MF
+                      </span>
+                      <div className="text-right">
+                        {listing.expiryDate && (
+                          <p className="text-[11px] text-slate-500">
+                            Miad: {listing.expiryDate.toLocaleDateString("tr-TR")}
+                          </p>
+                        )}
+                        {daysLeft != null && daysLeft >= 0 && (
+                          <p className="text-[11px] text-amber-400">{daysLeft} gün kaldı</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="mt-3 font-medium text-slate-100">{listing.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {listing.medicineName}
+                      {listing.barkod ? ` · ${listing.barkod}` : ""}
+                    </p>
+
+                    <span className="mt-2 inline-block w-fit rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400">
+                      {group.name}
+                    </span>
+
+                    {hedef != null && (
+                      <div className="mt-3">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                          <div
+                            className="h-full rounded-full bg-emerald-500"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Alım: {acceptedQty} · Hedef: {hedef} · Kalan: {kalan}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-auto flex items-end justify-between pt-3">
+                      <div>
+                        {baseTier && listing.birimFiyat != null && (
+                          <p className="text-sm font-semibold text-slate-100">
+                            Net:{" "}
+                            {Math.max(
+                              0,
+                              listing.birimFiyat -
+                                (listing.birimFiyat * baseTier.discountPercent) / 100 -
+                                baseTier.discountAmount
+                            ).toFixed(2)}{" "}
+                            ₺
+                          </p>
+                        )}
+                        {listing.birimFiyat != null && (
+                          <p className="text-xs text-slate-500">
+                            Depo: {listing.birimFiyat.toFixed(2)} ₺
+                          </p>
+                        )}
+                      </div>
+                      <span className="rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white">
+                        {STATUS_LABEL[listing.status] === "Açık" ? "KATIL" : STATUS_LABEL[listing.status]}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {listing.medicineName}
-                      {listing.quantity ? ` · ${listing.quantity}` : ""}
-                      {listing.birimFiyat != null ? ` · ${listing.birimFiyat.toFixed(2)} ₺` : ""}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {listing.user.pharmacyName} · {listing._count.offers} teklif
-                    </p>
                   </Link>
-                </li>
-              ))}
-            </ul>
+                );
+              })}
+            </div>
           )}
         </section>
       )}

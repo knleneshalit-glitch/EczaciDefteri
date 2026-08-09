@@ -38,29 +38,29 @@ export default async function ListingDetailPage(
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+      <div className="rounded-lg border border-slate-800 bg-slate-900 p-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-slate-900">{listing.title}</h1>
-          <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+          <h1 className="text-xl font-bold text-slate-100">{listing.title}</h1>
+          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
             {STATUS_LABEL[listing.status]}
           </span>
         </div>
-        <p className="mt-2 text-sm text-slate-700">
+        <p className="mt-2 text-sm text-slate-300">
           <span className="font-medium">İlaç:</span> {listing.medicineName}
           {listing.barkod ? ` · ${listing.barkod}` : ""}
         </p>
         {listing.quantity && (
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-300">
             <span className="font-medium">Miktar:</span> {listing.quantity}
           </p>
         )}
         {listing.totalStock != null && (
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-300">
             <span className="font-medium">Toplam Stok:</span> {listing.totalStock} adet
           </p>
         )}
         {listing.birimFiyat != null && (
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-300">
             <span className="font-medium">Depo Fiyatı:</span>{" "}
             {listing.birimFiyat.toFixed(2)} ₺
             {listing.etiketFiyati != null && (
@@ -69,7 +69,7 @@ export default async function ListingDetailPage(
           </p>
         )}
         {(listing.minAlim || listing.maxAlim || listing.alimKatlari) && (
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-300">
             <span className="font-medium">Alım Şartları:</span>{" "}
             {listing.minAlim ? `min ${listing.minAlim}` : ""}
             {listing.maxAlim ? ` · maks ${listing.maxAlim}` : ""}
@@ -77,13 +77,13 @@ export default async function ListingDetailPage(
           </p>
         )}
         {listing.expiryDate && (
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-slate-300">
             <span className="font-medium">SKT:</span>{" "}
             {listing.expiryDate.toLocaleDateString("tr-TR")}
           </p>
         )}
         {listing.description && (
-          <p className="mt-2 text-sm text-slate-600">{listing.description}</p>
+          <p className="mt-2 text-sm text-slate-400">{listing.description}</p>
         )}
         <p className="mt-3 text-xs text-slate-400">
           İlan sahibi: {listing.user.pharmacyName}
@@ -92,10 +92,10 @@ export default async function ListingDetailPage(
 
       {listing.tiers.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-sm font-semibold text-slate-900">Teklif Şartları</h2>
-          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <h2 className="text-sm font-semibold text-slate-100">Teklif Şartları</h2>
+          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
             <table className="w-full min-w-[480px] text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+              <thead className="border-b border-slate-800 bg-slate-800/40 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-3 py-2">Alım Miktarı ≥</th>
                   <th className="px-3 py-2">Mal Fazlası</th>
@@ -105,7 +105,7 @@ export default async function ListingDetailPage(
               </thead>
               <tbody>
                 {listing.tiers.map((t) => (
-                  <tr key={t.id} className="border-b border-slate-100 last:border-0">
+                  <tr key={t.id} className="border-b border-slate-800/60 last:border-0">
                     <td className="px-3 py-2">{t.minQuantity}</td>
                     <td className="px-3 py-2">{t.bonusQuantity}</td>
                     <td className="px-3 py-2">%{t.discountPercent}</td>
@@ -121,11 +121,11 @@ export default async function ListingDetailPage(
       {!isOwner && !alreadyOffered && listing.status === "OPEN" && (
         <form
           action={createOfferAction.bind(null, id, listing.id)}
-          className="mt-6 rounded-lg border border-slate-200 bg-white p-4"
+          className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
+              <label className="mb-1 block text-sm font-medium text-slate-300">
                 Alım Miktarı
               </label>
               <input
@@ -136,48 +136,48 @@ export default async function ListingDetailPage(
                 max={listing.maxAlim ?? undefined}
                 step={listing.alimKatlari ?? 1}
                 defaultValue={listing.minAlim ?? 1}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                className="w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
+              <label className="mb-1 block text-sm font-medium text-slate-300">
                 Not (opsiyonel)
               </label>
               <input
                 name="message"
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                className="w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
           </div>
-          <button className="mt-3 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+          <button className="mt-3 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
             Alım Teklifi Ver
           </button>
         </form>
       )}
 
       {alreadyOffered && !isOwner && (
-        <p className="mt-6 text-sm text-slate-600">Bu ilana zaten teklif verdiniz.</p>
+        <p className="mt-6 text-sm text-slate-400">Bu ilana zaten teklif verdiniz.</p>
       )}
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-900">
+        <h2 className="text-sm font-semibold text-slate-100">
           Teklifler ({listing.offers.length})
         </h2>
         <ul className="mt-3 flex flex-col gap-2">
           {listing.offers.map((offer) => (
             <li
               key={offer.id}
-              className="rounded-lg border border-slate-200 bg-white p-3"
+              className="rounded-lg border border-slate-800 bg-slate-900 p-3"
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-800">
+                <span className="text-sm font-medium text-slate-200">
                   {offer.user.pharmacyName}
                 </span>
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                   {OFFER_STATUS_LABEL[offer.status]}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-slate-400">
                 {offer.quantity} adet
                 {offer.bonusQuantity ? ` (+${offer.bonusQuantity} mal fazlası)` : ""}
                 {offer.unitPrice != null ? ` · ${offer.unitPrice.toFixed(2)} ₺/adet` : ""}
@@ -191,14 +191,14 @@ export default async function ListingDetailPage(
                   <form
                     action={respondOfferAction.bind(null, id, listing.id, offer.id, true)}
                   >
-                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700">
+                    <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
                       Kabul Et
                     </button>
                   </form>
                   <form
                     action={respondOfferAction.bind(null, id, listing.id, offer.id, false)}
                   >
-                    <button className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+                    <button className="rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10">
                       Reddet
                     </button>
                   </form>
@@ -207,7 +207,7 @@ export default async function ListingDetailPage(
             </li>
           ))}
           {listing.offers.length === 0 && (
-            <p className="text-sm text-slate-600">Henüz teklif yok.</p>
+            <p className="text-sm text-slate-400">Henüz teklif yok.</p>
           )}
         </ul>
       </section>

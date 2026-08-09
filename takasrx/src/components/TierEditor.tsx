@@ -55,9 +55,9 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
         )}
       />
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <div className="overflow-x-auto rounded-lg border border-slate-800">
         <table className="w-full min-w-[560px] text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="border-b border-slate-800 bg-slate-800/40 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-3 py-2">Alım Miktarı</th>
               <th className="px-3 py-2">Mal Fazlası</th>
@@ -69,14 +69,14 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
           </thead>
           <tbody>
             {tiers.map((t, i) => (
-              <tr key={i} className="border-b border-slate-100 last:border-0">
+              <tr key={i} className="border-b border-slate-800/60 last:border-0">
                 <td className="px-2 py-1.5">
                   <input
                     type="number"
                     min={1}
                     value={t.minQuantity}
                     onChange={(e) => updateTier(i, { minQuantity: e.target.value })}
-                    className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-24 rounded border border-slate-700 px-2 py-1 text-sm"
                     placeholder="ör. 100"
                   />
                 </td>
@@ -86,7 +86,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     min={0}
                     value={t.bonusQuantity}
                     onChange={(e) => updateTier(i, { bonusQuantity: e.target.value })}
-                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -97,7 +97,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     step="0.01"
                     value={t.discountPercent}
                     onChange={(e) => updateTier(i, { discountPercent: e.target.value })}
-                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -107,10 +107,10 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     step="0.01"
                     value={t.discountAmount}
                     onChange={(e) => updateTier(i, { discountAmount: e.target.value })}
-                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="w-20 rounded border border-slate-700 px-2 py-1 text-sm"
                   />
                 </td>
-                <td className="px-3 py-1.5 font-medium text-slate-700">
+                <td className="px-3 py-1.5 font-medium text-slate-300">
                   {birimFiyat > 0 ? netPrice(birimFiyat, t).toFixed(2) : "0.00"} ₺
                 </td>
                 <td className="px-2 py-1.5">
@@ -118,7 +118,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
                     <button
                       type="button"
                       onClick={() => removeTier(i)}
-                      className="text-xs text-red-600 hover:underline"
+                      className="text-xs text-red-400 hover:underline"
                     >
                       Sil
                     </button>
@@ -133,7 +133,7 @@ export default function TierEditor({ birimFiyat }: { birimFiyat: number }) {
       <button
         type="button"
         onClick={addTier}
-        className="mt-2 rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+        className="mt-2 rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10"
       >
         + Yeni Şart
       </button>
