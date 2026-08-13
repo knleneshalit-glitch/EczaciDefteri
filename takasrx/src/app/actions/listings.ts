@@ -57,6 +57,10 @@ export async function createListingAction(
   if (ekstraIndirim != null && ekstraIndirim < 0) {
     return { error: "Ekstra indirim negatif olamaz." };
   }
+  const ekstraIskontoYuzde = numberOrNull(formData.get("ekstraIskontoYuzde"));
+  if (ekstraIskontoYuzde != null && (ekstraIskontoYuzde < 0 || ekstraIskontoYuzde > 100)) {
+    return { error: "Ekstra iskonto yüzdesi 0-100 arasında olmalı." };
+  }
 
   await prisma.listing.create({
     data: {
@@ -71,6 +75,7 @@ export async function createListingAction(
       birimFiyat,
       dealBonusQuantity,
       ekstraIndirim,
+      ekstraIskontoYuzde,
       etiketFiyati: numberOrNull(formData.get("etiketFiyati")),
       startDate: dateOrNull(formData.get("startDate")),
       endDate: dateOrNull(formData.get("endDate")),
@@ -130,6 +135,12 @@ export async function updateListingAction(
     return { error: "Ekstra indirim negatif olamaz." };
   }
   data.ekstraIndirim = ekstraIndirim;
+
+  const ekstraIskontoYuzde = numberOrNull(formData.get("ekstraIskontoYuzde"));
+  if (ekstraIskontoYuzde != null && (ekstraIskontoYuzde < 0 || ekstraIskontoYuzde > 100)) {
+    return { error: "Ekstra iskonto yüzdesi 0-100 arasında olmalı." };
+  }
+  data.ekstraIskontoYuzde = ekstraIskontoYuzde;
 
   if (!hasAcceptedOffers) {
     const birimFiyat = numberOrNull(formData.get("birimFiyat"));

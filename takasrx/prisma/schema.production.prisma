@@ -166,6 +166,7 @@ model Listing {
   birimFiyat        Float?
   dealBonusQuantity Int?
   ekstraIndirim     Float?
+  ekstraIskontoYuzde Float?
   etiketFiyati      Float?
   startDate         DateTime?
   endDate           DateTime?

@@ -4,11 +4,18 @@ import { use, useActionState, useState } from "react";
 import { PackagePlus, Send } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
 
-function effectivePricePreview(birimFiyat: number, totalStock: number, bonus: number, ekstraIndirim: number) {
+function effectivePricePreview(
+  birimFiyat: number,
+  totalStock: number,
+  bonus: number,
+  ekstraIndirim: number,
+  ekstraIskontoYuzde: number
+) {
   if (!birimFiyat || !totalStock) return birimFiyat || 0;
   const hasBonus = bonus > 0 && bonus < totalStock;
   const paidQuantity = hasBonus ? totalStock - bonus : totalStock;
   let totalCost = birimFiyat * paidQuantity;
+  if (ekstraIskontoYuzde > 0) totalCost = totalCost * (1 - Math.min(ekstraIskontoYuzde, 100) / 100);
   if (ekstraIndirim > 0) totalCost = Math.max(0, totalCost - ekstraIndirim);
   return totalCost / totalStock;
 }
@@ -22,8 +29,15 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [totalStock, setTotalStock] = useState(0);
   const [dealBonusQuantity, setDealBonusQuantity] = useState(0);
   const [ekstraIndirim, setEkstraIndirim] = useState(0);
+  const [ekstraIskontoYuzde, setEkstraIskontoYuzde] = useState(0);
 
-  const netFiyat = effectivePricePreview(birimFiyat, totalStock, dealBonusQuantity, ekstraIndirim);
+  const netFiyat = effectivePricePreview(
+    birimFiyat,
+    totalStock,
+    dealBonusQuantity,
+    ekstraIndirim,
+    ekstraIskontoYuzde
+  );
   const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
 
   return (
@@ -129,25 +143,49 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
           </div>
 
-          <div className="mt-4">
-            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-              Ekstra İndirim (₺, toplam tutar üzerinden, opsiyonel)
-            </label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              name="ekstraIndirim"
-              onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
-              className="w-full max-w-xs rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-              placeholder="1000"
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Firma faturaya yansımayan ekstra bir indirim yaptıysa (ör. toplam tutardan elden
-              1000 ₺ indirim), buraya toplam tutarı girin. Bu tutar tüm adede bölünüp
-              efektif birim fiyata otomatik yansıtılır.
-            </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Ekstra İskonto (%, kampanya, opsiyonel)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                name="ekstraIskontoYuzde"
+                onChange={(e) => setEkstraIskontoYuzde(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="3"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Depo kampanya ile toplam tutara ek bir yüzde iskonto uyguladıysa (ör. %3), buraya
+                girin.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Ekstra İndirim (₺, toplam tutar üzerinden, opsiyonel)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                name="ekstraIndirim"
+                onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="1000"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Firma faturaya yansımayan sabit bir nakit indirim de yaptıysa (ör. elden 1000 ₺),
+                buraya toplam tutarı girin.
+              </p>
+            </div>
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Her iki indirim de toplam tutar üzerinden hesaplanıp tüm adede bölünerek efektif
+            birim fiyata otomatik yansıtılır.
+          </p>
 
           <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
@@ -156,6 +194,11 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <p className="mt-1 text-xs text-slate-500">
                 {birimFiyat.toFixed(2)} ₺ yerine, {dealBonusQuantity} adet mal fazlası sayesinde
                 bu fiyattan satış yapabilirsiniz.
+              </p>
+            )}
+            {ekstraIskontoYuzde > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Ayrıca %{ekstraIskontoYuzde} kampanya iskontosu tüm adede yansıtıldı.
               </p>
             )}
             {ekstraIndirim > 0 && (

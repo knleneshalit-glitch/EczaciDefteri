@@ -34,6 +34,7 @@ export default async function EditListingPage(
         totalStock: listing.totalStock ?? 0,
         dealBonusQuantity: listing.dealBonusQuantity ?? 0,
         ekstraIndirim: listing.ekstraIndirim ?? undefined,
+        ekstraIskontoYuzde: listing.ekstraIskontoYuzde ?? undefined,
         etiketFiyati: listing.etiketFiyati ?? undefined,
         startDate: toDateInputValue(listing.startDate),
         endDate: toDateInputValue(listing.endDate),
