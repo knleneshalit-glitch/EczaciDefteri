@@ -13,6 +13,8 @@ import {
   ShoppingBag,
   ArrowRight,
   HelpCircle,
+  Ban,
+  Unlock,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -21,6 +23,8 @@ import {
   approveMemberAction,
   rejectMemberAction,
   requestJoinAction,
+  closeGroupAction,
+  reopenGroupAction,
 } from "@/app/actions/groups";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -67,14 +71,22 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{group.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{group.name}</h1>
+            {group.closedAt && (
+              <span className="flex items-center gap-1 rounded bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                <Ban className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Kapatıldı
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-slate-500">{group.region}</p>
           {group.description && (
             <p className="mt-2 max-w-xl text-sm text-slate-600 dark:text-slate-400">{group.description}</p>
           )}
         </div>
         {isApproved && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Link
               href={`/groups/${group.id}/members`}
               className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -96,13 +108,38 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
               <HelpCircle className="h-4 w-4" strokeWidth={1.75} />
               İhtiyaç Bildirimleri
             </Link>
-            <Link
-              href={`/groups/${group.id}/new`}
-              className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2} />
-              Yeni İlan Ver
-            </Link>
+            {!group.closedAt && (
+              <Link
+                href={`/groups/${group.id}/new`}
+                className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2} />
+                Yeni İlan Ver
+              </Link>
+            )}
+            {isManager && (
+              <form action={(group.closedAt ? reopenGroupAction : closeGroupAction).bind(null, group.id)}>
+                <button
+                  className={
+                    group.closedAt
+                      ? "flex items-center gap-1.5 rounded-md border border-emerald-500/40 px-4 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                      : "flex items-center gap-1.5 rounded-md border border-red-500/40 px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                  }
+                >
+                  {group.closedAt ? (
+                    <>
+                      <Unlock className="h-4 w-4" strokeWidth={1.75} />
+                      Grubu Yeniden Aç
+                    </>
+                  ) : (
+                    <>
+                      <Ban className="h-4 w-4" strokeWidth={1.75} />
+                      Grubu Kapat
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
           </div>
         )}
       </div>
@@ -113,12 +150,16 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Bu grubun takas ilanlarını görmek için üye olmanız gerekiyor.
           </p>
-          <form action={requestJoinAction.bind(null, group.id)} className="mt-4">
-            <button className="mx-auto flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
-              <Send className="h-4 w-4" strokeWidth={1.75} />
-              Katılma İsteği Gönder
-            </button>
-          </form>
+          {group.closedAt ? (
+            <p className="mt-4 text-sm text-red-600 dark:text-red-400">Bu grup kapatıldığı için katılım kabul edilmiyor.</p>
+          ) : (
+            <form action={requestJoinAction.bind(null, group.id)} className="mt-4">
+              <button className="mx-auto flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
+                <Send className="h-4 w-4" strokeWidth={1.75} />
+                Katılma İsteği Gönder
+              </button>
+            </form>
+          )}
         </div>
       )}
 

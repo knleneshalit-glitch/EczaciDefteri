@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
 import { accrueInterestForGroup, getGroupBalances } from "@/lib/ledger";
+import InterestRateForm from "./InterestRateForm";
 
 function money(n: number) {
   return `${n.toFixed(2)} ₺`;
@@ -12,7 +13,8 @@ function money(n: number) {
 export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/balances">) {
   const user = await requireUser();
   const { id } = await props.params;
-  await requireApprovedMember(id, user.id);
+  const membership = await requireApprovedMember(id, user.id);
+  const isManager = membership.role === "MANAGER";
 
   const group = await prisma.group.findUnique({ where: { id } });
   if (!group) notFound();
@@ -44,6 +46,11 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
         Bakiye: alım/satım hareketlerinden oluşan cari tutar. Grup Yükü: bakiyeye işlenen
         günlük faizin birikimi. Toplam: bakiye + grup yükü.
       </p>
+      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+        Güncel günlük faiz oranı: <span className="font-medium">%{(group.dailyInterestRate * 100).toFixed(3).replace(/\.?0+$/, "") || "0"}</span>
+      </p>
+
+      {isManager && <InterestRateForm groupId={group.id} currentRate={group.dailyInterestRate} />}
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <table className="w-full min-w-[720px] text-left text-sm">

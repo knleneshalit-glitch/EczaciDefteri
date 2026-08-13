@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { DAILY_INTEREST_RATE } from "@/lib/settings";
 
 function startOfDay(d: Date) {
   const copy = new Date(d);
@@ -63,10 +62,15 @@ const MAX_BACKFILL_DAYS = 90;
  * ayrı bir "grup yükü" başlığında tutulur (bakiyeye karışmaz).
  */
 export async function accrueInterestForGroup(groupId: string) {
-  const members = await prisma.groupMember.findMany({
-    where: { groupId, status: "APPROVED" },
-    select: { userId: true },
-  });
+  const [group, members] = await Promise.all([
+    prisma.group.findUnique({ where: { id: groupId }, select: { dailyInterestRate: true } }),
+    prisma.groupMember.findMany({
+      where: { groupId, status: "APPROVED" },
+      select: { userId: true },
+    }),
+  ]);
+  if (!group) return;
+  const dailyInterestRate = group.dailyInterestRate;
 
   const today = startOfDay(new Date());
 
@@ -102,7 +106,7 @@ export async function accrueInterestForGroup(groupId: string) {
         .filter((e) => e.createdAt <= dayEnd)
         .reduce((sum, e) => sum + e.amount, 0);
 
-      const interest = principal * DAILY_INTEREST_RATE;
+      const interest = principal * dailyInterestRate;
       if (Math.abs(interest) > 0.0001) {
         newEntries.push({
           groupId,

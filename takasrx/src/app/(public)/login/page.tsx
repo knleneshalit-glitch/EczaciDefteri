@@ -40,6 +40,12 @@ export default function LoginPage() {
           />
         </div>
 
+        <div className="-mt-2 text-right">
+          <Link href="/forgot-password" className="text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline">
+            Şifremi unuttum
+          </Link>
+        </div>
+
         {state?.error && (
           <p className="text-sm text-red-600 dark:text-red-400" aria-live="polite">
             {state.error}

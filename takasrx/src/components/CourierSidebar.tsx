@@ -11,7 +11,7 @@ export default function CourierSidebar({
   unreadCount?: number;
 }) {
   return (
-    <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+    <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 print:hidden">
       <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
         <div className="flex items-center justify-between">
           <Link

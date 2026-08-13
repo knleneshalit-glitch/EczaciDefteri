@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { ClipboardList, Plus, CircleDot, CheckCircle2, Lock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import NewListingPicker from "./NewListingPicker";
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
@@ -19,15 +20,24 @@ const STATUS_ICON: Record<string, LucideIcon> = {
 export default async function MyListingsPage() {
   const user = await requireUser();
 
-  const listings = await prisma.listing.findMany({
-    where: { userId: user.id },
-    include: { group: true, _count: { select: { offers: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+  const [listings, memberships] = await Promise.all([
+    prisma.listing.findMany({
+      where: { userId: user.id },
+      include: { group: true, _count: { select: { offers: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.groupMember.findMany({
+      where: { userId: user.id, status: "APPROVED" },
+      include: { group: true },
+      orderBy: { group: { name: "asc" } },
+    }),
+  ]);
+
+  const openGroups = memberships.filter((m) => !m.group.closedAt).map((m) => m.group);
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
             <ClipboardList className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
@@ -37,22 +47,32 @@ export default async function MyListingsPage() {
             Verdiğiniz tüm takas ilanları burada listelenir.
           </p>
         </div>
-        <Link
-          href="/groups"
-          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-        >
-          <Plus className="h-4 w-4" strokeWidth={2} />
-          Yeni İlan Ver
-        </Link>
+        {openGroups.length > 0 ? (
+          <NewListingPicker groups={openGroups.map((g) => ({ id: g.id, name: g.name }))} />
+        ) : (
+          <Link
+            href="/groups"
+            className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2} />
+            Gruba Katıl
+          </Link>
+        )}
       </div>
 
       {listings.length === 0 ? (
         <p className="mt-8 text-sm text-slate-600 dark:text-slate-400">
-          Henüz bir ilan vermediniz. Önce bir gruba katılın, ardından{" "}
-          <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
-            grubunuzdan yeni ilan verin
-          </Link>
-          .
+          {memberships.length === 0 ? (
+            <>
+              Henüz bir ilan vermediniz. Önce bir gruba katılın, ardından{" "}
+              <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
+                grubunuzdan yeni ilan verin
+              </Link>
+              .
+            </>
+          ) : (
+            "Henüz bir ilan vermediniz. Yukarıdan grubunuzu seçip ilk ilanı verin."
+          )}
         </p>
       ) : (
         <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">

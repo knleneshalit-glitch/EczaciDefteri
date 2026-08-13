@@ -132,6 +132,45 @@ export async function loginAction(
   redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
 }
 
+export async function resetPasswordAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const identifier = String(formData.get("identifier") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  if (!email || !email.includes("@")) {
+    return { error: "Geçerli bir e-posta girin." };
+  }
+  if (!identifier) {
+    return { error: "GLN numaranızı veya yetkili adı soyadınızı girin." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Şifreler eşleşmiyor." };
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  const matches =
+    !!user &&
+    ((user.gln && user.gln === identifier) ||
+      user.contactName.trim().toLowerCase() === identifier.toLowerCase());
+
+  if (!user || !matches) {
+    return { error: "Bu bilgilerle eşleşen bir hesap bulunamadı." };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
+}
+
 export async function logoutAction() {
   await destroySession();
   redirect("/");

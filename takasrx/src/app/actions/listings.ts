@@ -31,6 +31,11 @@ export async function createListingAction(
   const user = await requireUser();
   await requireApprovedMember(groupId, user.id);
 
+  const group = await prisma.group.findUnique({ where: { id: groupId } });
+  if (!group || group.closedAt) {
+    return { error: "Bu grup kapatıldığı için yeni ilan verilemiyor." };
+  }
+
   const title = String(formData.get("title") ?? "").trim();
   const medicineName = String(formData.get("medicineName") ?? "").trim();
   const barkod = String(formData.get("barkod") ?? "").trim();

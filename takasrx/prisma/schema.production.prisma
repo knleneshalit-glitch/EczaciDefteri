@@ -120,11 +120,13 @@ model Notification {
 }
 
 model Group {
-  id          String   @id @default(cuid())
-  name        String
-  region      String
-  description String?
-  createdAt   DateTime @default(now())
+  id                String    @id @default(cuid())
+  name              String
+  region            String
+  description       String?
+  dailyInterestRate Float     @default(0.001)
+  createdAt         DateTime  @default(now())
+  closedAt          DateTime?
 
   creatorId String
   creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])

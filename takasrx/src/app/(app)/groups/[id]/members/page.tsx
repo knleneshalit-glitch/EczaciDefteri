@@ -1,13 +1,15 @@
 import { notFound } from "next/navigation";
-import { Users, Crown } from "lucide-react";
+import { Users, Crown, UserMinus } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
+import { removeMemberAction } from "@/app/actions/groups";
 
 export default async function GroupMembersPage(props: PageProps<"/groups/[id]/members">) {
   const user = await requireUser();
   const { id } = await props.params;
-  await requireApprovedMember(id, user.id);
+  const membership = await requireApprovedMember(id, user.id);
+  const isManager = membership.role === "MANAGER";
 
   const group = await prisma.group.findUnique({ where: { id } });
   if (!group) notFound();
@@ -36,6 +38,7 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
               <th className="px-4 py-3">Mail Adresi</th>
               <th className="px-4 py-3">Şehir</th>
               <th className="px-4 py-3">Adres</th>
+              {isManager && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody>
@@ -58,11 +61,26 @@ export default async function GroupMembersPage(props: PageProps<"/groups/[id]/me
                   {m.user.district ? ` / ${m.user.district}` : ""}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{m.user.address ?? "—"}</td>
+                {isManager && (
+                  <td className="px-4 py-3 text-right">
+                    {m.role !== "MANAGER" && (
+                      <form action={removeMemberAction.bind(null, id, m.id)}>
+                        <button
+                          className="flex items-center gap-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                          title="Gruptan çıkar"
+                        >
+                          <UserMinus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          Çıkar
+                        </button>
+                      </form>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
             {members.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={isManager ? 7 : 6} className="px-4 py-6 text-center text-slate-500">
                   Kayıt bulunamadı
                 </td>
               </tr>
