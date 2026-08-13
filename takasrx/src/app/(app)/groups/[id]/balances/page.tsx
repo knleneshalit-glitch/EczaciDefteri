@@ -43,14 +43,14 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{group.name}</p>
       <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-        Bakiye: alım/satım hareketlerinden oluşan cari tutar. Grup Yükü: bakiyeye işlenen
-        günlük faizin birikimi. Toplam: bakiye + grup yükü.
+        Bakiye: alım/satım hareketlerinden oluşan cari tutar. Grup Yükü: bakiyeye her ayın
+        1'inde işlenen aylık faizin birikimi. Toplam: bakiye + grup yükü.
       </p>
       <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-        Güncel günlük faiz oranı: <span className="font-medium">%{(group.dailyInterestRate * 100).toFixed(3).replace(/\.?0+$/, "") || "0"}</span>
+        Güncel aylık faiz oranı: <span className="font-medium">%{(group.monthlyInterestRate * 100).toFixed(3).replace(/\.?0+$/, "") || "0"}</span>
       </p>
 
-      {isManager && <InterestRateForm groupId={group.id} currentRate={group.dailyInterestRate} />}
+      {isManager && <InterestRateForm groupId={group.id} currentRate={group.monthlyInterestRate} />}
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <table className="w-full min-w-[720px] text-left text-sm">

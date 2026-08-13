@@ -124,7 +124,7 @@ model Group {
   name              String
   region            String
   description       String?
-  dailyInterestRate Float     @default(0.001)
+  monthlyInterestRate Float   @default(0)
   createdAt         DateTime  @default(now())
   closedAt          DateTime?
 

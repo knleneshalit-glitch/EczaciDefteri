@@ -18,7 +18,7 @@ export default function InterestRateForm({
     <form action={formAction} className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Günlük Faiz Oranı (%)
+          Aylık Faiz Oranı (%)
         </label>
         <input
           type="number"
@@ -43,6 +43,10 @@ export default function InterestRateForm({
           {state.error}
         </p>
       )}
+      <p className="w-full text-xs text-slate-500">
+        Bu oran her ayın 1'inde o ana kadarki bakiyeye tek seferlik uygulanır (bileşik değildir).
+        İstediğiniz zaman değiştirebilirsiniz.
+      </p>
     </form>
   );
 }

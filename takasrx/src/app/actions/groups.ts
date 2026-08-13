@@ -150,7 +150,7 @@ export async function updateInterestRateAction(
 
   await prisma.group.update({
     where: { id: groupId },
-    data: { dailyInterestRate: percent / 100 },
+    data: { monthlyInterestRate: percent / 100 },
   });
 
   revalidatePath(`/groups/${groupId}/balances`);

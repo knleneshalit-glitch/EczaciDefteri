@@ -1,21 +1,11 @@
 import { prisma } from "@/lib/prisma";
 
-function startOfDay(d: Date) {
-  const copy = new Date(d);
-  copy.setUTCHours(0, 0, 0, 0);
-  return copy;
+function startOfMonth(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
-function endOfDay(d: Date) {
-  const copy = new Date(d);
-  copy.setUTCHours(23, 59, 59, 999);
-  return copy;
-}
-
-function addDays(d: Date, days: number) {
-  const copy = new Date(d);
-  copy.setUTCDate(copy.getUTCDate() + days);
-  return copy;
+function addMonths(d: Date, months: number) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1));
 }
 
 /** Alım/satış tutarını cari hesaba işler: alıcının bakiyesinden düşer, satıcının bakiyesine eklenir. */
@@ -53,26 +43,27 @@ export async function recordTrade(params: {
   ]);
 }
 
-const MAX_BACKFILL_DAYS = 90;
+const MAX_BACKFILL_MONTHS = 36;
 
 /**
- * Grubun onaylı üyeleri için işlenmemiş günlerin faizini hesaplayıp
- * LedgerEntry(type: INTEREST) olarak kaydeder. Faiz, o günkü bakiyeye
- * (sadece TRADE/MANUAL hareketlerin toplamı) göre hesaplanır ve birikimi
- * ayrı bir "grup yükü" başlığında tutulur (bakiyeye karışmaz).
+ * Grubun onaylı üyeleri için işlenmemiş ayların faizini hesaplayıp
+ * LedgerEntry(type: INTEREST) olarak kaydeder. Faiz aylık olarak, her ayın
+ * 1'ine, o ana kadarki bakiyeye (sadece TRADE/MANUAL hareketlerin toplamı)
+ * göre hesaplanır ve birikimi ayrı bir "grup yükü" başlığında tutulur
+ * (bakiyeye karışmaz, kendi üzerine faiz işlemez).
  */
 export async function accrueInterestForGroup(groupId: string) {
   const [group, members] = await Promise.all([
-    prisma.group.findUnique({ where: { id: groupId }, select: { dailyInterestRate: true } }),
+    prisma.group.findUnique({ where: { id: groupId }, select: { monthlyInterestRate: true } }),
     prisma.groupMember.findMany({
       where: { groupId, status: "APPROVED" },
       select: { userId: true },
     }),
   ]);
   if (!group) return;
-  const dailyInterestRate = group.dailyInterestRate;
+  const monthlyInterestRate = group.monthlyInterestRate;
 
-  const today = startOfDay(new Date());
+  const thisMonthStart = startOfMonth(new Date());
 
   for (const { userId } of members) {
     const [principalEntries, lastInterest] = await Promise.all([
@@ -90,23 +81,22 @@ export async function accrueInterestForGroup(groupId: string) {
 
     if (principalEntries.length === 0) continue;
 
-    const firstEntryDay = startOfDay(principalEntries[0].createdAt);
+    const firstEntryMonth = startOfMonth(principalEntries[0].createdAt);
     let cursor = lastInterest?.interestDate
-      ? addDays(startOfDay(lastInterest.interestDate), 1)
-      : firstEntryDay;
+      ? addMonths(startOfMonth(lastInterest.interestDate), 1)
+      : firstEntryMonth;
 
-    const earliestAllowed = addDays(today, -MAX_BACKFILL_DAYS);
+    const earliestAllowed = addMonths(thisMonthStart, -MAX_BACKFILL_MONTHS);
     if (cursor < earliestAllowed) cursor = earliestAllowed;
 
     const newEntries: { groupId: string; userId: string; type: "INTEREST"; amount: number; interestDate: Date }[] = [];
 
-    while (cursor < today) {
-      const dayEnd = endOfDay(cursor);
+    while (cursor <= thisMonthStart) {
       const principal = principalEntries
-        .filter((e) => e.createdAt <= dayEnd)
+        .filter((e) => e.createdAt < cursor)
         .reduce((sum, e) => sum + e.amount, 0);
 
-      const interest = principal * dailyInterestRate;
+      const interest = principal * monthlyInterestRate;
       if (Math.abs(interest) > 0.0001) {
         newEntries.push({
           groupId,
@@ -116,7 +106,7 @@ export async function accrueInterestForGroup(groupId: string) {
           interestDate: new Date(cursor),
         });
       }
-      cursor = addDays(cursor, 1);
+      cursor = addMonths(cursor, 1);
     }
 
     if (newEntries.length > 0) {
