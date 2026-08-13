@@ -26,7 +26,6 @@ export default async function EditListingPage(
       listingId={listingId}
       hasAcceptedOffers={listing.offers.length > 0}
       defaults={{
-        title: listing.title,
         medicineName: listing.medicineName,
         barkod: listing.barkod ?? "",
         quantity: listing.quantity ?? "",
@@ -34,6 +33,7 @@ export default async function EditListingPage(
         birimFiyat: listing.birimFiyat ?? 0,
         totalStock: listing.totalStock ?? 0,
         dealBonusQuantity: listing.dealBonusQuantity ?? 0,
+        ekstraIndirim: listing.ekstraIndirim ?? undefined,
         etiketFiyati: listing.etiketFiyati ?? undefined,
         startDate: toDateInputValue(listing.startDate),
         endDate: toDateInputValue(listing.endDate),

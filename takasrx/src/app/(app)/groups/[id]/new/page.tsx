@@ -4,23 +4,26 @@ import { use, useActionState, useState } from "react";
 import { PackagePlus, Send } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
 
-function effectivePricePreview(birimFiyat: number, totalStock: number, bonus: number) {
-  if (!birimFiyat || !totalStock || !bonus || bonus <= 0 || bonus >= totalStock) {
-    return birimFiyat || 0;
-  }
-  const paidQuantity = totalStock - bonus;
-  return (birimFiyat * paidQuantity) / totalStock;
+function effectivePricePreview(birimFiyat: number, totalStock: number, bonus: number, ekstraIndirim: number) {
+  if (!birimFiyat || !totalStock) return birimFiyat || 0;
+  const hasBonus = bonus > 0 && bonus < totalStock;
+  const paidQuantity = hasBonus ? totalStock - bonus : totalStock;
+  let totalCost = birimFiyat * paidQuantity;
+  if (ekstraIndirim > 0) totalCost = Math.max(0, totalCost - ekstraIndirim);
+  return totalCost / totalStock;
 }
 
 export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const { id } = use(props.params);
   const action = createListingAction.bind(null, id);
   const [state, formAction, pending] = useActionState(action, undefined);
+  const [medicineName, setMedicineName] = useState("");
   const [birimFiyat, setBirimFiyat] = useState(0);
   const [totalStock, setTotalStock] = useState(0);
   const [dealBonusQuantity, setDealBonusQuantity] = useState(0);
+  const [ekstraIndirim, setEkstraIndirim] = useState(0);
 
-  const netFiyat = effectivePricePreview(birimFiyat, totalStock, dealBonusQuantity);
+  const netFiyat = effectivePricePreview(birimFiyat, totalStock, dealBonusQuantity, ekstraIndirim);
   const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
 
   return (
@@ -35,20 +38,13 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Başlık</label>
-              <input
-                name="title"
-                required
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                placeholder="Fazla stok - satışa açık"
-              />
-            </div>
-            <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">İlaç Adı</label>
               <input
                 name="medicineName"
                 required
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                value={medicineName}
+                onChange={(e) => setMedicineName(e.target.value.toLocaleUpperCase("tr-TR"))}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none uppercase"
               />
             </div>
             <div>
@@ -133,6 +129,26 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
           </div>
 
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Ekstra İndirim (₺, toplam tutar üzerinden, opsiyonel)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              name="ekstraIndirim"
+              onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
+              className="w-full max-w-xs rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              placeholder="1000"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Firma faturaya yansımayan ekstra bir indirim yaptıysa (ör. toplam tutardan elden
+              1000 ₺ indirim), buraya toplam tutarı girin. Bu tutar tüm adede bölünüp
+              efektif birim fiyata otomatik yansıtılır.
+            </p>
+          </div>
+
           <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{netFiyat.toFixed(2)} ₺</p>
@@ -140,6 +156,11 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <p className="mt-1 text-xs text-slate-500">
                 {birimFiyat.toFixed(2)} ₺ yerine, {dealBonusQuantity} adet mal fazlası sayesinde
                 bu fiyattan satış yapabilirsiniz.
+              </p>
+            )}
+            {ekstraIndirim > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Ayrıca {ekstraIndirim.toFixed(2)} ₺ ekstra indirim tüm adede yansıtıldı.
               </p>
             )}
           </div>

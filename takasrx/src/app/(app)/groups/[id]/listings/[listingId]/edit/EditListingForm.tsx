@@ -5,7 +5,6 @@ import { Pencil, Save } from "lucide-react";
 import { updateListingAction } from "@/app/actions/listings";
 
 type Defaults = {
-  title: string;
   medicineName: string;
   barkod: string;
   quantity: string;
@@ -13,6 +12,7 @@ type Defaults = {
   birimFiyat: number;
   totalStock: number;
   dealBonusQuantity: number;
+  ekstraIndirim?: number;
   etiketFiyati?: number;
   startDate: string;
   endDate: string;
@@ -21,11 +21,13 @@ type Defaults = {
   expiryDate: string;
 };
 
-function effectivePricePreview(birimFiyat: number, totalStock: number, bonus: number) {
-  if (!birimFiyat || !totalStock || !bonus || bonus <= 0 || bonus >= totalStock) {
-    return birimFiyat || 0;
-  }
-  return (birimFiyat * (totalStock - bonus)) / totalStock;
+function effectivePricePreview(birimFiyat: number, totalStock: number, bonus: number, ekstraIndirim: number) {
+  if (!birimFiyat || !totalStock) return birimFiyat || 0;
+  const hasBonus = bonus > 0 && bonus < totalStock;
+  const paidQuantity = hasBonus ? totalStock - bonus : totalStock;
+  let totalCost = birimFiyat * paidQuantity;
+  if (ekstraIndirim > 0) totalCost = Math.max(0, totalCost - ekstraIndirim);
+  return totalCost / totalStock;
 }
 
 export default function EditListingForm({
@@ -41,11 +43,13 @@ export default function EditListingForm({
 }) {
   const action = updateListingAction.bind(null, groupId, listingId);
   const [state, formAction, pending] = useActionState(action, undefined);
+  const [medicineName, setMedicineName] = useState(defaults.medicineName);
   const [birimFiyat, setBirimFiyat] = useState(defaults.birimFiyat);
   const [totalStock, setTotalStock] = useState(defaults.totalStock);
   const [dealBonusQuantity, setDealBonusQuantity] = useState(defaults.dealBonusQuantity);
+  const [ekstraIndirim, setEkstraIndirim] = useState(defaults.ekstraIndirim ?? 0);
 
-  const netFiyat = effectivePricePreview(birimFiyat, totalStock, dealBonusQuantity);
+  const netFiyat = effectivePricePreview(birimFiyat, totalStock, dealBonusQuantity, ekstraIndirim);
   const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
   const inputClass =
     "w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none disabled:opacity-50";
@@ -63,16 +67,13 @@ export default function EditListingForm({
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Başlık</label>
-              <input name="title" required defaultValue={defaults.title} className={inputClass} />
-            </div>
-            <div>
               <label className={labelClass}>İlaç Adı</label>
               <input
                 name="medicineName"
                 required
-                defaultValue={defaults.medicineName}
-                className={inputClass}
+                value={medicineName}
+                onChange={(e) => setMedicineName(e.target.value.toLocaleUpperCase("tr-TR"))}
+                className={`${inputClass} uppercase`}
               />
             </div>
             <div>
@@ -143,6 +144,23 @@ export default function EditListingForm({
             </div>
           </div>
 
+          <div className="mt-4">
+            <label className={labelClass}>Ekstra İndirim (₺, toplam tutar üzerinden, opsiyonel)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              name="ekstraIndirim"
+              defaultValue={defaults.ekstraIndirim ?? ""}
+              onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
+              className={`${inputClass} max-w-xs`}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Firma faturaya yansımayan ekstra bir indirim yaptıysa, toplam tutarı buraya girin;
+              tüm adede bölünüp efektif birim fiyata otomatik yansıtılır.
+            </p>
+          </div>
+
           <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
@@ -152,6 +170,11 @@ export default function EditListingForm({
               <p className="mt-1 text-xs text-slate-500">
                 {birimFiyat.toFixed(2)} ₺ yerine, {dealBonusQuantity} adet mal fazlası sayesinde
                 bu fiyattan satış yapabilirsiniz.
+              </p>
+            )}
+            {ekstraIndirim > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Ayrıca {ekstraIndirim.toFixed(2)} ₺ ekstra indirim tüm adede yansıtıldı.
               </p>
             )}
           </div>

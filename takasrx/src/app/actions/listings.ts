@@ -36,13 +36,11 @@ export async function createListingAction(
     return { error: "Bu grup kapatıldığı için yeni ilan verilemiyor." };
   }
 
-  const title = String(formData.get("title") ?? "").trim();
-  const medicineName = String(formData.get("medicineName") ?? "").trim();
+  const medicineName = String(formData.get("medicineName") ?? "").trim().toLocaleUpperCase("tr-TR");
   const barkod = String(formData.get("barkod") ?? "").trim();
   const quantity = String(formData.get("quantity") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
 
-  if (!title) return { error: "Başlık gerekli." };
   if (!medicineName) return { error: "İlaç adı gerekli." };
 
   const birimFiyat = numberOrNull(formData.get("birimFiyat"));
@@ -55,12 +53,16 @@ export async function createListingAction(
   if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
     return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
   }
+  const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));
+  if (ekstraIndirim != null && ekstraIndirim < 0) {
+    return { error: "Ekstra indirim negatif olamaz." };
+  }
 
   await prisma.listing.create({
     data: {
       groupId,
       userId: user.id,
-      title,
+      title: medicineName,
       medicineName,
       barkod: barkod || null,
       quantity: quantity || null,
@@ -68,6 +70,7 @@ export async function createListingAction(
       totalStock,
       birimFiyat,
       dealBonusQuantity,
+      ekstraIndirim,
       etiketFiyati: numberOrNull(formData.get("etiketFiyati")),
       startDate: dateOrNull(formData.get("startDate")),
       endDate: dateOrNull(formData.get("endDate")),
@@ -99,19 +102,17 @@ export async function updateListingAction(
     return { error: "Bu ilana ait değilsiniz." };
   }
 
-  const title = String(formData.get("title") ?? "").trim();
-  const medicineName = String(formData.get("medicineName") ?? "").trim();
+  const medicineName = String(formData.get("medicineName") ?? "").trim().toLocaleUpperCase("tr-TR");
   const barkod = String(formData.get("barkod") ?? "").trim();
   const quantity = String(formData.get("quantity") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
 
-  if (!title) return { error: "Başlık gerekli." };
   if (!medicineName) return { error: "İlaç adı gerekli." };
 
   const hasAcceptedOffers = listing.offers.length > 0;
 
   const data: Parameters<typeof prisma.listing.update>[0]["data"] = {
-    title,
+    title: medicineName,
     medicineName,
     barkod: barkod || null,
     quantity: quantity || null,
@@ -123,6 +124,12 @@ export async function updateListingAction(
     minAlim: numberOrNull(formData.get("minAlim")),
     expiryDate: dateOrNull(formData.get("expiryDate")),
   };
+
+  const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));
+  if (ekstraIndirim != null && ekstraIndirim < 0) {
+    return { error: "Ekstra indirim negatif olamaz." };
+  }
+  data.ekstraIndirim = ekstraIndirim;
 
   if (!hasAcceptedOffers) {
     const birimFiyat = numberOrNull(formData.get("birimFiyat"));

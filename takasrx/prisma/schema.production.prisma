@@ -165,6 +165,7 @@ model Listing {
   totalStock        Int?
   birimFiyat        Float?
   dealBonusQuantity Int?
+  ekstraIndirim     Float?
   etiketFiyati      Float?
   startDate         DateTime?
   endDate           DateTime?
