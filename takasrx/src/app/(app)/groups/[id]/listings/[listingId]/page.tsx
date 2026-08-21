@@ -10,17 +10,19 @@ import {
   CircleDot,
   CheckCircle2,
   Lock,
+  Unlock,
   Clock,
   XCircle,
   Pencil,
   Truck,
   Tag,
+  QrCode,
+  Sparkles,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
-import { createOfferAction, respondOfferAction, closeListingAction } from "@/app/actions/listings";
-import { prepareShipmentAction } from "@/app/actions/shipments";
+import { createOfferAction, respondOfferAction, closeListingAction, reopenListingAction } from "@/app/actions/listings";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
 
@@ -92,28 +94,39 @@ export default async function ListingDetailPage(
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
-      <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">{listing.title}</h1>
+          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
+            <Sparkles className="h-5 w-5 text-violet-500" strokeWidth={1.75} />
+            {listing.title}
+          </h1>
           <div className="flex items-center gap-2">
-            {isOwner && listing.status === "OPEN" && (
-              <>
-                <Link
-                  href={`/groups/${id}/listings/${listingId}/edit`}
-                  className="flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  Düzenle
-                </Link>
-                <form action={closeListingAction.bind(null, id, listingId)}>
-                  <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10">
-                    <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    İlanı Kapat
-                  </button>
-                </form>
-              </>
+            {isOwner && (
+              <Link
+                href={`/groups/${id}/listings/${listingId}/edit`}
+                className="flex items-center gap-1 rounded-full border border-blue-300 dark:border-blue-800 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10"
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Düzenle
+              </Link>
             )}
-            <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(listing.status)}`}>
+            {isOwner && listing.status === "OPEN" && (
+              <form action={closeListingAction.bind(null, id, listingId)}>
+                <button className="flex items-center gap-1 rounded-full border border-red-300 dark:border-red-800 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10">
+                  <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  İlanı Kapat
+                </button>
+              </form>
+            )}
+            {isOwner && listing.status === "CLOSED" && (
+              <form action={reopenListingAction.bind(null, id, listingId)}>
+                <button className="flex items-center gap-1 rounded-full border border-emerald-300 dark:border-emerald-800 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
+                  <Unlock className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Yeniden Yayınla
+                </button>
+              </form>
+            )}
+            <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(listing.status)}`}>
               <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
               {STATUS_LABEL[listing.status]}
             </span>
@@ -150,12 +163,27 @@ export default async function ListingDetailPage(
       </div>
 
       {netFiyat != null && (
-        <section className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-5">
-          <div className="flex items-center gap-2">
+        <section className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+          <div className="flex flex-wrap items-center gap-2">
             <PackageCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {hasBonus ? "Mal Fazlalı Depo Şartı" : "Depo Fiyatı"}
             </p>
+            {hasBonus && (
+              <span className="rounded-full border-2 border-orange-400 bg-orange-100 dark:bg-orange-500/20 px-3 py-0.5 text-xs font-bold text-orange-700 dark:text-orange-400">
+                {listing.totalStock! - listing.dealBonusQuantity!}+{listing.dealBonusQuantity} MF
+              </span>
+            )}
+            {listing.ekstraIskontoYuzde != null && listing.ekstraIskontoYuzde > 0 && (
+              <span className="rounded-full bg-blue-100 dark:bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-400">
+                %{listing.ekstraIskontoYuzde} Yüzde İskonto
+              </span>
+            )}
+            {listing.ekstraIndirim != null && listing.ekstraIndirim > 0 && (
+              <span className="rounded-full bg-purple-100 dark:bg-purple-500/20 px-2.5 py-0.5 text-[11px] font-medium text-purple-700 dark:text-purple-400">
+                {listing.ekstraIndirim.toFixed(0)} ₺ Nakit İndirim
+              </span>
+            )}
           </div>
           <div className="mt-3 grid gap-4 sm:grid-cols-3">
             <div>
@@ -190,7 +218,7 @@ export default async function ListingDetailPage(
       {!isOwner && !alreadyOffered && listing.status === "OPEN" && (
         <form
           action={createOfferAction.bind(null, id, listing.id)}
-          className="mt-6 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"
+          className="mt-6 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-500/5 p-4"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -230,14 +258,14 @@ export default async function ListingDetailPage(
 
       <section className="mt-8">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-          <MessagesSquare className="h-4 w-4 text-slate-600 dark:text-slate-400" strokeWidth={1.75} />
+          <MessagesSquare className="h-4 w-4 text-purple-600 dark:text-purple-400" strokeWidth={1.75} />
           Teklifler ({listing.offers.length})
         </h2>
         <ul className="mt-3 flex flex-col gap-2">
           {listing.offers.map((offer) => {
             const OfferStatusIcon = OFFER_STATUS_ICON[offer.status];
             return (
-              <li key={offer.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              <li key={offer.id} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                     {offer.user.pharmacyName}
@@ -276,7 +304,7 @@ export default async function ListingDetailPage(
                   <div className="mt-2 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800 pt-2">
                     {offer.shipment ? (
                       <>
-                        <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(offer.shipment.status)}`}>
+                        <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(offer.shipment.status)}`}>
                           <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
                           {SHIPMENT_STATUS_LABEL[offer.shipment.status]}
                         </span>
@@ -289,12 +317,13 @@ export default async function ListingDetailPage(
                         </Link>
                       </>
                     ) : isOwner ? (
-                      <form action={prepareShipmentAction.bind(null, id, listingId, offer.id)}>
-                        <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
-                          <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          Sevkiyata Hazırla
-                        </button>
-                      </form>
+                      <Link
+                        href={`/groups/${id}/listings/${listingId}/offers/${offer.id}/prepare`}
+                        className="flex items-center gap-1 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                      >
+                        <QrCode className="h-3.5 w-3.5" strokeWidth={1.75} />
+                        Sevkiyatı Hazırla
+                      </Link>
                     ) : (
                       <span className="text-xs text-slate-500">
                         İlan sahibi sevkiyatı hazırlıyor.

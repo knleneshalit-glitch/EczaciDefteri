@@ -1,4 +1,4 @@
-import { Truck, Package, CheckCircle2 } from "lucide-react";
+import { Truck, Package, CheckCircle2, ShieldCheck } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireCourier } from "@/lib/require-user";
 import { markPickedUpAction, markDeliveredAction } from "@/app/actions/shipments";
@@ -16,6 +16,7 @@ export default async function CourierDashboardPage() {
     prisma.shipment.findMany({
       where: {
         status: "HAZIRLANIYOR",
+        printedAt: { not: null },
         offer: { listing: { userId: { in: pharmacyIds } } },
       },
       include: {
@@ -59,9 +60,15 @@ export default async function CourierDashboardPage() {
               key={s.id}
               className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"
             >
-              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                {s.offer.listing.medicineName} · {s.offer.quantity} adet
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  {s.offer.listing.medicineName} · {s.offer.quantity} adet
+                </p>
+                <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Transfere Hazır
+                </span>
+              </div>
               <p className="mt-1 text-xs text-slate-500">
                 Gönderen: {s.offer.listing.user.pharmacyName} (
                 {s.offer.listing.user.region}

@@ -100,6 +100,7 @@ model Shipment {
   code        String         @unique
   status      ShipmentStatus @default(HAZIRLANIYOR)
   createdAt   DateTime       @default(now())
+  printedAt   DateTime?
   pickedUpAt  DateTime?
   deliveredAt DateTime?
 

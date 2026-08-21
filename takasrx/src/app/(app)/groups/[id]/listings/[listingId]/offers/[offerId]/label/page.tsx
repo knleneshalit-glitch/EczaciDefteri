@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { generateQrDataUrl } from "@/lib/qrcode";
@@ -28,11 +29,19 @@ export default async function ShipmentLabelPage(
 
   return (
     <div className="mx-auto w-full max-w-md px-6 py-10 print:py-0">
-      <div className="flex justify-end print:hidden">
-        <PrintButton />
+      <div className="flex items-center justify-between print:hidden">
+        {offer.shipment.printedAt ? (
+          <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+            Transfere Hazır — Sevkiyatçının sayfasına düştü
+          </span>
+        ) : (
+          <span />
+        )}
+        <PrintButton shipmentId={offer.shipment.id} />
       </div>
 
-      <div className="mt-4 rounded-lg border-2 border-slate-900 bg-white p-6 text-slate-900 print:mt-0 print:border-black">
+      <div className="mt-4 rounded-2xl border-2 border-slate-900 bg-white p-6 text-slate-900 print:mt-0 print:border-black">
         <div className="flex items-center justify-between border-b-2 border-dashed border-slate-300 pb-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-slate-500">Sevkiyat Kodu</p>

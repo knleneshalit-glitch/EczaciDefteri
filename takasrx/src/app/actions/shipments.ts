@@ -48,6 +48,45 @@ export async function prepareShipmentAction(
   );
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+  revalidatePath(`/groups/${groupId}/listings/${listingId}/offers/${offerId}/prepare`);
+}
+
+export async function markLabelPrintedAction(shipmentId: string) {
+  const pharmacy = await requirePharmacy();
+
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    include: { offer: { include: { listing: true } } },
+  });
+  if (!shipment || shipment.offer.listing.userId !== pharmacy.id) {
+    throw new Error("Bu sevkiyata ait değilsiniz.");
+  }
+
+  if (!shipment.printedAt) {
+    await prisma.shipment.update({
+      where: { id: shipmentId },
+      data: { printedAt: new Date() },
+    });
+
+    const assignedCouriers = await prisma.courierAssignment.findMany({
+      where: { pharmacyId: pharmacy.id },
+      select: { courierId: true },
+    });
+    await Promise.all(
+      assignedCouriers.map((a) =>
+        createNotification({
+          userId: a.courierId,
+          message: `${pharmacy.pharmacyName ?? pharmacy.contactName} eczanesinden bir sevkiyat transfere hazır.`,
+          link: "/courier/dashboard",
+        })
+      )
+    );
+  }
+
+  revalidatePath(
+    `/groups/${shipment.offer.listing.groupId}/listings/${shipment.offer.listingId}/offers/${shipment.offerId}/prepare`
+  );
+  revalidatePath("/courier/dashboard");
 }
 
 export async function markPickedUpAction(shipmentId: string) {

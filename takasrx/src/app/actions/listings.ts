@@ -289,4 +289,22 @@ export async function respondOfferAction(
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath(`/groups/${groupId}/balances`);
+
+  if (accept) {
+    redirect(`/groups/${groupId}/listings/${listingId}/offers/${offerId}/prepare`);
+  }
+}
+
+export async function reopenListingAction(groupId: string, listingId: string) {
+  const user = await requireUser();
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.groupId !== groupId || listing.userId !== user.id) {
+    throw new Error("Bu ilana ait değilsiniz.");
+  }
+
+  await prisma.listing.update({ where: { id: listingId }, data: { status: "OPEN" } });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+  revalidatePath(`/groups/${groupId}`);
 }
