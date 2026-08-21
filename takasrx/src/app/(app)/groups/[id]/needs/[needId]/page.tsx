@@ -15,6 +15,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
+import { statusBadgeClass } from "@/lib/status-styles";
 import {
   respondNeedAction,
   acceptNeedResponseAction,
@@ -81,7 +82,7 @@ export default async function NeedDetailPage(props: PageProps<"/groups/[id]/need
                 </button>
               </form>
             )}
-            <span className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(need.status)}`}>
               <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
               {STATUS_LABEL[need.status]}
             </span>
@@ -175,7 +176,7 @@ export default async function NeedDetailPage(props: PageProps<"/groups/[id]/need
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                     {r.user.pharmacyName}
                   </span>
-                  <span className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(r.status)}`}>
                     <RespIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                     {RESPONSE_STATUS_LABEL[r.status]}
                   </span>

@@ -22,6 +22,7 @@ import { requireApprovedMember } from "@/lib/group-access";
 import { createOfferAction, respondOfferAction, closeListingAction } from "@/app/actions/listings";
 import { prepareShipmentAction } from "@/app/actions/shipments";
 import { effectiveUnitPrice } from "@/lib/pricing";
+import { statusBadgeClass } from "@/lib/status-styles";
 
 const SHIPMENT_STATUS_LABEL: Record<string, string> = {
   HAZIRLANIYOR: "Sevkiyata Hazırlanıyor",
@@ -112,7 +113,7 @@ export default async function ListingDetailPage(
                 </form>
               </>
             )}
-            <span className="flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
+            <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(listing.status)}`}>
               <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
               {STATUS_LABEL[listing.status]}
             </span>
@@ -241,7 +242,7 @@ export default async function ListingDetailPage(
                   <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                     {offer.user.pharmacyName}
                   </span>
-                  <span className="flex items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
+                  <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(offer.status)}`}>
                     <OfferStatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                     {OFFER_STATUS_LABEL[offer.status]}
                   </span>
@@ -275,7 +276,7 @@ export default async function ListingDetailPage(
                   <div className="mt-2 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800 pt-2">
                     {offer.shipment ? (
                       <>
-                        <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                        <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(offer.shipment.status)}`}>
                           <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />
                           {SHIPMENT_STATUS_LABEL[offer.shipment.status]}
                         </span>

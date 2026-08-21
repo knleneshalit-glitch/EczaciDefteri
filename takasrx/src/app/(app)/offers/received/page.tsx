@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { Inbox, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { statusBadgeClass } from "@/lib/status-styles";
 import { requireUser } from "@/lib/require-user";
 
 const OFFER_STATUS_LABEL: Record<string, string> = {
@@ -64,7 +65,7 @@ export default async function ReceivedOffersPage() {
                     {o.totalPrice != null ? `${o.totalPrice.toFixed(2)} ₺` : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="flex w-fit items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
+                    <span className={`flex w-fit items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(o.status)}`}>
                       <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                       {OFFER_STATUS_LABEL[o.status]}
                     </span>

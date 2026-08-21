@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { ClipboardList, Plus, CircleDot, CheckCircle2, Lock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import { statusBadgeClass } from "@/lib/status-styles";
 import NewListingPicker from "./NewListingPicker";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -94,7 +95,7 @@ export default async function MyListingsPage() {
                   <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{l.title}</td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{l.group.name}</td>
                   <td className="px-4 py-3">
-                    <span className="flex w-fit items-center gap-1 rounded bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-300">
+                    <span className={`flex w-fit items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(l.status)}`}>
                       <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                       {STATUS_LABEL[l.status]}
                     </span>

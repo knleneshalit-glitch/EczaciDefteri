@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
+import { statusBadgeClass } from "@/lib/status-styles";
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
@@ -70,7 +71,7 @@ export default async function GroupNeedsPage(props: PageProps<"/groups/[id]/need
                     {n.user.pharmacyName} · {n._count.responses} teklif
                   </p>
                 </div>
-                <span className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(n.status)}`}>
                   <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
                   {STATUS_LABEL[n.status]}
                 </span>
