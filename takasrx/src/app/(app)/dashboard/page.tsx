@@ -13,6 +13,7 @@ import {
   ArrowUpCircle,
   Scale,
   ChevronRight,
+  ShoppingBag,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -119,6 +120,10 @@ export default async function DashboardPage() {
 
   const approved = memberships.filter((m) => m.status === "APPROVED");
   const pending = memberships.filter((m) => m.status === "PENDING");
+  const groupIds = approved.map((m) => m.groupId);
+  const marketListingsCount = user.isSuperAdmin
+    ? await prisma.listing.count({ where: { status: "OPEN" } })
+    : await prisma.listing.count({ where: { status: "OPEN", groupId: { in: groupIds } } });
 
   const bakiye = ledgerEntries
     .filter((e) => e.type !== "INTEREST")
@@ -152,7 +157,14 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard
+          label="Grup Açık Satış Teklifleri"
+          value={marketListingsCount}
+          href="/market"
+          Icon={ShoppingBag}
+          accent="amber"
+        />
         <StatCard
           label="Açık İlanlarım"
           value={openListingsCount}

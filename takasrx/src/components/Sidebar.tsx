@@ -11,6 +11,7 @@ import {
   Bell,
   LogOut,
   ShieldCheck,
+  ShoppingBag,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -18,6 +19,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Ana Sayfa", Icon: LayoutDashboard },
   { href: "/groups", label: "Gruplarım", Icon: Users },
+  { href: "/market", label: "Grup Açık Satış Teklifleri", Icon: ShoppingBag },
   { href: "/listings", label: "Talep Oluştur - Yönet", Icon: ClipboardList },
   { href: "/offers/received", label: "Gelen Teklifler", Icon: Inbox },
   { href: "/offers/sent", label: "Gönderdiğim Teklifler", Icon: Send },
