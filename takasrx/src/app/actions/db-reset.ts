@@ -12,6 +12,23 @@ function safeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+async function buildTestAccounts() {
+  const passwordHash = await bcrypt.hash("123456", 12);
+  return Array.from({ length: 10 }, (_, i) => {
+    const n = i + 1;
+    return {
+      email: `denemehesabi${n}@gmail.com`,
+      passwordHash,
+      accountType: "PHARMACY" as const,
+      pharmacyName: `Deneme Hesabı ${n}`,
+      contactName: `Deneme Hesabı ${n}`,
+      gln: `100000000${String(n).padStart(4, "0")}`,
+      region: "İstanbul",
+      isSuperAdmin: false,
+    };
+  });
+}
+
 export async function resetDatabaseAndSeedTestAccountsAction(
   _prevState: DbResetState,
   formData: FormData
@@ -47,24 +64,40 @@ export async function resetDatabaseAndSeedTestAccountsAction(
     prisma.user.deleteMany(),
   ]);
 
-  const passwordHash = await bcrypt.hash("123456", 12);
-  const accounts = Array.from({ length: 10 }, (_, i) => {
-    const n = i + 1;
-    return {
-      email: `denemehesabi${n}@gmail.com`,
-      passwordHash,
-      accountType: "PHARMACY" as const,
-      pharmacyName: `Deneme Hesabı ${n}`,
-      contactName: `Deneme Hesabı ${n}`,
-      gln: `100000000${String(n).padStart(4, "0")}`,
-      region: "İstanbul",
-      isSuperAdmin: false,
-    };
-  });
-
+  const accounts = await buildTestAccounts();
   await prisma.user.createMany({ data: accounts });
 
   return {
     success: `Veritabanı tamamen sıfırlandı ve denemehesabi1@gmail.com – denemehesabi10@gmail.com (şifre: 123456) hesapları oluşturuldu.`,
+  };
+}
+
+export async function seedTestAccountsOnlyAction(
+  _prevState: DbResetState,
+  formData: FormData
+): Promise<DbResetState> {
+  const secret = String(formData.get("secret") ?? "");
+
+  const resetSecret = process.env.DB_RESET_SECRET ?? "";
+  if (!resetSecret) {
+    return { error: "Bu özellik aktif değil. Vercel'de DB_RESET_SECRET tanımlanmamış." };
+  }
+  if (!secret || !safeEqual(secret, resetSecret)) {
+    return { error: "Anahtar hatalı." };
+  }
+
+  const accounts = await buildTestAccounts();
+  await prisma.$transaction(
+    accounts.map((a) =>
+      prisma.user.upsert({
+        where: { email: a.email },
+        update: a,
+        create: a,
+      })
+    )
+  );
+
+  return {
+    success: "denemehesabi1@gmail.com – denemehesabi10@gmail.com (şifre: 123456) hesapları oluşturuldu/güncellendi. Mevcut diğer verilere dokunulmadı.",
   };
 }
