@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useActionState, useEffect, useState } from "react";
-import { PackagePlus, Send, History } from "lucide-react";
+import { PackagePlus, Send, History, Copy } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
 import {
   searchMedicinesByNameAction,
@@ -14,9 +14,16 @@ type PreviousListing = {
   id: string;
   medicineName: string;
   barkod: string | null;
+  quantity: string | null;
   birimFiyat: number | null;
   totalStock: number | null;
   dealBonusQuantity: number | null;
+  ekstraIndirim: number | null;
+  ekstraIskontoYuzde: number | null;
+  etiketFiyati: number | null;
+  expiryDate: Date | null;
+  minAlim: number | null;
+  maxAlim: number | null;
   createdAt: Date;
   user: { pharmacyName: string | null; contactName: string };
 };
@@ -43,11 +50,16 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const [medicineName, setMedicineName] = useState("");
   const [barkod, setBarkod] = useState("");
+  const [quantity, setQuantity] = useState("");
   const [birimFiyat, setBirimFiyat] = useState(0);
   const [totalStock, setTotalStock] = useState(0);
   const [dealBonusQuantity, setDealBonusQuantity] = useState(0);
   const [ekstraIndirim, setEkstraIndirim] = useState(0);
   const [ekstraIskontoYuzde, setEkstraIskontoYuzde] = useState(0);
+  const [etiketFiyati, setEtiketFiyati] = useState(0);
+  const [expiryDate, setExpiryDate] = useState("");
+  const [minAlim, setMinAlim] = useState(0);
+  const [maxAlim, setMaxAlim] = useState(0);
 
   const [suggestions, setSuggestions] = useState<MedicineMatch[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -87,6 +99,21 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
     }, 350);
     return () => clearTimeout(timer);
   }, [id, medicineName, barkod]);
+
+  function applyPreviousListing(l: PreviousListing) {
+    setMedicineName(l.medicineName);
+    setBarkod(l.barkod ?? "");
+    setQuantity(l.quantity ?? "");
+    setBirimFiyat(l.birimFiyat ?? 0);
+    setTotalStock(l.totalStock ?? 0);
+    setDealBonusQuantity(l.dealBonusQuantity ?? 0);
+    setEkstraIndirim(l.ekstraIndirim ?? 0);
+    setEkstraIskontoYuzde(l.ekstraIskontoYuzde ?? 0);
+    setEtiketFiyati(l.etiketFiyati ?? 0);
+    setExpiryDate(l.expiryDate ? new Date(l.expiryDate).toISOString().slice(0, 10) : "");
+    setMinAlim(l.minAlim ?? 0);
+    setMaxAlim(l.maxAlim ?? 0);
+  }
 
   const netFiyat = effectivePricePreview(
     birimFiyat,
@@ -156,6 +183,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               </label>
               <input
                 name="quantity"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="10 kutu"
               />
@@ -167,6 +196,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <input
                 type="date"
                 name="expiryDate"
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
@@ -195,9 +226,27 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                       {l.totalStock != null && l.dealBonusQuantity ? ` · ${l.totalStock - l.dealBonusQuantity}+${l.dealBonusQuantity} MF` : ""}
                     </span>
                   )}
+                  {l.ekstraIskontoYuzde != null && l.ekstraIskontoYuzde > 0 && (
+                    <span className="rounded-full bg-blue-100 dark:bg-blue-500/20 px-2 py-0.5 text-blue-700 dark:text-blue-400">
+                      %{l.ekstraIskontoYuzde} İskonto
+                    </span>
+                  )}
+                  {l.ekstraIndirim != null && l.ekstraIndirim > 0 && (
+                    <span className="rounded-full bg-purple-100 dark:bg-purple-500/20 px-2 py-0.5 text-purple-700 dark:text-purple-400">
+                      {l.ekstraIndirim.toFixed(0)} ₺ İndirim
+                    </span>
+                  )}
                   <span className="text-slate-400">
                     {new Date(l.createdAt).toLocaleDateString("tr-TR")}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => applyPreviousListing(l)}
+                    className="flex items-center gap-1 rounded-full border border-emerald-500/40 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Copy className="h-3 w-3" strokeWidth={1.75} />
+                    İlanı Kullan
+                  </button>
                 </li>
               ))}
             </ul>
@@ -223,6 +272,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 step="0.01"
                 required
                 name="birimFiyat"
+                value={birimFiyat || ""}
                 onChange={(e) => setBirimFiyat(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="100"
@@ -236,6 +286,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 type="number"
                 min={1}
                 name="totalStock"
+                value={totalStock || ""}
                 onChange={(e) => setTotalStock(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="1500"
@@ -249,6 +300,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 type="number"
                 min={0}
                 name="dealBonusQuantity"
+                value={dealBonusQuantity || ""}
                 onChange={(e) => setDealBonusQuantity(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="500"
@@ -267,6 +319,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 max={100}
                 step="0.01"
                 name="ekstraIskontoYuzde"
+                value={ekstraIskontoYuzde || ""}
                 onChange={(e) => setEkstraIskontoYuzde(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="3"
@@ -285,6 +338,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 min={0}
                 step="0.01"
                 name="ekstraIndirim"
+                value={ekstraIndirim || ""}
                 onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="1000"
@@ -330,6 +384,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               min={0}
               step="0.01"
               name="etiketFiyati"
+              value={etiketFiyati || ""}
+              onChange={(e) => setEtiketFiyati(Number(e.target.value) || 0)}
               className="w-full max-w-xs rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
             />
           </div>
@@ -362,6 +418,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 type="number"
                 min={1}
                 name="minAlim"
+                value={minAlim || ""}
+                onChange={(e) => setMinAlim(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
                 placeholder="1"
               />
@@ -374,6 +432,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 type="number"
                 min={0}
                 name="maxAlim"
+                value={maxAlim || ""}
+                onChange={(e) => setMaxAlim(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>

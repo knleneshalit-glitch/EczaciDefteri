@@ -232,6 +232,54 @@ export async function createOfferAction(
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
 }
 
+export async function updateOfferAction(
+  groupId: string,
+  listingId: string,
+  offerId: string,
+  formData: FormData
+) {
+  const user = await requireUser();
+
+  const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+  if (!offer || offer.userId !== user.id || offer.listingId !== listingId || offer.status !== "PENDING") {
+    throw new Error("Bu teklif düzenlenemez.");
+  }
+
+  const message = String(formData.get("message") ?? "").trim();
+  const quantity = Math.max(1, Math.round(numberOrNull(formData.get("quantity")) ?? 1));
+
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    include: { offers: { where: { status: "ACCEPTED" }, select: { quantity: true } } },
+  });
+  if (!listing || listing.groupId !== groupId) {
+    throw new Error("İlan bulunamadı.");
+  }
+  if (listing.minAlim && quantity < listing.minAlim) {
+    throw new Error(`Minimum alım miktarı ${listing.minAlim}.`);
+  }
+  if (listing.maxAlim && quantity > listing.maxAlim) {
+    throw new Error(`Maksimum alım miktarı ${listing.maxAlim}.`);
+  }
+  if (listing.totalStock != null) {
+    const soldQty = listing.offers.reduce((sum, o) => sum + o.quantity, 0);
+    const remaining = listing.totalStock - soldQty;
+    if (quantity > remaining) {
+      throw new Error(`Stokta sadece ${remaining} adet kaldı.`);
+    }
+  }
+
+  const unitPrice = effectiveUnitPrice(listing) ?? 0;
+  const totalPrice = unitPrice * quantity;
+
+  await prisma.offer.update({
+    where: { id: offerId },
+    data: { message: message || null, quantity, unitPrice, totalPrice },
+  });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+}
+
 export async function respondOfferAction(
   groupId: string,
   listingId: string,

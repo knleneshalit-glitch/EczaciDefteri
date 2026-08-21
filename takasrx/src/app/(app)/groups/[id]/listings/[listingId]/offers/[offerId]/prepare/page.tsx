@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { QrCode, PackageCheck, Tag, ShieldCheck, Truck } from "lucide-react";
+import { QrCode, Tag, ShieldCheck, Truck } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { generateQrDataUrl } from "@/lib/qrcode";
-import { prepareShipmentAction } from "@/app/actions/shipments";
+import BarcodeUploadForm from "@/components/BarcodeUploadForm";
 
 export default async function PrepareShipmentPage(
   props: PageProps<"/groups/[id]/listings/[listingId]/offers/[offerId]/prepare">
@@ -48,25 +48,16 @@ export default async function PrepareShipmentPage(
         </p>
       </div>
 
-      {!offer.shipment ? (
-        <form
-          action={prepareShipmentAction.bind(null, id, listingId, offerId)}
-          className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 text-center"
-        >
-          <PackageCheck className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-            Bu teklif için henüz bir karekod oluşturulmadı.
-          </p>
-          <button className="mx-auto mt-4 flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
-            <QrCode className="h-4 w-4" strokeWidth={1.75} />
-            Karekod Oluştur
-          </button>
-        </form>
+      {!offer.shipment?.barcodesUploadedAt ? (
+        <BarcodeUploadForm groupId={id} listingId={listingId} offerId={offerId} />
       ) : (
         <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 text-center">
           <ShieldCheck className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
           <p className="mt-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
-            Karekod oluşturuldu — transfer için hazır.
+            Karekodlar yüklendi — transfer için hazır.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {offer.shipment.barcodes?.split("\n").filter(Boolean).length ?? 0} karekod kaydedildi.
           </p>
           {qrDataUrl && (
             <img src={qrDataUrl} alt="Sevkiyat karekodu" width={140} height={140} className="mx-auto mt-4 rounded-lg bg-white p-2" />
@@ -89,7 +80,7 @@ export default async function PrepareShipmentPage(
             className="mx-auto mt-4 flex w-fit items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
             <Tag className="h-4 w-4" strokeWidth={1.75} />
-            Etiketi Görüntüle / Yazdır
+            Transfer Fişi Yazdır
           </Link>
         </div>
       )}

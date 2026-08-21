@@ -75,16 +75,19 @@ export default async function MarketPage() {
               <Link
                 key={listing.id}
                 href={`/groups/${listing.groupId}/listings/${listing.id}`}
-                className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 shadow-sm transition hover:border-emerald-400 hover:shadow-md"
+                className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-5 shadow-sm transition hover:border-emerald-400 hover:shadow-md"
               >
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
                   <Package className="h-6 w-6" strokeWidth={1.75} />
                 </span>
 
-                <div className="min-w-[160px] flex-1">
+                <div className="min-w-[200px] flex-1">
                   <p className="font-semibold text-slate-900 dark:text-slate-100">{listing.medicineName}</p>
                   <p className="text-xs text-slate-500">
-                    {listing.barkod ?? "—"} · {listing.group.name}
+                    {listing.barkod ?? "—"} · {listing.user.pharmacyName ?? listing.user.contactName} · {listing.group.name}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    İlan Tarihi: {listing.createdAt.toLocaleDateString("tr-TR")}
                   </p>
                 </div>
 

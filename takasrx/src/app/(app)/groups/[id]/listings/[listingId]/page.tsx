@@ -22,9 +22,16 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
-import { createOfferAction, respondOfferAction, closeListingAction, reopenListingAction } from "@/app/actions/listings";
+import {
+  createOfferAction,
+  updateOfferAction,
+  respondOfferAction,
+  closeListingAction,
+  reopenListingAction,
+} from "@/app/actions/listings";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
+import BackButton from "@/components/BackButton";
 
 const SHIPMENT_STATUS_LABEL: Record<string, string> = {
   HAZIRLANIYOR: "Sevkiyata Hazırlanıyor",
@@ -73,7 +80,7 @@ export default async function ListingDetailPage(
   if (!listing || listing.groupId !== id) notFound();
 
   const isOwner = listing.userId === user.id;
-  const alreadyOffered = listing.offers.some((o) => o.userId === user.id);
+  const myPendingOffer = listing.offers.find((o) => o.userId === user.id && o.status === "PENDING");
   const StatusIcon = STATUS_ICON[listing.status];
 
   const acceptedQty = listing.offers
@@ -94,6 +101,9 @@ export default async function ListingDetailPage(
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 py-10">
+      <div className="mb-4">
+        <BackButton />
+      </div>
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
@@ -215,7 +225,7 @@ export default async function ListingDetailPage(
         </section>
       )}
 
-      {!isOwner && !alreadyOffered && listing.status === "OPEN" && (
+      {!isOwner && !myPendingOffer && listing.status === "OPEN" && (
         <form
           action={createOfferAction.bind(null, id, listing.id)}
           className="mt-6 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-500/5 p-4"
@@ -252,8 +262,46 @@ export default async function ListingDetailPage(
         </form>
       )}
 
-      {alreadyOffered && !isOwner && (
-        <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">Bu ilana zaten teklif verdiniz.</p>
+      {!isOwner && myPendingOffer && listing.status === "OPEN" && (
+        <form
+          action={updateOfferAction.bind(null, id, listing.id, myPendingOffer.id)}
+          className="mt-6 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-500/5 p-4"
+        >
+          <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Bu ilana verdiğiniz teklif henüz onaylanmadı — düzenleyebilirsiniz.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Alım Miktarı
+              </label>
+              <input
+                type="number"
+                name="quantity"
+                required
+                min={listing.minAlim ?? 1}
+                max={maxQty}
+                defaultValue={myPendingOffer.quantity}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Not (opsiyonel)
+              </label>
+              <input
+                name="message"
+                defaultValue={myPendingOffer.message ?? ""}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+          </div>
+          <button className="mt-3 flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500">
+            <Pencil className="h-4 w-4" strokeWidth={1.75} />
+            Teklifi Güncelle
+          </button>
+        </form>
       )}
 
       <section className="mt-8">
@@ -302,7 +350,7 @@ export default async function ListingDetailPage(
 
                 {offer.status === "ACCEPTED" && (
                   <div className="mt-2 flex items-center gap-2 border-t border-slate-200 dark:border-slate-800 pt-2">
-                    {offer.shipment ? (
+                    {offer.shipment?.barcodesUploadedAt ? (
                       <>
                         <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(offer.shipment.status)}`}>
                           <Truck className="h-3.5 w-3.5" strokeWidth={1.75} />

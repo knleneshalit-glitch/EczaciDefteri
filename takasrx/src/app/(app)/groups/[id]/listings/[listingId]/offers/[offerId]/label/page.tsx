@@ -75,6 +75,17 @@ export default async function ShipmentLabelPage(
           <p className="font-semibold">{offer.listing.medicineName}</p>
           <p className="text-sm text-slate-600">Adet: {offer.quantity}</p>
         </div>
+
+        {offer.shipment.barcodes && (
+          <div className="mt-4 border-t-2 border-dashed border-slate-300 pt-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Karekodlar</p>
+            <ul className="mt-1 font-mono text-[11px] leading-relaxed text-slate-700">
+              {offer.shipment.barcodes.split("\n").filter(Boolean).map((code) => (
+                <li key={code}>{code}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );

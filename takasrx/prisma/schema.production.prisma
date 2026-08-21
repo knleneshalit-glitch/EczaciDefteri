@@ -115,15 +115,17 @@ model CourierAssignment {
 }
 
 model Shipment {
-  id          String         @id @default(cuid())
-  offerId     String         @unique
-  courierId   String?
-  code        String         @unique
-  status      ShipmentStatus @default(HAZIRLANIYOR)
-  createdAt   DateTime       @default(now())
-  printedAt   DateTime?
-  pickedUpAt  DateTime?
-  deliveredAt DateTime?
+  id                 String         @id @default(cuid())
+  offerId            String         @unique
+  courierId          String?
+  code               String         @unique
+  status             ShipmentStatus @default(HAZIRLANIYOR)
+  createdAt          DateTime       @default(now())
+  printedAt          DateTime?
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  barcodes           String?
+  barcodesUploadedAt DateTime?
 
   offer   Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
   courier User? @relation("ShipmentCourier", fields: [courierId], references: [id])

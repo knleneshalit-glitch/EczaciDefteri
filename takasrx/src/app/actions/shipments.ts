@@ -6,16 +6,20 @@ import { requirePharmacy, requireCourier } from "@/lib/require-user";
 import { generateShipmentCode } from "@/lib/qrcode";
 import { createNotification } from "@/lib/notifications";
 
-export async function prepareShipmentAction(
+export type UploadBarcodesState = { error?: string } | undefined;
+
+export async function uploadShipmentBarcodesAction(
   groupId: string,
   listingId: string,
-  offerId: string
-) {
+  offerId: string,
+  _prevState: UploadBarcodesState,
+  formData: FormData
+): Promise<UploadBarcodesState> {
   const pharmacy = await requirePharmacy();
 
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing || listing.groupId !== groupId || listing.userId !== pharmacy.id) {
-    throw new Error("Bu ilana ait değilsiniz.");
+    return { error: "Bu ilana ait değilsiniz." };
   }
 
   const offer = await prisma.offer.findUnique({
@@ -23,15 +27,30 @@ export async function prepareShipmentAction(
     include: { shipment: true },
   });
   if (!offer || offer.listingId !== listingId || offer.status !== "ACCEPTED") {
-    throw new Error("Geçersiz teklif.");
-  }
-  if (offer.shipment) {
-    throw new Error("Bu teklif için zaten sevkiyat oluşturulmuş.");
+    return { error: "Geçersiz teklif." };
   }
 
-  await prisma.shipment.create({
-    data: { offerId, code: generateShipmentCode() },
-  });
+  const raw = String(formData.get("barcodes") ?? "");
+  const codes = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (codes.length === 0) {
+    return { error: "En az bir karekod girin." };
+  }
+
+  const barcodes = codes.join("\n");
+
+  if (offer.shipment) {
+    await prisma.shipment.update({
+      where: { id: offer.shipment.id },
+      data: { barcodes, barcodesUploadedAt: new Date() },
+    });
+  } else {
+    await prisma.shipment.create({
+      data: { offerId, code: generateShipmentCode(), barcodes, barcodesUploadedAt: new Date() },
+    });
+  }
 
   const assignedCouriers = await prisma.courierAssignment.findMany({
     where: { pharmacyId: pharmacy.id },
