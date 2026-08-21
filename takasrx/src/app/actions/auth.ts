@@ -1,12 +1,20 @@
 "use server";
 
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createSession, destroySession } from "@/lib/session";
 import { REGIONS } from "@/lib/regions";
 
 export type AuthState = { error?: string } | undefined;
+export type RecoveryState = { error?: string; success?: string } | undefined;
+
+function safeEqual(a: string, b: string) {
+  const bufA = crypto.createHash("sha256").update(a).digest();
+  const bufB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export async function registerPharmacyAction(
   _prevState: AuthState,
@@ -188,6 +196,44 @@ export async function resetPasswordAction(
 
   await createSession({ userId: user.id, email: user.email });
   redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
+}
+
+export async function adminRecoveryResetAction(
+  _prevState: RecoveryState,
+  formData: FormData
+): Promise<RecoveryState> {
+  const secret = String(formData.get("secret") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  const recoverySecret = process.env.ADMIN_RECOVERY_SECRET ?? "";
+  if (!recoverySecret) {
+    return { error: "Kurtarma özelliği aktif değil. Vercel'de ADMIN_RECOVERY_SECRET tanımlanmamış." };
+  }
+  if (!secret || !safeEqual(secret, recoverySecret)) {
+    return { error: "Kurtarma anahtarı hatalı." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Şifreler eşleşmiyor." };
+  }
+
+  const systemAdminEmail = (process.env.SYSTEM_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  if (!systemAdminEmail) {
+    return { error: "SYSTEM_ADMIN_EMAIL tanımlı değil." };
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: systemAdminEmail } });
+  if (!user) {
+    return { error: `${systemAdminEmail} adresiyle kayıtlı bir hesap bulunamadı. Önce bu e-postayla kayıt olun.` };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  return { success: `${systemAdminEmail} hesabının şifresi güncellendi. Giriş sayfasından yeni şifreyle giriş yapabilirsiniz.` };
 }
 
 export async function logoutAction() {

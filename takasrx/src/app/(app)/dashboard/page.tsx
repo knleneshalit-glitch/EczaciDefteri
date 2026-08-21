@@ -166,22 +166,6 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {announcements.length > 0 && (
-        <div className="mt-6 flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-          {announcements.map((a) => (
-            <div key={a.id} className="flex items-start gap-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
-                <Megaphone className="h-4 w-4" strokeWidth={1.75} />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-amber-900 dark:text-amber-300">{a.title}</p>
-                <p className="text-sm text-amber-800/80 dark:text-amber-400/80">{a.body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Gruptaki Aktif Teklifler"
@@ -256,6 +240,23 @@ export default async function DashboardPage() {
               </ul>
             )}
           </section>
+
+          {announcements.length > 0 && (
+            <section className="mt-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <Megaphone className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />
+                Duyurular
+              </h2>
+              <div className="mt-2 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                {announcements.map((a) => (
+                  <div key={a.id} className="text-sm">
+                    <p className="font-medium text-amber-900 dark:text-amber-300">{a.title}</p>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-400/80">{a.body}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {pending.length > 0 && (
             <section className="mt-10">

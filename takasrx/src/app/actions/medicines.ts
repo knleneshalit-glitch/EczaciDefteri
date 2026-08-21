@@ -10,7 +10,7 @@ export async function searchMedicinesByNameAction(query: string) {
   if (q.length < 2) return [];
 
   return prisma.medicine.findMany({
-    where: { name: { contains: q } },
+    where: { name: { startsWith: q } },
     orderBy: { name: "asc" },
     take: 8,
   });
