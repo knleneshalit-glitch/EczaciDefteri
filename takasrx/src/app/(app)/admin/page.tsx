@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X } from "lucide-react";
+import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X, Pill } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/require-user";
 import { deactivateAnnouncementAction } from "@/app/actions/announcements";
 import AnnouncementForm from "@/components/AnnouncementForm";
+import ImportMedicinesButton from "@/components/ImportMedicinesButton";
 
 export default async function AdminPage() {
   await requireSuperAdmin();
 
-  const [groups, pharmacyCount, courierCount, groupCount, announcements] = await Promise.all([
+  const [groups, pharmacyCount, courierCount, groupCount, announcements, medicineCount] = await Promise.all([
     prisma.group.findMany({
       include: { _count: { select: { members: true, listings: true } } },
       orderBy: { createdAt: "desc" },
@@ -17,6 +18,7 @@ export default async function AdminPage() {
     prisma.user.count({ where: { accountType: "COURIER" } }),
     prisma.group.count(),
     prisma.announcement.findMany({ where: { active: true }, orderBy: { createdAt: "desc" } }),
+    prisma.medicine.count(),
   ]);
 
   const stats = [
@@ -158,6 +160,18 @@ export default async function AdminPage() {
           ))}
         </ul>
       )}
+
+      <h2 className="mt-10 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <Pill className="h-4 w-4 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
+        İlaç / Barkod Veritabanı
+      </h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Kayıtlı {medicineCount} ilaç barkod eşleşmesi var. Yüklediğiniz barkod listesini içe
+        aktarınca ilan oluşturma sayfasında ilaç adı/barkod otomatik tamamlama olarak kullanılır.
+      </p>
+      <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+        <ImportMedicinesButton />
+      </div>
     </div>
   );
 }

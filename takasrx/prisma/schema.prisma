@@ -93,6 +93,15 @@ model Announcement {
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 }
 
+model Medicine {
+  id        String   @id @default(cuid())
+  barkod    String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  @@index([name])
+}
+
 model CourierAssignment {
   id         String   @id @default(cuid())
   courierId  String

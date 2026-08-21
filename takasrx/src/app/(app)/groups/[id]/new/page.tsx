@@ -1,8 +1,25 @@
 "use client";
 
-import { use, useActionState, useState } from "react";
-import { PackagePlus, Send } from "lucide-react";
+import { use, useActionState, useEffect, useState } from "react";
+import { PackagePlus, Send, History } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
+import {
+  searchMedicinesByNameAction,
+  lookupMedicineByBarcodeAction,
+  previousGroupListingsAction,
+} from "@/app/actions/medicines";
+
+type MedicineMatch = { id: string; barkod: string; name: string };
+type PreviousListing = {
+  id: string;
+  medicineName: string;
+  barkod: string | null;
+  birimFiyat: number | null;
+  totalStock: number | null;
+  dealBonusQuantity: number | null;
+  createdAt: Date;
+  user: { pharmacyName: string | null; contactName: string };
+};
 
 function effectivePricePreview(
   birimFiyat: number,
@@ -25,11 +42,51 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const action = createListingAction.bind(null, id);
   const [state, formAction, pending] = useActionState(action, undefined);
   const [medicineName, setMedicineName] = useState("");
+  const [barkod, setBarkod] = useState("");
   const [birimFiyat, setBirimFiyat] = useState(0);
   const [totalStock, setTotalStock] = useState(0);
   const [dealBonusQuantity, setDealBonusQuantity] = useState(0);
   const [ekstraIndirim, setEkstraIndirim] = useState(0);
   const [ekstraIskontoYuzde, setEkstraIskontoYuzde] = useState(0);
+
+  const [suggestions, setSuggestions] = useState<MedicineMatch[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [previousListings, setPreviousListings] = useState<PreviousListing[]>([]);
+
+  useEffect(() => {
+    if (medicineName.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchMedicinesByNameAction(medicineName).then(setSuggestions);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [medicineName]);
+
+  useEffect(() => {
+    if (barkod.trim().length < 6) return;
+    const timer = setTimeout(() => {
+      lookupMedicineByBarcodeAction(barkod).then((match) => {
+        if (match && match.name !== medicineName) {
+          setMedicineName(match.name);
+        }
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barkod]);
+
+  useEffect(() => {
+    if (medicineName.trim().length < 3 && barkod.trim().length < 6) {
+      setPreviousListings([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      previousGroupListingsAction(id, medicineName, barkod).then(setPreviousListings);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [id, medicineName, barkod]);
 
   const netFiyat = effectivePricePreview(
     birimFiyat,
@@ -51,20 +108,45 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className="relative">
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">İlaç Adı</label>
               <input
                 name="medicineName"
                 required
+                autoComplete="off"
                 value={medicineName}
                 onChange={(e) => setMedicineName(e.target.value.toLocaleUpperCase("tr-TR"))}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none uppercase"
               />
+              {showSuggestions && suggestions.length > 0 && (
+                <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
+                  {suggestions.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        onMouseDown={() => {
+                          setMedicineName(m.name);
+                          setBarkod(m.barkod);
+                          setShowSuggestions(false);
+                        }}
+                        className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-emerald-50 dark:hover:bg-slate-700"
+                      >
+                        <span className="font-medium text-slate-900 dark:text-slate-100">{m.name}</span>
+                        <span className="text-xs text-slate-500">{m.barkod}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Barkod</label>
               <input
                 name="barkod"
+                value={barkod}
+                onChange={(e) => setBarkod(e.target.value.trim())}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
@@ -90,6 +172,37 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
           </div>
         </section>
+
+        {previousListings.length > 0 && (
+          <section className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <History className="h-4 w-4 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
+              Bu Grupta Bu Ürün İçin Önceki İlanlar
+            </h2>
+            <ul className="mt-3 flex flex-col gap-2">
+              {previousListings.map((l) => (
+                <li
+                  key={l.id}
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                >
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    {l.user.pharmacyName ?? l.user.contactName}
+                  </span>
+                  <span className="text-slate-500">{l.medicineName}</span>
+                  {l.birimFiyat != null && (
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {l.birimFiyat.toFixed(2)} ₺
+                      {l.totalStock != null && l.dealBonusQuantity ? ` · ${l.totalStock - l.dealBonusQuantity}+${l.dealBonusQuantity} MF` : ""}
+                    </span>
+                  )}
+                  <span className="text-slate-400">
+                    {new Date(l.createdAt).toLocaleDateString("tr-TR")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Depo Alım Şartı</h2>
