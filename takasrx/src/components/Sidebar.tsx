@@ -20,10 +20,10 @@ import ThemeToggle from "@/components/ThemeToggle";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Ana Sayfa", Icon: LayoutDashboard },
   { href: "/groups", label: "Gruplarım", Icon: Users },
-  { href: "/market", label: "Grup Açık Satış Teklifleri", Icon: ShoppingBag },
+  { href: "/market", label: "Gruptaki Aktif Teklifler", Icon: ShoppingBag },
   { href: "/listings", label: "Talep Oluştur - Yönet", Icon: ClipboardList },
-  { href: "/offers/received", label: "Gelen Teklifler", Icon: Inbox },
-  { href: "/offers/sent", label: "Gönderdiğim Teklifler", Icon: Send },
+  { href: "/offers/received", label: "Gönderimlerim", Icon: Inbox },
+  { href: "/offers/sent", label: "Alımlarım", Icon: Send },
   { href: "/ledger", label: "Cari Hareketler", Icon: Wallet },
   { href: "/couriers", label: "Sevkiyatçılarım", Icon: Truck },
 ];

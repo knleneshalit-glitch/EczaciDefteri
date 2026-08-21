@@ -58,13 +58,13 @@ function StatCard({
       href={href}
       className="group flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm hover:border-emerald-400 hover:shadow-md transition"
     >
-      <div className="flex items-start justify-between">
-        <p className={`text-4xl font-bold ${color}`}>{value}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className={`min-w-0 flex-1 break-words text-3xl font-bold leading-tight ${color}`}>{value}</p>
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${badgeBg} ${color}`}>
           <Icon className="h-5 w-5" strokeWidth={1.75} />
         </span>
       </div>
-      <p className="mt-2 text-sm font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-sm font-medium uppercase tracking-wide text-slate-500 break-words">{label}</p>
       <span className="mt-auto flex items-center gap-0.5 pt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400 opacity-0 transition group-hover:opacity-100">
         Tümünü Görüntüle
         <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
@@ -184,28 +184,28 @@ export default async function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
-          label="Grup Açık Satış Teklifleri"
+          label="Gruptaki Aktif Teklifler"
           value={marketListingsCount}
           href="/market"
           Icon={ShoppingBag}
           accent="amber"
         />
         <StatCard
-          label="Açık İlanlarım"
+          label="Aktif Tekliflerim"
           value={openListingsCount}
           href="/listings"
           Icon={PackageOpen}
           accent="blue"
         />
         <StatCard
-          label="Gelen Bekleyen Teklif"
+          label="Gönderimlerim"
           value={receivedPendingCount}
           href="/offers/received"
           Icon={Inbox}
           accent="purple"
         />
         <StatCard
-          label="Gönderdiğim Bekleyen Teklif"
+          label="Alımlarım"
           value={sentPendingCount}
           href="/offers/sent"
           Icon={Send}

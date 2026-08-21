@@ -43,7 +43,7 @@ export default async function MarketPage() {
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <ShoppingBag className="h-6 w-6 text-orange-500" strokeWidth={1.75} />
-        Grup Açık Satış Teklifleri
+        Gruptaki Aktif Teklifler
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         Üye olduğunuz tüm gruplardaki açık ilanlar tek sayfada.
