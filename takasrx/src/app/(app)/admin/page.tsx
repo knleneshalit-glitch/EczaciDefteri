@@ -1,12 +1,14 @@
 import Link from "next/link";
-import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet } from "lucide-react";
+import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/require-user";
+import { deactivateAnnouncementAction } from "@/app/actions/announcements";
+import AnnouncementForm from "@/components/AnnouncementForm";
 
 export default async function AdminPage() {
   await requireSuperAdmin();
 
-  const [groups, pharmacyCount, courierCount, groupCount] = await Promise.all([
+  const [groups, pharmacyCount, courierCount, groupCount, announcements] = await Promise.all([
     prisma.group.findMany({
       include: { _count: { select: { members: true, listings: true } } },
       orderBy: { createdAt: "desc" },
@@ -14,6 +16,7 @@ export default async function AdminPage() {
     prisma.user.count({ where: { accountType: "PHARMACY" } }),
     prisma.user.count({ where: { accountType: "COURIER" } }),
     prisma.group.count(),
+    prisma.announcement.findMany({ where: { active: true }, orderBy: { createdAt: "desc" } }),
   ]);
 
   const stats = [
@@ -121,6 +124,40 @@ export default async function AdminPage() {
           </tbody>
         </table>
       </div>
+
+      <h2 className="mt-10 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <Megaphone className="h-4 w-4 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />
+        Duyurular
+      </h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Burada yayınladığınız duyurular tüm kullanıcıların Ana Sayfa ekranında görünür.
+      </p>
+      <AnnouncementForm />
+
+      {announcements.length > 0 && (
+        <ul className="mt-4 flex flex-col gap-2">
+          {announcements.map((a) => (
+            <li
+              key={a.id}
+              className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"
+            >
+              <div>
+                <p className="font-medium text-amber-800 dark:text-amber-300">{a.title}</p>
+                <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/80">{a.body}</p>
+              </div>
+              <form action={deactivateAnnouncementAction.bind(null, a.id)}>
+                <button
+                  className="flex items-center gap-1 rounded-md border border-amber-500/40 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                  title="Duyuruyu kaldır"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Kaldır
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

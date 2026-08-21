@@ -79,6 +79,18 @@ model User {
   courierFor    CourierAssignment[] @relation("CourierAssignmentCourier")
   assignedTo    CourierAssignment[] @relation("CourierAssignmentPharmacy")
   shipments     Shipment[]          @relation("ShipmentCourier")
+  announcements Announcement[]
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  active    Boolean  @default(true)
+  authorId  String
+  createdAt DateTime @default(now())
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 }
 
 model CourierAssignment {

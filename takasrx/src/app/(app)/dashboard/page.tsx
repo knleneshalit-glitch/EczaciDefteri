@@ -14,6 +14,7 @@ import {
   Scale,
   ChevronRight,
   ShoppingBag,
+  Megaphone,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -102,7 +103,7 @@ function CariRow({
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const [memberships, openListingsCount, receivedPendingCount, sentPendingCount, ledgerEntries] =
+  const [memberships, openListingsCount, receivedPendingCount, sentPendingCount, ledgerEntries, announcements] =
     await Promise.all([
       prisma.groupMember.findMany({
         where: { userId: user.id },
@@ -115,6 +116,11 @@ export default async function DashboardPage() {
       prisma.ledgerEntry.findMany({
         where: { userId: user.id },
         select: { type: true, amount: true },
+      }),
+      prisma.announcement.findMany({
+        where: { active: true },
+        orderBy: { createdAt: "desc" },
+        take: 5,
       }),
     ]);
 
@@ -159,6 +165,22 @@ export default async function DashboardPage() {
           Grupları Keşfet
         </Link>
       </div>
+
+      {announcements.length > 0 && (
+        <div className="mt-6 flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          {announcements.map((a) => (
+            <div key={a.id} className="flex items-start gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                <Megaphone className="h-4 w-4" strokeWidth={1.75} />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-300">{a.title}</p>
+                <p className="text-sm text-amber-800/80 dark:text-amber-400/80">{a.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
