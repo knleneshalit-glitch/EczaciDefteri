@@ -143,8 +143,11 @@ export default async function DashboardPage() {
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Ana Sayfa</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          <h1 className="bg-gradient-to-r from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent">
+            Ana Sayfa
+          </h1>
+          <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
+            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
             {user.pharmacyName} · {user.region}
           </p>
         </div>

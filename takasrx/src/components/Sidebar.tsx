@@ -39,12 +39,13 @@ export default function Sidebar({
   return (
     <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 print:hidden">
       <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-2 text-lg font-bold text-emerald-600 dark:text-emerald-400"
-        >
-          <ArrowLeftRight className="h-5 w-5" strokeWidth={2.5} />
-          TakasRX
+        <Link href="/dashboard" className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm shadow-emerald-500/30">
+            <ArrowLeftRight className="h-5 w-5" strokeWidth={2.5} />
+          </span>
+          <span className="bg-gradient-to-r from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300 bg-clip-text text-xl font-extrabold tracking-tight text-transparent">
+            TakasRX
+          </span>
         </Link>
         <Link href="/notifications" className="relative text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
           <Bell className="h-5 w-5" strokeWidth={1.75} />
