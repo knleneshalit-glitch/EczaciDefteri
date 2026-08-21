@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { QrCode, Tag, ShieldCheck, Truck } from "lucide-react";
+import { QrCode, Tag, ShieldCheck, Truck, SkipForward } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { generateQrDataUrl } from "@/lib/qrcode";
 import BarcodeUploadForm from "@/components/BarcodeUploadForm";
+import { skipBarcodeUploadAction } from "@/app/actions/shipments";
 
 export default async function PrepareShipmentPage(
   props: PageProps<"/groups/[id]/listings/[listingId]/offers/[offerId]/prepare">
@@ -49,7 +50,15 @@ export default async function PrepareShipmentPage(
       </div>
 
       {!offer.shipment?.barcodesUploadedAt ? (
-        <BarcodeUploadForm groupId={id} listingId={listingId} offerId={offerId} />
+        <>
+          <BarcodeUploadForm groupId={id} listingId={listingId} offerId={offerId} />
+          <form action={skipBarcodeUploadAction.bind(null, id, listingId, offerId)} className="mt-3 text-center">
+            <button className="mx-auto flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-300">
+              <SkipForward className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Karekod Yüklemeden Devam Et — Transfer Fişine Git
+            </button>
+          </form>
+        </>
       ) : (
         <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 text-center">
           <ShieldCheck className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />

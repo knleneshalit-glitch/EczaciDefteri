@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requirePharmacy, requireCourier } from "@/lib/require-user";
 import { generateShipmentCode } from "@/lib/qrcode";
@@ -68,6 +69,50 @@ export async function uploadShipmentBarcodesAction(
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath(`/groups/${groupId}/listings/${listingId}/offers/${offerId}/prepare`);
+}
+
+export async function skipBarcodeUploadAction(
+  groupId: string,
+  listingId: string,
+  offerId: string
+) {
+  const pharmacy = await requirePharmacy();
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.groupId !== groupId || listing.userId !== pharmacy.id) {
+    throw new Error("Bu ilana ait değilsiniz.");
+  }
+
+  const offer = await prisma.offer.findUnique({
+    where: { id: offerId },
+    include: { shipment: true },
+  });
+  if (!offer || offer.listingId !== listingId || offer.status !== "ACCEPTED") {
+    throw new Error("Geçersiz teklif.");
+  }
+
+  if (!offer.shipment) {
+    await prisma.shipment.create({
+      data: { offerId, code: generateShipmentCode() },
+    });
+
+    const assignedCouriers = await prisma.courierAssignment.findMany({
+      where: { pharmacyId: pharmacy.id },
+      select: { courierId: true },
+    });
+    await Promise.all(
+      assignedCouriers.map((a) =>
+        createNotification({
+          userId: a.courierId,
+          message: `${pharmacy.pharmacyName ?? pharmacy.contactName} eczanesinden yeni bir sevkiyat hazır.`,
+          link: "/courier/dashboard",
+        })
+      )
+    );
+  }
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+  redirect(`/groups/${groupId}/listings/${listingId}/offers/${offerId}/label`);
 }
 
 export async function markLabelPrintedAction(shipmentId: string) {

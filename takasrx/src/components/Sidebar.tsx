@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   UserCog,
+  Landmark,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/offers/received", label: "Gönderimlerim", Icon: Inbox },
   { href: "/offers/sent", label: "Alımlarım", Icon: Send },
   { href: "/ledger", label: "Cari Hareketler", Icon: Wallet },
+  { href: "/balances", label: "Grup Bakiyeleri", Icon: Landmark },
   { href: "/couriers", label: "Sevkiyatçılarım", Icon: Truck },
 ];
 
