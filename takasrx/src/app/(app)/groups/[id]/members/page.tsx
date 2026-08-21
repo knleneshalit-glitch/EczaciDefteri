@@ -8,7 +8,7 @@ import { removeMemberAction } from "@/app/actions/groups";
 export default async function GroupMembersPage(props: PageProps<"/groups/[id]/members">) {
   const user = await requireUser();
   const { id } = await props.params;
-  const membership = await requireApprovedMember(id, user.id);
+  const membership = await requireApprovedMember(id, user);
   const isManager = membership.role === "MANAGER";
 
   const group = await prisma.group.findUnique({ where: { id } });

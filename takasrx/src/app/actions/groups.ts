@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { REGIONS } from "@/lib/regions";
+import { createNotification } from "@/lib/notifications";
 
 export type GroupState = { error?: string } | undefined;
 
@@ -57,15 +59,21 @@ export async function requestJoinAction(groupId: string) {
   revalidatePath("/groups");
 }
 
-export async function approveMemberAction(groupId: string, memberId: string) {
+async function requireManager(groupId: string) {
   const user = await requireUser();
+  if (user.isSuperAdmin) return user;
 
   const managerMembership = await prisma.groupMember.findUnique({
     where: { groupId_userId: { groupId, userId: user.id } },
   });
-  if (!managerMembership || managerMembership.role !== "MANAGER") {
+  if (!managerMembership || managerMembership.role !== "MANAGER" || managerMembership.status !== "APPROVED") {
     throw new Error("Bu işlem için yetkiniz yok.");
   }
+  return user;
+}
+
+export async function approveMemberAction(groupId: string, memberId: string) {
+  await requireManager(groupId);
 
   await prisma.groupMember.update({
     where: { id: memberId },
@@ -76,14 +84,7 @@ export async function approveMemberAction(groupId: string, memberId: string) {
 }
 
 export async function rejectMemberAction(groupId: string, memberId: string) {
-  const user = await requireUser();
-
-  const managerMembership = await prisma.groupMember.findUnique({
-    where: { groupId_userId: { groupId, userId: user.id } },
-  });
-  if (!managerMembership || managerMembership.role !== "MANAGER") {
-    throw new Error("Bu işlem için yetkiniz yok.");
-  }
+  await requireManager(groupId);
 
   await prisma.groupMember.update({
     where: { id: memberId },
@@ -91,17 +92,6 @@ export async function rejectMemberAction(groupId: string, memberId: string) {
   });
 
   revalidatePath(`/groups/${groupId}`);
-}
-
-async function requireManager(groupId: string) {
-  const user = await requireUser();
-  const managerMembership = await prisma.groupMember.findUnique({
-    where: { groupId_userId: { groupId, userId: user.id } },
-  });
-  if (!managerMembership || managerMembership.role !== "MANAGER" || managerMembership.status !== "APPROVED") {
-    throw new Error("Bu işlem için yetkiniz yok.");
-  }
-  return user;
 }
 
 export async function removeMemberAction(groupId: string, memberId: string) {
@@ -165,4 +155,90 @@ export async function reopenGroupAction(groupId: string) {
   });
 
   revalidatePath(`/groups/${groupId}`);
+}
+
+export async function addManualBalanceAction(
+  groupId: string,
+  _prevState: GroupState,
+  formData: FormData
+): Promise<GroupState> {
+  await requireManager(groupId);
+
+  const userId = String(formData.get("userId") ?? "");
+  const amount = Number(String(formData.get("amount") ?? "").trim().replace(",", "."));
+  const note = String(formData.get("note") ?? "").trim();
+
+  if (!Number.isFinite(amount) || amount === 0) {
+    return { error: "Geçerli (sıfırdan farklı) bir tutar girin." };
+  }
+
+  const membership = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId } },
+  });
+  if (!membership || membership.status !== "APPROVED") {
+    return { error: "Üye bulunamadı." };
+  }
+
+  await prisma.ledgerEntry.create({
+    data: {
+      groupId,
+      userId,
+      type: "MANUAL",
+      amount,
+      note: note || "Admin bakiye düzeltmesi",
+    },
+  });
+
+  await createNotification({
+    userId,
+    message: `Bakiyenize ${amount > 0 ? "+" : ""}${amount.toFixed(2)} ₺ manuel düzeltme işlendi.`,
+    link: `/groups/${groupId}/balances`,
+  });
+
+  revalidatePath(`/groups/${groupId}/balances`);
+}
+
+export async function yearEndSettlementAction(groupId: string) {
+  await requireManager(groupId);
+
+  const members = await prisma.groupMember.findMany({
+    where: { groupId, status: "APPROVED" },
+    select: { userId: true },
+  });
+
+  const now = new Date();
+  const settlements = await Promise.all(
+    members.map(async ({ userId }) => {
+      const sum = await prisma.ledgerEntry.aggregate({
+        where: { groupId, userId, type: "INTEREST", createdAt: { lte: now } },
+        _sum: { amount: true },
+      });
+      return { userId, amount: sum._sum.amount ?? 0 };
+    })
+  );
+
+  const ops: Prisma.PrismaPromise<unknown>[] = settlements
+    .filter((s) => Math.abs(s.amount) > 0.0001)
+    .map((s) =>
+      prisma.ledgerEntry.create({
+        data: {
+          groupId,
+          userId: s.userId,
+          type: "MANUAL",
+          amount: s.amount,
+          note: "Yıl sonu grup yükü mahsuplaşması",
+        },
+      })
+    );
+
+  ops.push(
+    prisma.group.update({
+      where: { id: groupId },
+      data: { grupYukuResetAt: now },
+    })
+  );
+
+  await prisma.$transaction(ops);
+
+  revalidatePath(`/groups/${groupId}/balances`);
 }

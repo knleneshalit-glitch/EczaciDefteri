@@ -23,7 +23,7 @@ export async function createNeedAction(
   formData: FormData
 ): Promise<NeedState> {
   const user = await requireUser();
-  await requireApprovedMember(groupId, user.id);
+  await requireApprovedMember(groupId, user);
 
   const title = String(formData.get("title") ?? "").trim();
   const medicineName = String(formData.get("medicineName") ?? "").trim();
@@ -52,7 +52,7 @@ export async function createNeedAction(
 
 export async function respondNeedAction(groupId: string, needId: string, formData: FormData) {
   const user = await requireUser();
-  await requireApprovedMember(groupId, user.id);
+  await requireApprovedMember(groupId, user);
 
   const need = await prisma.needRequest.findUnique({ where: { id: needId } });
   if (!need || need.groupId !== groupId) {

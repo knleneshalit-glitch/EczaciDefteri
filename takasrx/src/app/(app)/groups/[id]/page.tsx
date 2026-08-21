@@ -44,8 +44,8 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
     where: { groupId_userId: { groupId: id, userId: user.id } },
   });
 
-  const isApproved = membership?.status === "APPROVED";
-  const isManager = membership?.role === "MANAGER" && isApproved;
+  const isApproved = membership?.status === "APPROVED" || user.isSuperAdmin;
+  const isManager = (membership?.role === "MANAGER" && membership?.status === "APPROVED") || user.isSuperAdmin;
 
   const [listings, pendingMembers] = await Promise.all([
     isApproved

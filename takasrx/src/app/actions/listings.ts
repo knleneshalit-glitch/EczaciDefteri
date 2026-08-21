@@ -29,7 +29,7 @@ export async function createListingAction(
   formData: FormData
 ): Promise<ListingState> {
   const user = await requireUser();
-  await requireApprovedMember(groupId, user.id);
+  await requireApprovedMember(groupId, user);
 
   const group = await prisma.group.findUnique({ where: { id: groupId } });
   if (!group || group.closedAt) {
@@ -183,7 +183,7 @@ export async function createOfferAction(
   formData: FormData
 ) {
   const user = await requireUser();
-  await requireApprovedMember(groupId, user.id);
+  await requireApprovedMember(groupId, user);
 
   const message = String(formData.get("message") ?? "").trim();
   const quantity = Math.max(1, Math.round(numberOrNull(formData.get("quantity")) ?? 1));

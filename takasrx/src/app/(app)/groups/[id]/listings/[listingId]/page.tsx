@@ -58,7 +58,7 @@ export default async function ListingDetailPage(
 ) {
   const user = await requireUser();
   const { id, listingId } = await props.params;
-  await requireApprovedMember(id, user.id);
+  await requireApprovedMember(id, user);
 
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },

@@ -123,16 +123,26 @@ export type MemberBalance = {
 };
 
 export async function getGroupBalances(groupId: string): Promise<MemberBalance[]> {
-  const entries = await prisma.ledgerEntry.findMany({
-    where: { groupId },
-    select: { userId: true, type: true, amount: true },
-  });
+  const [group, entries] = await Promise.all([
+    prisma.group.findUnique({ where: { id: groupId }, select: { grupYukuResetAt: true } }),
+    prisma.ledgerEntry.findMany({
+      where: { groupId },
+      select: { userId: true, type: true, amount: true, createdAt: true },
+    }),
+  ]);
+  const resetAt = group?.grupYukuResetAt ?? null;
 
   const byUser = new Map<string, { bakiye: number; grupYuku: number }>();
   for (const e of entries) {
     const bucket = byUser.get(e.userId) ?? { bakiye: 0, grupYuku: 0 };
-    if (e.type === "INTEREST") bucket.grupYuku += e.amount;
-    else bucket.bakiye += e.amount;
+    if (e.type === "INTEREST") {
+      // Yıl sonu mahsuplaşmasında rulanmış (anaparaya eklenmiş) eski faiz
+      // kayıtları grup yükünde tekrar sayılmaz; ilgili tutar zaten MANUAL
+      // olarak bakiyeye eklendi.
+      if (!resetAt || e.createdAt > resetAt) bucket.grupYuku += e.amount;
+    } else {
+      bucket.bakiye += e.amount;
+    }
     byUser.set(e.userId, bucket);
   }
 

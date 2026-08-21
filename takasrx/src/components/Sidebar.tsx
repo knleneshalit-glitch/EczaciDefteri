@@ -10,6 +10,7 @@ import {
   Truck,
   Bell,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -27,9 +28,11 @@ const NAV_ITEMS = [
 export default function Sidebar({
   user,
   unreadCount = 0,
+  isSuperAdmin = false,
 }: {
   user: { pharmacyName: string; email: string };
   unreadCount?: number;
+  isSuperAdmin?: boolean;
 }) {
   return (
     <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 print:hidden">
@@ -65,6 +68,15 @@ export default function Sidebar({
             <span>{label}</span>
           </Link>
         ))}
+        {isSuperAdmin && (
+          <Link
+            href="/admin"
+            className="flex items-center gap-3 px-5 py-2.5 text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10"
+          >
+            <ShieldCheck className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+            <span>Admin Paneli</span>
+          </Link>
+        )}
       </nav>
 
       <div className="border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-800">

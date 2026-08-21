@@ -51,6 +51,8 @@ export async function registerPharmacyAction(
     return { error: "Bu GLN numarası ile zaten bir hesap var." };
   }
 
+  const isFirstUser = (await prisma.user.count()) === 0;
+
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
     data: {
@@ -63,6 +65,7 @@ export async function registerPharmacyAction(
       region,
       district: district || null,
       address: address || null,
+      isSuperAdmin: isFirstUser,
     },
   });
 

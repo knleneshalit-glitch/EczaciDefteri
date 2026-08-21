@@ -18,3 +18,9 @@ export async function requireCourier() {
   if (user.accountType !== "COURIER") redirect("/dashboard");
   return user;
 }
+
+export async function requireSuperAdmin() {
+  const user = await requirePharmacy();
+  if (!user.isSuperAdmin) redirect("/dashboard");
+  return user;
+}

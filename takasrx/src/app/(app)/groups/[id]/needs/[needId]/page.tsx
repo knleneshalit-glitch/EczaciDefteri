@@ -49,7 +49,7 @@ const RESPONSE_STATUS_ICON: Record<string, LucideIcon> = {
 export default async function NeedDetailPage(props: PageProps<"/groups/[id]/needs/[needId]">) {
   const user = await requireUser();
   const { id, needId } = await props.params;
-  await requireApprovedMember(id, user.id);
+  await requireApprovedMember(id, user);
 
   const need = await prisma.needRequest.findUnique({
     where: { id: needId },

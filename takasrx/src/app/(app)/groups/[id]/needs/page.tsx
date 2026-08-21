@@ -21,7 +21,7 @@ const STATUS_ICON: Record<string, LucideIcon> = {
 export default async function GroupNeedsPage(props: PageProps<"/groups/[id]/needs">) {
   const user = await requireUser();
   const { id } = await props.params;
-  await requireApprovedMember(id, user.id);
+  await requireApprovedMember(id, user);
 
   const group = await prisma.group.findUnique({ where: { id } });
   if (!group) notFound();

@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
-import { Wallet } from "lucide-react";
+import { Wallet, RefreshCcw } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
 import { accrueInterestForGroup, getGroupBalances } from "@/lib/ledger";
+import { yearEndSettlementAction } from "@/app/actions/groups";
 import InterestRateForm from "./InterestRateForm";
+import ManualBalanceForm from "./ManualBalanceForm";
 
 function money(n: number) {
   return `${n.toFixed(2)} ₺`;
@@ -13,7 +15,7 @@ function money(n: number) {
 export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/balances">) {
   const user = await requireUser();
   const { id } = await props.params;
-  const membership = await requireApprovedMember(id, user.id);
+  const membership = await requireApprovedMember(id, user);
   const isManager = membership.role === "MANAGER";
 
   const group = await prisma.group.findUnique({ where: { id } });
@@ -51,6 +53,27 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
       </p>
 
       {isManager && <InterestRateForm groupId={group.id} currentRate={group.monthlyInterestRate} />}
+
+      {isManager && (
+        <ManualBalanceForm
+          groupId={group.id}
+          members={members.map((m) => ({ userId: m.userId, pharmacyName: m.user.pharmacyName ?? m.user.contactName }))}
+        />
+      )}
+
+      {isManager && (
+        <form action={yearEndSettlementAction.bind(null, group.id)} className="mt-4">
+          <button className="flex items-center gap-1.5 rounded-md border border-amber-500/40 px-4 py-2 text-sm font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-500/10">
+            <RefreshCcw className="h-4 w-4" strokeWidth={1.75} />
+            Yıl Sonu: Grup Yükünü Bakiyeye Ekle ve Sıfırla
+          </button>
+          <p className="mt-1 text-xs text-slate-500">
+            Herkesin o anki grup yükü, bakiyesine tek seferlik eklenir ve grup yükü sıfırdan
+            başlar. Geçmiş kayıtlar silinmez, sadece yeni bir "Yıl Sonu Mahsuplaşması" hareketi
+            eklenir.
+          </p>
+        </form>
+      )}
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <table className="w-full min-w-[720px] text-left text-sm">
