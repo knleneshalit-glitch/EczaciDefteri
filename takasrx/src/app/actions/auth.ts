@@ -51,7 +51,8 @@ export async function registerPharmacyAction(
     return { error: "Bu GLN numarası ile zaten bir hesap var." };
   }
 
-  const isFirstUser = (await prisma.user.count()) === 0;
+  const systemAdminEmail = (process.env.SYSTEM_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  const isSystemAdmin = !!systemAdminEmail && email === systemAdminEmail;
 
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
@@ -65,9 +66,24 @@ export async function registerPharmacyAction(
       region,
       district: district || null,
       address: address || null,
-      isSuperAdmin: isFirstUser,
+      isSuperAdmin: isSystemAdmin,
     },
   });
+
+  if (isSystemAdmin) {
+    // Bu hesap zaten kurulmuş tüm gruplara yönetici olarak eklenir; bundan
+    // sonra kurulan gruplara da createGroupAction içinde otomatik eklenir.
+    const existingGroups = await prisma.group.findMany({ select: { id: true } });
+    await Promise.all(
+      existingGroups.map((g) =>
+        prisma.groupMember.upsert({
+          where: { groupId_userId: { groupId: g.id, userId: user.id } },
+          update: { role: "MANAGER", status: "APPROVED" },
+          create: { groupId: g.id, userId: user.id, role: "MANAGER", status: "APPROVED" },
+        })
+      )
+    );
+  }
 
   await createSession({ userId: user.id, email: user.email });
   redirect("/dashboard");

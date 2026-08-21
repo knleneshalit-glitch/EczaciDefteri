@@ -17,10 +17,16 @@ export default async function AdminPage() {
   ]);
 
   const stats = [
-    { label: "Toplam Eczane", value: pharmacyCount, Icon: Building2 },
-    { label: "Toplam Sevkiyatçı", value: courierCount, Icon: Truck },
-    { label: "Toplam Grup", value: groupCount, Icon: Users },
-  ];
+    { label: "Toplam Eczane", value: pharmacyCount, Icon: Building2, color: "blue" },
+    { label: "Toplam Sevkiyatçı", value: courierCount, Icon: Truck, color: "orange" },
+    { label: "Toplam Grup", value: groupCount, Icon: Users, color: "purple" },
+  ] as const;
+
+  const STAT_COLORS: Record<string, string> = {
+    blue: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    orange: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+    purple: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  };
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -34,12 +40,12 @@ export default async function AdminPage() {
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {stats.map(({ label, value, Icon }) => (
+        {stats.map(({ label, value, Icon, color }) => (
           <div
             key={label}
             className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${STAT_COLORS[color]}`}>
               <Icon className="h-5 w-5" strokeWidth={1.75} />
             </span>
             <div>

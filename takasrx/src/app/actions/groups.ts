@@ -37,6 +37,18 @@ export async function createGroupAction(
     },
   });
 
+  // TakasRX Admin hesabı (varsa) her yeni kurulan gruba otomatik olarak
+  // ikinci yönetici olarak eklenir.
+  const systemAdminEmail = (process.env.SYSTEM_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  if (systemAdminEmail) {
+    const systemAdmin = await prisma.user.findUnique({ where: { email: systemAdminEmail } });
+    if (systemAdmin && systemAdmin.id !== user.id) {
+      await prisma.groupMember.create({
+        data: { groupId: group.id, userId: systemAdmin.id, role: "MANAGER", status: "APPROVED" },
+      });
+    }
+  }
+
   revalidatePath("/groups");
   redirect(`/groups/${group.id}`);
 }
