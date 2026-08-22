@@ -80,6 +80,27 @@ export default function MarketListings({ listings }: { listings: MarketListing[]
               : null;
             const targetReached = listing.status === "OPEN" && listing.targetReachedAt != null;
 
+            let expiryWarning: { label: string; className: string } | null = null;
+            if (listing.expiryDate) {
+              const daysUntilExpiry = Math.ceil((listing.expiryDate.getTime() - Date.now()) / 86400000);
+              if (daysUntilExpiry < 91) {
+                expiryWarning = {
+                  label: "3 Ay Altında Miad",
+                  className: "border-red-400 bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400",
+                };
+              } else if (daysUntilExpiry < 182) {
+                expiryWarning = {
+                  label: "6 Ay Altında Miad",
+                  className: "border-orange-400 bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400",
+                };
+              } else if (daysUntilExpiry < 365) {
+                expiryWarning = {
+                  label: "1 Yıl Altında Miad",
+                  className: "border-yellow-400 bg-yellow-100 dark:bg-yellow-500/20 text-yellow-800 dark:text-yellow-400",
+                };
+              }
+            }
+
             return (
               <Link
                 key={listing.id}
@@ -121,6 +142,11 @@ export default function MarketListings({ listings }: { listings: MarketListing[]
                         }`}
                       >
                         Eczaneye Özel
+                      </span>
+                    )}
+                    {expiryWarning && (
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${expiryWarning.className}`}>
+                        {expiryWarning.label}
                       </span>
                     )}
                   </p>

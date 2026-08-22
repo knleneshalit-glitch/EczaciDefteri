@@ -64,8 +64,11 @@ export async function createListingAction(
   }
 
   const totalStock = numberOrNull(formData.get("totalStock"));
+  if (totalStock === null || totalStock <= 0) {
+    return { error: "Toplam stok (adet) girmeniz gerekiyor." };
+  }
   const dealBonusQuantity = numberOrNull(formData.get("dealBonusQuantity"));
-  if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
+  if (dealBonusQuantity != null && dealBonusQuantity >= totalStock) {
     return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
   }
   const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));
@@ -80,8 +83,9 @@ export async function createListingAction(
   const listingKind = String(formData.get("listingKind") ?? "STOK") === "DEPO_OZEL_SART" ? "DEPO_OZEL_SART" : "STOK";
   const allowExceedDemand = listingKind === "DEPO_OZEL_SART" && formData.get("allowExceedDemand") === "on";
 
+  const isBakiyeTransferi = medicineName === "BAKİYE TRANSFERİ";
   const expiryDate = dateOrNull(formData.get("expiryDate"));
-  if (listingKind === "STOK" && !expiryDate) {
+  if (listingKind === "STOK" && !isBakiyeTransferi && !expiryDate) {
     return { error: "Stoğumdaki ürün için son kullanma tarihi (SKT) girmeniz gerekiyor." };
   }
 
@@ -169,8 +173,11 @@ export async function updateListingAction(
       return { error: "Geçerli bir depo (birim) fiyatı girin." };
     }
     const totalStock = numberOrNull(formData.get("totalStock"));
+    if (totalStock === null || totalStock <= 0) {
+      return { error: "Toplam stok (adet) girmeniz gerekiyor." };
+    }
     const dealBonusQuantity = numberOrNull(formData.get("dealBonusQuantity"));
-    if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
+    if (dealBonusQuantity != null && dealBonusQuantity >= totalStock) {
       return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
     }
     const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));

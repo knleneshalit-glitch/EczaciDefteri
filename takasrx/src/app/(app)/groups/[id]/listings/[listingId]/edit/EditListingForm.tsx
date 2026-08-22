@@ -146,6 +146,7 @@ export default function EditListingForm({
               <input
                 type="number"
                 min={1}
+                required={!hasShippedOffers}
                 disabled={hasShippedOffers}
                 name="totalStock"
                 defaultValue={defaults.totalStock || ""}

@@ -31,6 +31,8 @@ type PreviousListing = {
   user: { pharmacyName: string | null; contactName: string };
 };
 
+const BAKIYE_TRANSFERI = "BAKİYE TRANSFERİ";
+
 function effectivePricePreview(
   birimFiyat: number,
   totalStock: number,
@@ -68,6 +70,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [expiryDate, setExpiryDate] = useState("");
   const [minAlim, setMinAlim] = useState(0);
   const [maxAlim, setMaxAlim] = useState(0);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 1);
@@ -151,6 +154,13 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
     ekstraIskontoYuzde
   );
   const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
+  const isBakiyeTransferi = medicineName.trim().toLocaleUpperCase("tr-TR") === BAKIYE_TRANSFERI;
+
+  function selectBakiyeTransferi() {
+    setMedicineName(BAKIYE_TRANSFERI);
+    setBarkod("");
+    setShowSuggestions(false);
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
@@ -344,8 +354,18 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none uppercase"
               />
-              {showSuggestions && suggestions.length > 0 && (
+              {showSuggestions && (
                 <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
+                  <li>
+                    <button
+                      type="button"
+                      onMouseDown={selectBakiyeTransferi}
+                      className="flex w-full flex-col items-start bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-left text-sm hover:bg-amber-100 dark:hover:bg-amber-500/20"
+                    >
+                      <span className="font-medium text-amber-800 dark:text-amber-400">💰 {BAKIYE_TRANSFERI}</span>
+                      <span className="text-xs text-amber-700/80 dark:text-amber-400/70">Fiziksel ürün değil — miad istenmez</span>
+                    </button>
+                  </li>
                   {suggestions.map((m) => (
                     <li key={m.id}>
                       <button
@@ -388,18 +408,24 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Son Kullanma Tarihi{listingKind === "STOK" && <span className="text-red-500"> *</span>}
+                Son Kullanma Tarihi
+                {listingKind === "STOK" && !isBakiyeTransferi && <span className="text-red-500"> *</span>}
               </label>
               <input
                 type="date"
                 name="expiryDate"
-                required={listingKind === "STOK"}
+                required={listingKind === "STOK" && !isBakiyeTransferi}
+                disabled={isBakiyeTransferi}
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
               />
-              {listingKind === "DEPO_OZEL_SART" && (
-                <p className="mt-1 text-xs text-slate-500">Depo özel şartında opsiyoneldir.</p>
+              {isBakiyeTransferi ? (
+                <p className="mt-1 text-xs text-slate-500">Bakiye transferinde miad istenmez.</p>
+              ) : (
+                listingKind === "DEPO_OZEL_SART" && (
+                  <p className="mt-1 text-xs text-slate-500">Depo özel şartında opsiyoneldir.</p>
+                )
               )}
             </div>
           </div>
@@ -492,11 +518,12 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Toplam Stok (adet)
+                Toplam Stok (adet)<span className="text-red-500"> *</span>
               </label>
               <input
                 type="number"
                 min={1}
+                required
                 name="totalStock"
                 value={totalStock || ""}
                 onChange={(e) => setTotalStock(Number(e.target.value) || 0)}
@@ -611,6 +638,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <input
                 type="date"
                 name="startDate"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
