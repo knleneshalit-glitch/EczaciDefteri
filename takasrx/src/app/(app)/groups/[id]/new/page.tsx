@@ -210,46 +210,57 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <History className="h-4 w-4 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
               Bu Grupta Bu Ürün İçin Önceki İlanlar
             </h2>
-            <ul className="mt-3 flex flex-col gap-2">
-              {previousListings.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md bg-white dark:bg-slate-900 px-3 py-2 text-xs"
-                >
-                  <span className="font-medium text-slate-800 dark:text-slate-200">
-                    {l.user.pharmacyName ?? l.user.contactName}
-                  </span>
-                  <span className="text-slate-500">{l.medicineName}</span>
-                  {l.birimFiyat != null && (
-                    <span className="text-slate-600 dark:text-slate-400">
-                      {l.birimFiyat.toFixed(2)} ₺
-                      {l.totalStock != null && l.dealBonusQuantity ? ` · ${l.totalStock - l.dealBonusQuantity}+${l.dealBonusQuantity} MF` : ""}
-                    </span>
-                  )}
-                  {l.ekstraIskontoYuzde != null && l.ekstraIskontoYuzde > 0 && (
-                    <span className="rounded-full bg-blue-100 dark:bg-blue-500/20 px-2 py-0.5 text-blue-700 dark:text-blue-400">
-                      %{l.ekstraIskontoYuzde} İskonto
-                    </span>
-                  )}
-                  {l.ekstraIndirim != null && l.ekstraIndirim > 0 && (
-                    <span className="rounded-full bg-purple-100 dark:bg-purple-500/20 px-2 py-0.5 text-purple-700 dark:text-purple-400">
-                      {l.ekstraIndirim.toFixed(0)} ₺ İndirim
-                    </span>
-                  )}
-                  <span className="text-slate-400">
-                    {new Date(l.createdAt).toLocaleDateString("tr-TR")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => applyPreviousListing(l)}
-                    className="flex items-center gap-1 rounded-full border border-emerald-500/40 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
-                  >
-                    <Copy className="h-3 w-3" strokeWidth={1.75} />
-                    İlanı Kullan
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-3 overflow-x-auto rounded-md border border-blue-500/20">
+              <table className="w-full min-w-[860px] text-left text-xs">
+                <thead className="border-b border-blue-500/20 bg-blue-500/10 uppercase text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Eczane Adı</th>
+                    <th className="px-3 py-2">İlaç Adı</th>
+                    <th className="px-3 py-2">Birim Fiyat</th>
+                    <th className="px-3 py-2">Mal Fazlası</th>
+                    <th className="px-3 py-2">İskonto</th>
+                    <th className="px-3 py-2">İndirim</th>
+                    <th className="px-3 py-2">Tarih</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {previousListings.map((l) => (
+                    <tr key={l.id} className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 last:border-0">
+                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                        {l.user.pharmacyName ?? l.user.contactName}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{l.medicineName}</td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.birimFiyat != null ? `${l.birimFiyat.toFixed(2)} ₺` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.totalStock != null && l.dealBonusQuantity
+                          ? `${l.totalStock - l.dealBonusQuantity}+${l.dealBonusQuantity}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.ekstraIskontoYuzde != null && l.ekstraIskontoYuzde > 0 ? `%${l.ekstraIskontoYuzde}` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.ekstraIndirim != null && l.ekstraIndirim > 0 ? `${l.ekstraIndirim.toFixed(0)} ₺` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">{new Date(l.createdAt).toLocaleDateString("tr-TR")}</td>
+                      <td className="px-3 py-2 pr-4">
+                        <button
+                          type="button"
+                          onClick={() => applyPreviousListing(l)}
+                          className="flex w-fit items-center gap-1 whitespace-nowrap rounded-full border border-emerald-500/40 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                        >
+                          <Copy className="h-3 w-3" strokeWidth={1.75} />
+                          İlanı Kullan
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
 

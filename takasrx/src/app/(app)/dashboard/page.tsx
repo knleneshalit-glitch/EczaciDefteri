@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import CariOzetiPager from "@/components/CariOzetiPager";
 
 function StatCard({
   label,
@@ -52,6 +53,9 @@ function StatCard({
   };
   const color = COLORS[accent ?? "slate"];
   const badgeBg = BADGES[accent ?? "slate"];
+  const valueLength = String(value).length;
+  const valueSizeClass =
+    valueLength > 10 ? "text-lg" : valueLength > 7 ? "text-xl" : "text-3xl";
 
   return (
     <Link
@@ -59,7 +63,9 @@ function StatCard({
       className="group flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm hover:border-emerald-400 hover:shadow-md transition"
     >
       <div className="flex items-start justify-between gap-2">
-        <p className={`min-w-0 flex-1 break-words text-3xl font-bold leading-tight ${color}`}>{value}</p>
+        <p className={`min-w-0 flex-1 whitespace-nowrap font-bold leading-tight ${valueSizeClass} ${color}`}>
+          {value}
+        </p>
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${badgeBg} ${color}`}>
           <Icon className="h-5 w-5" strokeWidth={1.75} />
         </span>
@@ -70,33 +76,6 @@ function StatCard({
         <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
       </span>
     </Link>
-  );
-}
-
-function CariRow({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: "positive" | "negative" | "neutral";
-}) {
-  const valueColor =
-    highlight === "positive"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : highlight === "negative"
-        ? "text-red-600 dark:text-red-400"
-        : "text-slate-900 dark:text-slate-100";
-  return (
-    <div
-      className={`flex items-center justify-between rounded-lg px-4 py-3 ${
-        highlight ? "bg-slate-100 dark:bg-slate-800/60" : ""
-      }`}
-    >
-      <span className="text-sm text-slate-600 dark:text-slate-400">{label}</span>
-      <span className={`text-base font-bold ${valueColor}`}>{value}</span>
-    </div>
   );
 }
 
@@ -131,19 +110,32 @@ export default async function DashboardPage() {
     ? await prisma.listing.count({ where: { status: "OPEN" } })
     : await prisma.listing.count({ where: { status: "OPEN", groupId: { in: groupIds } } });
 
-  const bakiye = ledgerEntries
-    .filter((e) => e.type !== "INTEREST")
-    .reduce((sum, e) => sum + e.amount, 0);
-  const grupYuku = ledgerEntries
-    .filter((e) => e.type === "INTEREST")
-    .reduce((sum, e) => sum + e.amount, 0);
-  const toplamCari = bakiye + grupYuku;
-  const toplamAlim = ledgerEntries
-    .filter((e) => e.type === "TRADE" && e.amount < 0)
-    .reduce((sum, e) => sum + Math.abs(e.amount), 0);
-  const toplamSatis = ledgerEntries
-    .filter((e) => e.type === "TRADE" && e.amount > 0)
-    .reduce((sum, e) => sum + e.amount, 0);
+  const groupLedgerEntries = groupIds.length
+    ? await prisma.ledgerEntry.findMany({
+        where: { groupId: { in: groupIds } },
+        select: { type: true, amount: true },
+      })
+    : [];
+
+  function computeCari(entries: { type: string; amount: number }[]) {
+    const bakiye = entries
+      .filter((e) => e.type !== "INTEREST")
+      .reduce((sum, e) => sum + e.amount, 0);
+    const grupYuku = entries
+      .filter((e) => e.type === "INTEREST")
+      .reduce((sum, e) => sum + e.amount, 0);
+    const toplamAlim = entries
+      .filter((e) => e.type === "TRADE" && e.amount < 0)
+      .reduce((sum, e) => sum + Math.abs(e.amount), 0);
+    const toplamSatis = entries
+      .filter((e) => e.type === "TRADE" && e.amount > 0)
+      .reduce((sum, e) => sum + e.amount, 0);
+    return { bakiye, grupYuku, toplamCari: bakiye + grupYuku, toplamAlim, toplamSatis };
+  }
+
+  const personalCari = computeCari(ledgerEntries);
+  const groupCari = computeCari(groupLedgerEntries);
+  const { toplamCari } = personalCari;
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
@@ -166,7 +158,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
         <StatCard
           label="Gruptaki Aktif Teklifler"
           value={marketListingsCount}
@@ -284,20 +276,8 @@ export default async function DashboardPage() {
             <Scale className="h-4 w-4 text-teal-600 dark:text-teal-400" strokeWidth={1.75} />
             Genel Cari Özeti
           </h2>
-          <div className="mt-3 divide-y divide-slate-200 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2">
-            <CariRow
-              label="Bakiye"
-              value={`${bakiye.toFixed(2)} ₺`}
-              highlight={bakiye >= 0 ? "positive" : "negative"}
-            />
-            <CariRow
-              label="Grup Yükü"
-              value={`${grupYuku.toFixed(2)} ₺`}
-              highlight={grupYuku >= 0 ? "positive" : "negative"}
-            />
-            <CariRow label="Toplam" value={`${toplamCari.toFixed(2)} ₺`} highlight="neutral" />
-            <CariRow label="Toplam Alım" value={`${toplamAlim.toFixed(2)} ₺`} />
-            <CariRow label="Toplam Satış" value={`${toplamSatis.toFixed(2)} ₺`} />
+          <div className="mt-3">
+            <CariOzetiPager personal={personalCari} group={groupCari} />
           </div>
           <div className="mt-3 flex items-center gap-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 text-xs text-slate-600 dark:text-slate-400">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">

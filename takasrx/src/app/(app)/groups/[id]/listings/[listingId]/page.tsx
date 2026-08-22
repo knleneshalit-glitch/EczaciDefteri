@@ -100,17 +100,17 @@ export default async function ListingDetailPage(
       : (remaining ?? listing.maxAlim ?? undefined);
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 py-10">
+    <div className="mx-auto w-full max-w-4xl px-6 py-10">
       <div className="mb-4">
         <BackButton />
       </div>
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
-            <Sparkles className="h-5 w-5 text-violet-500" strokeWidth={1.75} />
+            <Sparkles className="h-5 w-5 shrink-0 text-violet-500" strokeWidth={1.75} />
             {listing.title}
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {isOwner && (
               <Link
                 href={`/groups/${id}/listings/${listingId}/edit`}
