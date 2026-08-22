@@ -125,7 +125,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
+    <div className="mx-auto w-full max-w-6xl px-6 py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <PackagePlus className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Yeni Talep / Teklif Oluştur
@@ -134,7 +134,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
       <form action={formAction} className="mt-8 flex flex-col gap-8">
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="relative">
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">İlaç Adı</label>
               <input
@@ -211,7 +211,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               Bu Grupta Bu Ürün İçin Önceki İlanlar
             </h2>
             <div className="mt-3 overflow-x-auto rounded-md border border-blue-500/20">
-              <table className="w-full min-w-[860px] text-left text-xs">
+              <table className="w-full text-left text-xs">
                 <thead className="border-b border-blue-500/20 bg-blue-500/10 uppercase text-slate-500 dark:text-slate-400">
                   <tr>
                     <th className="px-3 py-2">Eczane Adı</th>
