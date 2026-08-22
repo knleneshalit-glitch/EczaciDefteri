@@ -53,6 +53,11 @@ enum NeedStatus {
   CLOSED
 }
 
+enum ListingKind {
+  STOK
+  DEPO_OZEL_SART
+}
+
 model User {
   id            String      @id @default(cuid())
   email         String      @unique
@@ -204,6 +209,8 @@ model Listing {
   expiryDate        DateTime?
   status            ListingStatus @default(OPEN)
   targetReachedAt   DateTime?
+  listingKind       ListingKind   @default(STOK)
+  allowExceedDemand Boolean       @default(false)
   createdAt         DateTime      @default(now())
 
   group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)

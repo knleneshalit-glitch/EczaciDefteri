@@ -21,7 +21,7 @@ export default async function ReceivedOffersPage() {
   const user = await requireUser();
 
   const offers = await prisma.offer.findMany({
-    where: { listing: { userId: user.id } },
+    where: { listing: { userId: user.id, listingKind: "STOK" } },
     include: { listing: { include: { group: true } }, user: true },
     orderBy: { createdAt: "desc" },
   });

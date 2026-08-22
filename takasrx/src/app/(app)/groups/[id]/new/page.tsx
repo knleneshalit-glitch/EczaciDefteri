@@ -60,6 +60,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [expiryDate, setExpiryDate] = useState("");
   const [minAlim, setMinAlim] = useState(0);
   const [maxAlim, setMaxAlim] = useState(0);
+  const [listingKind, setListingKind] = useState<"STOK" | "DEPO_OZEL_SART">("STOK");
+  const [allowExceedDemand, setAllowExceedDemand] = useState(false);
 
   const [suggestions, setSuggestions] = useState<MedicineMatch[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -132,6 +134,66 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
       </h1>
 
       <form action={formAction} className="mt-8 flex flex-col gap-8">
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">İlan Türü</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Elinizde hazır stok varsa &quot;Stoğumdaki Ürün&quot;ü seçin — teklif gelince hemen
+            Gönderimlerim ekranınıza düşer. Henüz depodan almadığınız ama özel şart
+            çıkacak bir ürün için grup içinde talep toplamak isterseniz &quot;Depo Özel
+            Şartı&quot;nı seçin — teklifler siz ürünü stoğa dönüştürene kadar Gönderimlerim
+            ekranına düşmez, sadece ilan içinde birikir.
+          </p>
+          <input type="hidden" name="listingKind" value={listingKind} />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                listingKind === "STOK"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={listingKind === "STOK"}
+                  onChange={() => setListingKind("STOK")}
+                />
+                Stoğumdaki Ürün
+              </span>
+              <span className="text-xs text-slate-500">Elimde hazır stok var, hemen satabilirim.</span>
+            </label>
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                listingKind === "DEPO_OZEL_SART"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={listingKind === "DEPO_OZEL_SART"}
+                  onChange={() => setListingKind("DEPO_OZEL_SART")}
+                />
+                Depo Özel Şartı
+              </span>
+              <span className="text-xs text-slate-500">Henüz almadım, önce grupta talep topluyorum.</span>
+            </label>
+          </div>
+          {listingKind === "DEPO_OZEL_SART" && (
+            <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                name="allowExceedDemand"
+                checked={allowExceedDemand}
+                onChange={(e) => setAllowExceedDemand(e.target.checked)}
+              />
+              Talep, girdiğim toplam stok miktarını geçebilsin (işaretlenmezse talep toplam
+              stoğu geçemez)
+            </label>
+          )}
+        </section>
+
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -18,6 +18,9 @@ import {
   Tag,
   QrCode,
   Sparkles,
+  PackageSearch,
+  ArrowRightLeft,
+  Users,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -28,6 +31,7 @@ import {
   respondOfferAction,
   closeListingAction,
   reopenListingAction,
+  convertToStockAction,
 } from "@/app/actions/listings";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -86,11 +90,25 @@ export default async function ListingDetailPage(
   const myPendingOffer = listing.offers.find((o) => o.userId === user.id && o.status === "PENDING");
   const StatusIcon = STATUS_ICON[listing.status];
   const targetReached = listing.status === "OPEN" && listing.targetReachedAt != null;
+  const isDepoOzelSart = listing.listingKind === "DEPO_OZEL_SART";
 
   const acceptedQty = listing.offers
     .filter((o) => o.status === "ACCEPTED")
     .reduce((sum, o) => sum + o.quantity, 0);
-  const remaining = listing.totalStock != null ? listing.totalStock - acceptedQty : null;
+  const demandQty = listing.offers
+    .filter((o) => o.status !== "REJECTED")
+    .reduce((sum, o) => sum + o.quantity, 0);
+  const demandPharmacyCount = new Set(
+    listing.offers.filter((o) => o.status !== "REJECTED").map((o) => o.userId)
+  ).size;
+  const remaining =
+    listing.totalStock != null
+      ? isDepoOzelSart
+        ? listing.allowExceedDemand
+          ? null
+          : listing.totalStock - demandQty
+        : listing.totalStock - acceptedQty
+      : null;
   const netFiyat = effectiveUnitPrice(listing);
   const hasBonus =
     listing.dealBonusQuantity != null &&
@@ -121,6 +139,12 @@ export default async function ListingDetailPage(
             {listing.title}
           </h1>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {isDepoOzelSart && (
+              <span className="flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-500/20 px-2.5 py-1 text-xs font-medium text-violet-700 dark:text-violet-400">
+                <PackageSearch className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Depo Özel Şartı
+              </span>
+            )}
             {isOwner && (
               <Link
                 href={`/groups/${id}/listings/${listingId}/edit`}
@@ -189,6 +213,35 @@ export default async function ListingDetailPage(
         </p>
       </div>
 
+      {isDepoOzelSart && (
+        <section className="mt-6 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <Users className="h-4 w-4 text-violet-600 dark:text-violet-400" strokeWidth={1.75} />
+                Toplam Talep: {demandQty} adet · {demandPharmacyCount} eczane
+              </p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Ürün henüz depodan temin edilmedi. Teklifler burada birikiyor, siz stoğa
+                dönüştürene kadar Gönderimlerim ekranınıza düşmez ve kabul/red edilemez.
+                {listing.totalStock != null &&
+                  (listing.allowExceedDemand
+                    ? " Talep sınırsız kabul ediliyor (girilen stoğu geçebilir)."
+                    : ` Talep en fazla ${listing.totalStock} adede kadar kabul edilir.`)}
+              </p>
+            </div>
+            {isOwner && listing.status === "OPEN" && (
+              <form action={convertToStockAction.bind(null, id, listingId)}>
+                <button className="flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-500">
+                  <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Ürünü Temin Ettim → Stoğa Dönüştür
+                </button>
+              </form>
+            )}
+          </div>
+        </section>
+      )}
+
       {netFiyat != null && (
         <section className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
           <div className="flex flex-wrap items-center gap-2">
@@ -252,6 +305,13 @@ export default async function ListingDetailPage(
           action={createOfferAction.bind(null, id, listing.id)}
           className="mt-6 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-500/5 p-4"
         >
+          {isDepoOzelSart && (
+            <p className="mb-3 flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-400">
+              <PackageSearch className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Bu, depo özel şartı için verilen bir talep. İlan sahibi ürünü temin edip stoğa
+              dönüştürünce değerlendirilecek.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -353,7 +413,7 @@ export default async function ListingDetailPage(
                 {offer.message && (
                   <p className="mt-1 text-sm text-slate-500">{offer.message}</p>
                 )}
-                {isOwner && offer.status === "PENDING" && listing.status === "OPEN" && (
+                {isOwner && offer.status === "PENDING" && listing.status === "OPEN" && !isDepoOzelSart && (
                   <div className="mt-2 flex gap-2">
                     <form action={respondOfferAction.bind(null, id, listing.id, offer.id, true)}>
                       <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500">
