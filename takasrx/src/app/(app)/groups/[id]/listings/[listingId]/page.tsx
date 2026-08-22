@@ -40,6 +40,7 @@ import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { closeExpiredTargetListings } from "@/lib/listings";
 import BackButton from "@/components/BackButton";
+import MedicineImageUpload from "@/components/MedicineImageUpload";
 
 const SHIPMENT_STATUS_LABEL: Record<string, string> = {
   HAZIRLANIYOR: "Sevkiyata Hazırlanıyor",
@@ -97,6 +98,13 @@ export default async function ListingDetailPage(
   ) {
     notFound();
   }
+
+  const approvedImage = listing.barkod
+    ? await prisma.medicineImage.findFirst({
+        where: { barkod: listing.barkod, status: "APPROVED" },
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
 
   const isOwner = listing.userId === user.id;
   const myPendingOffer = listing.offers.find((o) => o.userId === user.id && o.status === "PENDING");
@@ -172,10 +180,20 @@ export default async function ListingDetailPage(
         }`}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
-            <Sparkles className="h-5 w-5 shrink-0 text-violet-500" strokeWidth={1.75} />
-            {listing.title}
-          </h1>
+          <div className="flex items-center gap-3">
+            {approvedImage && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={approvedImage.dataUrl}
+                alt={listing.medicineName}
+                className="h-14 w-14 shrink-0 rounded-lg object-cover"
+              />
+            )}
+            <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
+              <Sparkles className="h-5 w-5 shrink-0 text-violet-500" strokeWidth={1.75} />
+              {listing.title}
+            </h1>
+          </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {isDepoOzelSart && (
               <span className="flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-500/20 px-2.5 py-1 text-xs font-medium text-violet-700 dark:text-violet-400">
@@ -262,6 +280,7 @@ export default async function ListingDetailPage(
         <p className="mt-3 text-xs text-slate-600 dark:text-slate-400">
           İlan sahibi: {listing.user.pharmacyName}
         </p>
+        {listing.barkod && <MedicineImageUpload barkod={listing.barkod} />}
       </div>
 
       {isDepoOzelSart && (

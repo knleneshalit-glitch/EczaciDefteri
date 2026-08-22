@@ -1,15 +1,16 @@
 import Link from "next/link";
-import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X, Pill } from "lucide-react";
+import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X, Pill, ImageIcon, Check } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/require-user";
 import { deactivateAnnouncementAction } from "@/app/actions/announcements";
+import { approveMedicineImageAction, rejectMedicineImageAction } from "@/app/actions/medicine-images";
 import AnnouncementForm from "@/components/AnnouncementForm";
 import ImportMedicinesButton from "@/components/ImportMedicinesButton";
 
 export default async function AdminPage() {
   await requireSuperAdmin();
 
-  const [groups, pharmacyCount, courierCount, groupCount, announcements, medicineCount] = await Promise.all([
+  const [groups, pharmacyCount, courierCount, groupCount, announcements, medicineCount, pendingImages] = await Promise.all([
     prisma.group.findMany({
       include: { _count: { select: { members: true, listings: true } } },
       orderBy: { createdAt: "desc" },
@@ -19,7 +20,18 @@ export default async function AdminPage() {
     prisma.group.count(),
     prisma.announcement.findMany({ where: { active: true }, orderBy: { createdAt: "desc" } }),
     prisma.medicine.count(),
+    prisma.medicineImage.findMany({
+      where: { status: "PENDING" },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
+
+  const pendingBarkods = [...new Set(pendingImages.map((img) => img.barkod))];
+  const medicineNames = pendingBarkods.length
+    ? await prisma.medicine.findMany({ where: { barkod: { in: pendingBarkods } }, select: { barkod: true, name: true } })
+    : [];
+  const medicineNameByBarkod = new Map(medicineNames.map((m) => [m.barkod, m.name]));
 
   const stats = [
     { label: "Toplam Eczane", value: pharmacyCount, Icon: Building2, color: "blue" },
@@ -172,6 +184,47 @@ export default async function AdminPage() {
       <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
         <ImportMedicinesButton />
       </div>
+
+      <h2 className="mt-10 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <ImageIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+        Onay Bekleyen Ürün Fotoğrafları ({pendingImages.length})
+      </h2>
+      <p className="mt-1 text-xs text-slate-500">
+        Grup üyelerinin yüklediği ürün fotoğrafları, onaylanana kadar diğer kullanıcılara
+        gösterilmez.
+      </p>
+      {pendingImages.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Onay bekleyen fotoğraf yok.</p>
+      ) : (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {pendingImages.map((img) => (
+            <div key={img.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.dataUrl} alt={img.barkod} className="h-32 w-full rounded-md object-cover" />
+              <p className="mt-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+                {medicineNameByBarkod.get(img.barkod) ?? img.barkod}
+              </p>
+              <p className="text-xs text-slate-500">
+                {img.barkod} · {img.user.pharmacyName ?? img.user.contactName}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <form action={approveMedicineImageAction.bind(null, img.id)}>
+                  <button className="flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500">
+                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                    Onayla
+                  </button>
+                </form>
+                <form action={rejectMedicineImageAction.bind(null, img.id)}>
+                  <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10">
+                    <X className="h-3.5 w-3.5" strokeWidth={2} />
+                    Reddet
+                  </button>
+                </form>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

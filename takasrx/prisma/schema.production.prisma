@@ -82,10 +82,11 @@ model User {
   needRequests  NeedRequest[]
   needResponses NeedResponse[]
 
-  courierFor    CourierAssignment[] @relation("CourierAssignmentCourier")
-  assignedTo    CourierAssignment[] @relation("CourierAssignmentPharmacy")
-  shipments     Shipment[]          @relation("ShipmentCourier")
-  announcements Announcement[]
+  courierFor     CourierAssignment[] @relation("CourierAssignmentCourier")
+  assignedTo     CourierAssignment[] @relation("CourierAssignmentPharmacy")
+  shipments      Shipment[]          @relation("ShipmentCourier")
+  announcements  Announcement[]
+  medicineImages MedicineImage[]
 }
 
 model Announcement {
@@ -106,6 +107,26 @@ model Medicine {
   createdAt DateTime @default(now())
 
   @@index([name])
+}
+
+enum ImageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model MedicineImage {
+  id        String      @id @default(cuid())
+  barkod    String
+  userId    String
+  dataUrl   String
+  status    ImageStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([barkod])
+  @@index([status])
 }
 
 model CourierAssignment {
