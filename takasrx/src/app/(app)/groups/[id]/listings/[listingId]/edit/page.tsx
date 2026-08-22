@@ -16,15 +16,22 @@ export default async function EditListingPage(
 
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
-    include: { offers: { where: { status: "ACCEPTED" }, select: { id: true } } },
+    include: {
+      offers: {
+        where: { status: { in: ["PENDING", "ACCEPTED"] } },
+        include: { shipment: true },
+      },
+    },
   });
   if (!listing || listing.groupId !== id || listing.userId !== user.id) notFound();
+
+  const hasShippedOffers = listing.offers.some((o) => o.shipment != null);
 
   return (
     <EditListingForm
       groupId={id}
       listingId={listingId}
-      hasAcceptedOffers={listing.offers.length > 0}
+      hasShippedOffers={hasShippedOffers}
       defaults={{
         medicineName: listing.medicineName,
         barkod: listing.barkod ?? "",

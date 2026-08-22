@@ -21,6 +21,7 @@ import {
   PackageSearch,
   ArrowRightLeft,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -32,6 +33,8 @@ import {
   closeListingAction,
   reopenListingAction,
   convertToStockAction,
+  confirmOfferPriceChangeAction,
+  withdrawOfferAction,
 } from "@/app/actions/listings";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -140,6 +143,11 @@ export default async function ListingDetailPage(
         : listing.totalStock - acceptedQty
       : null;
   const netFiyat = effectiveUnitPrice(listing);
+  const priceChanged =
+    myPendingOffer != null &&
+    myPendingOffer.unitPrice != null &&
+    netFiyat != null &&
+    Math.abs(myPendingOffer.unitPrice - netFiyat) > 0.001;
   const hasBonus =
     listing.dealBonusQuantity != null &&
     listing.totalStock != null &&
@@ -388,7 +396,34 @@ export default async function ListingDetailPage(
         </form>
       )}
 
-      {!isOwner && myPendingOffer && listing.status === "OPEN" && (
+      {!isOwner && myPendingOffer && priceChanged && listing.status === "OPEN" && (
+        <div className="mt-6 rounded-2xl border border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-500/5 p-4">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-red-700 dark:text-red-400">
+            <AlertTriangle className="h-4 w-4" strokeWidth={1.75} />
+            Bu ilanın şartları değişti
+          </p>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+            Teklif verdiğinizde birim fiyat <strong>{myPendingOffer.unitPrice?.toFixed(2)} ₺</strong> idi,
+            şimdi <strong>{netFiyat?.toFixed(2)} ₺</strong> oldu. Bu yeni fiyatla devam etmek istiyor musunuz?
+          </p>
+          <div className="mt-3 flex gap-2">
+            <form action={confirmOfferPriceChangeAction.bind(null, id, listing.id, myPendingOffer.id)}>
+              <button className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500">
+                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                Evet, Yeni Fiyatla Devam Et
+              </button>
+            </form>
+            <form action={withdrawOfferAction.bind(null, id, listing.id, myPendingOffer.id)}>
+              <button className="flex items-center gap-1.5 rounded-md border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10">
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+                Hayır, Teklifimi İptal Et
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {!isOwner && myPendingOffer && !priceChanged && listing.status === "OPEN" && (
         <form
           action={updateOfferAction.bind(null, id, listing.id, myPendingOffer.id)}
           className="mt-6 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-500/5 p-4"

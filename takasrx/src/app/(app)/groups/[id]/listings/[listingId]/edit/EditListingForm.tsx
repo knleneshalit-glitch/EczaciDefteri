@@ -41,12 +41,12 @@ function effectivePricePreview(
 export default function EditListingForm({
   groupId,
   listingId,
-  hasAcceptedOffers,
+  hasShippedOffers,
   defaults,
 }: {
   groupId: string;
   listingId: string;
-  hasAcceptedOffers: boolean;
+  hasShippedOffers: boolean;
   defaults: Defaults;
 }) {
   const action = updateListingAction.bind(null, groupId, listingId);
@@ -113,9 +113,17 @@ export default function EditListingForm({
 
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Depo Alım Şartı</h2>
-          {hasAcceptedOffers && (
+          {hasShippedOffers ? (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              Bu ilana kabul edilmiş teklif olduğu için fiyat/stok bilgileri artık değiştirilemez.
+              Bu ilanda sevkiyatı başlamış bir teklif olduğu için fiyat/stok bilgileri artık
+              değiştirilemez.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">
+              Fiyat veya stok bilgilerini değiştirirseniz, bu ilana bekleyen teklif veren
+              eczaneler yeni fiyatla bilgilendirilip devam etmek isteyip istemediklerini
+              onaylayacak; kabul edilmiş ama henüz sevkiyatı hazırlanmamış teklif sahipleri de
+              bilgilendirilir.
             </p>
           )}
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -125,8 +133,8 @@ export default function EditListingForm({
                 type="number"
                 min={0}
                 step="0.01"
-                required={!hasAcceptedOffers}
-                disabled={hasAcceptedOffers}
+                required={!hasShippedOffers}
+                disabled={hasShippedOffers}
                 name="birimFiyat"
                 defaultValue={defaults.birimFiyat || ""}
                 onChange={(e) => setBirimFiyat(Number(e.target.value) || 0)}
@@ -138,7 +146,7 @@ export default function EditListingForm({
               <input
                 type="number"
                 min={1}
-                disabled={hasAcceptedOffers}
+                disabled={hasShippedOffers}
                 name="totalStock"
                 defaultValue={defaults.totalStock || ""}
                 onChange={(e) => setTotalStock(Number(e.target.value) || 0)}
@@ -150,7 +158,7 @@ export default function EditListingForm({
               <input
                 type="number"
                 min={0}
-                disabled={hasAcceptedOffers}
+                disabled={hasShippedOffers}
                 name="dealBonusQuantity"
                 defaultValue={defaults.dealBonusQuantity || ""}
                 onChange={(e) => setDealBonusQuantity(Number(e.target.value) || 0)}
@@ -167,6 +175,7 @@ export default function EditListingForm({
                 min={0}
                 max={100}
                 step="0.01"
+                disabled={hasShippedOffers}
                 name="ekstraIskontoYuzde"
                 defaultValue={defaults.ekstraIskontoYuzde ?? ""}
                 onChange={(e) => setEkstraIskontoYuzde(Number(e.target.value) || 0)}
@@ -183,6 +192,7 @@ export default function EditListingForm({
                 type="number"
                 min={0}
                 step="0.01"
+                disabled={hasShippedOffers}
                 name="ekstraIndirim"
                 defaultValue={defaults.ekstraIndirim ?? ""}
                 onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}

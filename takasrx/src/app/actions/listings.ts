@@ -127,7 +127,12 @@ export async function updateListingAction(
 
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
-    include: { offers: { where: { status: "ACCEPTED" }, select: { id: true } } },
+    include: {
+      offers: {
+        where: { status: { in: ["PENDING", "ACCEPTED"] } },
+        include: { shipment: true },
+      },
+    },
   });
   if (!listing || listing.groupId !== groupId || listing.userId !== user.id) {
     return { error: "Bu ilana ait değilsiniz." };
@@ -140,7 +145,7 @@ export async function updateListingAction(
 
   if (!medicineName) return { error: "İlaç adı gerekli." };
 
-  const hasAcceptedOffers = listing.offers.length > 0;
+  const hasShippedOffers = listing.offers.some((o) => o.shipment != null);
 
   const data: Parameters<typeof prisma.listing.update>[0]["data"] = {
     title: medicineName,
@@ -156,19 +161,9 @@ export async function updateListingAction(
     expiryDate: dateOrNull(formData.get("expiryDate")),
   };
 
-  const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));
-  if (ekstraIndirim != null && ekstraIndirim < 0) {
-    return { error: "Ekstra indirim negatif olamaz." };
-  }
-  data.ekstraIndirim = ekstraIndirim;
+  const oldNetFiyat = effectiveUnitPrice(listing);
 
-  const ekstraIskontoYuzde = numberOrNull(formData.get("ekstraIskontoYuzde"));
-  if (ekstraIskontoYuzde != null && (ekstraIskontoYuzde < 0 || ekstraIskontoYuzde > 100)) {
-    return { error: "Ekstra iskonto yüzdesi 0-100 arasında olmalı." };
-  }
-  data.ekstraIskontoYuzde = ekstraIskontoYuzde;
-
-  if (!hasAcceptedOffers) {
+  if (!hasShippedOffers) {
     const birimFiyat = numberOrNull(formData.get("birimFiyat"));
     if (birimFiyat === null || birimFiyat <= 0) {
       return { error: "Geçerli bir depo (birim) fiyatı girin." };
@@ -178,12 +173,49 @@ export async function updateListingAction(
     if (dealBonusQuantity != null && (!totalStock || dealBonusQuantity >= totalStock)) {
       return { error: "Mal fazlası, toplam stoktan küçük olmalı." };
     }
+    const ekstraIndirim = numberOrNull(formData.get("ekstraIndirim"));
+    if (ekstraIndirim != null && ekstraIndirim < 0) {
+      return { error: "Ekstra indirim negatif olamaz." };
+    }
+    const ekstraIskontoYuzde = numberOrNull(formData.get("ekstraIskontoYuzde"));
+    if (ekstraIskontoYuzde != null && (ekstraIskontoYuzde < 0 || ekstraIskontoYuzde > 100)) {
+      return { error: "Ekstra iskonto yüzdesi 0-100 arasında olmalı." };
+    }
     data.birimFiyat = birimFiyat;
     data.totalStock = totalStock;
     data.dealBonusQuantity = dealBonusQuantity;
+    data.ekstraIndirim = ekstraIndirim;
+    data.ekstraIskontoYuzde = ekstraIskontoYuzde;
   }
 
+  const newNetFiyat = effectiveUnitPrice({
+    birimFiyat: (data.birimFiyat ?? listing.birimFiyat) as number | null,
+    totalStock: (data.totalStock ?? listing.totalStock) as number | null,
+    dealBonusQuantity: (data.dealBonusQuantity ?? listing.dealBonusQuantity) as number | null,
+    ekstraIndirim: (data.ekstraIndirim ?? listing.ekstraIndirim) as number | null,
+    ekstraIskontoYuzde: (data.ekstraIskontoYuzde ?? listing.ekstraIskontoYuzde) as number | null,
+  });
+
   await prisma.listing.update({ where: { id: listingId }, data });
+
+  if (!hasShippedOffers && oldNetFiyat != null && newNetFiyat != null && Math.abs(oldNetFiyat - newNetFiyat) > 0.001) {
+    await Promise.all(
+      listing.offers.map((offer) => {
+        if (offer.status === "PENDING") {
+          return createNotification({
+            userId: offer.userId,
+            message: `"${listing.title}" ilanının şartları değişti: önceki fiyatınız ${oldNetFiyat.toFixed(2)} ₺, yeni fiyat ${newNetFiyat.toFixed(2)} ₺. Teklifinizi gözden geçirin.`,
+            link: `/groups/${groupId}/listings/${listingId}`,
+          });
+        }
+        return createNotification({
+          userId: offer.userId,
+          message: `"${listing.title}" ilanının şartları değişti (yeni fiyat: ${newNetFiyat.toFixed(2)} ₺). Kabul ettiğiniz teklif fiyatınız ${oldNetFiyat.toFixed(2)} ₺ olarak sabit kalır.`,
+          link: `/groups/${groupId}/listings/${listingId}`,
+        });
+      })
+    );
+  }
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   redirect(`/groups/${groupId}/listings/${listingId}`);
@@ -434,4 +466,38 @@ export async function convertToStockAction(groupId: string, listingId: string) {
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath("/offers/received");
+}
+
+export async function confirmOfferPriceChangeAction(groupId: string, listingId: string, offerId: string) {
+  const user = await requireUser();
+
+  const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+  if (!offer || offer.userId !== user.id || offer.listingId !== listingId || offer.status !== "PENDING") {
+    throw new Error("Bu teklif güncellenemez.");
+  }
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.groupId !== groupId) {
+    throw new Error("İlan bulunamadı.");
+  }
+
+  const unitPrice = effectiveUnitPrice(listing) ?? 0;
+  const totalPrice = unitPrice * offer.quantity;
+
+  await prisma.offer.update({ where: { id: offerId }, data: { unitPrice, totalPrice } });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+}
+
+export async function withdrawOfferAction(groupId: string, listingId: string, offerId: string) {
+  const user = await requireUser();
+
+  const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+  if (!offer || offer.userId !== user.id || offer.listingId !== listingId || offer.status !== "PENDING") {
+    throw new Error("Bu teklif iptal edilemez.");
+  }
+
+  await prisma.offer.delete({ where: { id: offerId } });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
 }
