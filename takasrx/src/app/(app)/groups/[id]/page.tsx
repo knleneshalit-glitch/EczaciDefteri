@@ -20,6 +20,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { effectiveUnitPrice } from "@/lib/pricing";
+import { closeExpiredTargetListings } from "@/lib/listings";
 import {
   approveMemberAction,
   rejectMemberAction,
@@ -47,6 +48,8 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
   const isApproved = membership?.status === "APPROVED" || user.isSuperAdmin;
   const isManager = (membership?.role === "MANAGER" && membership?.status === "APPROVED") || user.isSuperAdmin;
+
+  if (isApproved) await closeExpiredTargetListings(id);
 
   const [listings, pendingMembers] = await Promise.all([
     isApproved
@@ -238,12 +241,17 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                 const daysLeft = listing.endDate
                   ? Math.ceil((listing.endDate.getTime() - Date.now()) / 86400000)
                   : null;
+                const targetReached = listing.status === "OPEN" && listing.targetReachedAt != null;
 
                 return (
                   <Link
                     key={listing.id}
                     href={`/groups/${group.id}/listings/${listing.id}`}
-                    className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-5 shadow-sm transition hover:border-emerald-400 hover:shadow-md"
+                    className={`flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border px-6 py-5 shadow-sm transition hover:shadow-md ${
+                      targetReached
+                        ? "border-emerald-400 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-500/10"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400"
+                    }`}
                   >
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 text-white">
                       <Package className="h-6 w-6" strokeWidth={1.75} />
@@ -295,8 +303,12 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                     )}
 
                     <span className="ml-auto flex items-center gap-1 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white">
-                      {STATUS_LABEL[listing.status] === "Açık" ? "KATIL" : STATUS_LABEL[listing.status]}
-                      {STATUS_LABEL[listing.status] === "Açık" && (
+                      {targetReached
+                        ? "Hedefe Ulaşıldı"
+                        : STATUS_LABEL[listing.status] === "Açık"
+                          ? "KATIL"
+                          : STATUS_LABEL[listing.status]}
+                      {!targetReached && STATUS_LABEL[listing.status] === "Açık" && (
                         <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
                       )}
                     </span>

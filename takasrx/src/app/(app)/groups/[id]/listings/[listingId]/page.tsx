@@ -31,6 +31,7 @@ import {
 } from "@/app/actions/listings";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
+import { closeExpiredTargetListings } from "@/lib/listings";
 import BackButton from "@/components/BackButton";
 
 const SHIPMENT_STATUS_LABEL: Record<string, string> = {
@@ -70,6 +71,8 @@ export default async function ListingDetailPage(
   const { id, listingId } = await props.params;
   await requireApprovedMember(id, user);
 
+  await closeExpiredTargetListings(id);
+
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
     include: {
@@ -82,6 +85,7 @@ export default async function ListingDetailPage(
   const isOwner = listing.userId === user.id;
   const myPendingOffer = listing.offers.find((o) => o.userId === user.id && o.status === "PENDING");
   const StatusIcon = STATUS_ICON[listing.status];
+  const targetReached = listing.status === "OPEN" && listing.targetReachedAt != null;
 
   const acceptedQty = listing.offers
     .filter((o) => o.status === "ACCEPTED")
@@ -104,7 +108,13 @@ export default async function ListingDetailPage(
       <div className="mb-4">
         <BackButton />
       </div>
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+      <div
+        className={`rounded-2xl border p-6 shadow-sm ${
+          targetReached
+            ? "border-emerald-400 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-500/10"
+            : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+        }`}
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
             <Sparkles className="h-5 w-5 shrink-0 text-violet-500" strokeWidth={1.75} />
@@ -136,10 +146,17 @@ export default async function ListingDetailPage(
                 </button>
               </form>
             )}
-            <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(listing.status)}`}>
-              <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
-              {STATUS_LABEL[listing.status]}
-            </span>
+            {targetReached ? (
+              <span className="flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Hedefe Ulaşıldı
+              </span>
+            ) : (
+              <span className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(listing.status)}`}>
+                <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {STATUS_LABEL[listing.status]}
+              </span>
+            )}
           </div>
         </div>
         <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">

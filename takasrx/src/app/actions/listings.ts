@@ -304,14 +304,16 @@ export async function respondOfferAction(
   });
 
   if (accept) {
-    if (listing.totalStock != null) {
+    if (listing.totalStock != null && !listing.targetReachedAt) {
       const acceptedOffers = await prisma.offer.findMany({
         where: { listingId, status: "ACCEPTED" },
         select: { quantity: true },
       });
       const soldQty = acceptedOffers.reduce((sum, o) => sum + o.quantity, 0);
       if (soldQty >= listing.totalStock) {
-        await prisma.listing.update({ where: { id: listingId }, data: { status: "CLOSED" } });
+        // Hedefe ulaşıldığında ilan hemen kapanmaz; grup üyeleri "Hedefe
+        // Ulaşıldı" rozetiyle bir gün daha görebilsin diye açık kalır.
+        await prisma.listing.update({ where: { id: listingId }, data: { targetReachedAt: new Date() } });
       }
     }
 

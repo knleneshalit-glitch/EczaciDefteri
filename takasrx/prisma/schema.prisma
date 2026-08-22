@@ -203,6 +203,7 @@ model Listing {
   alimKatlari       Int?
   expiryDate        DateTime?
   status            ListingStatus @default(OPEN)
+  targetReachedAt   DateTime?
   createdAt         DateTime      @default(now())
 
   group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
