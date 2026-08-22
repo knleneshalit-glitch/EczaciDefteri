@@ -150,6 +150,7 @@ model Group {
   region            String
   description       String?
   monthlyInterestRate Float   @default(0)
+  interestEnabled   Boolean   @default(true)
   createdAt         DateTime  @default(now())
   closedAt          DateTime?
   grupYukuResetAt   DateTime?

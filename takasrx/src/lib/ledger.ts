@@ -54,13 +54,16 @@ const MAX_BACKFILL_MONTHS = 36;
  */
 export async function accrueInterestForGroup(groupId: string) {
   const [group, members] = await Promise.all([
-    prisma.group.findUnique({ where: { id: groupId }, select: { monthlyInterestRate: true } }),
+    prisma.group.findUnique({
+      where: { id: groupId },
+      select: { monthlyInterestRate: true, interestEnabled: true },
+    }),
     prisma.groupMember.findMany({
       where: { groupId, status: "APPROVED" },
       select: { userId: true },
     }),
   ]);
-  if (!group) return;
+  if (!group || !group.interestEnabled) return;
   const monthlyInterestRate = group.monthlyInterestRate;
 
   const thisMonthStart = startOfMonth(new Date());

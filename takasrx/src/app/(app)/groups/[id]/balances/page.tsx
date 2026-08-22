@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
-import { Wallet, RefreshCcw } from "lucide-react";
+import { Wallet, RefreshCcw, Info, PauseCircle, PlayCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
 import { accrueInterestForGroup, getGroupBalances } from "@/lib/ledger";
-import { yearEndSettlementAction } from "@/app/actions/groups";
+import { yearEndSettlementAction, toggleInterestEnabledAction } from "@/app/actions/groups";
 import InterestRateForm from "./InterestRateForm";
 import ManualBalanceForm from "./ManualBalanceForm";
 
@@ -44,15 +44,65 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
         Grup Bakiyeleri / Grup Yükü
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{group.name}</p>
-      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-        Bakiye: alım/satım hareketlerinden oluşan cari tutar. Grup Yükü: bakiyeye her ayın
-        1'inde işlenen aylık faizin birikimi. Toplam: bakiye + grup yükü.
-      </p>
-      <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-        Güncel aylık faiz oranı: <span className="font-medium">%{(group.monthlyInterestRate * 100).toFixed(3).replace(/\.?0+$/, "") || "0"}</span>
-      </p>
 
-      {isManager && <InterestRateForm groupId={group.id} currentRate={group.monthlyInterestRate} />}
+      <div className="mt-4 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-xs text-slate-600 dark:text-slate-400">
+        <p className="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200">
+          <Info className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
+          Grup Yükü Nasıl Hesaplanır?
+        </p>
+        <p className="mt-2">
+          <span className="font-medium">Bakiye</span>, alım/satım (TRADE) ve manuel (MANUAL)
+          hareketlerinden oluşan ham cari tutardır. <span className="font-medium">Grup Yükü</span>{" "}
+          ise her ayın 1'inde otomatik olarak işlenen aylık faizin birikimidir:
+        </p>
+        <ul className="mt-2 list-disc space-y-1 pl-4">
+          <li>Her ayın başında, o ana kadarki bakiyeniz (sadece alım/satım ve manuel hareketler; önceki grup yükleri hariç) esas alınır.</li>
+          <li>Bu tutar, güncel aylık faiz oranıyla çarpılıp o ayın grup yükü olarak eklenir.</li>
+          <li>Faiz, faiz üzerinden işlemez (bileşik değildir) — her ay yalnızca asıl bakiye üzerinden hesaplanır.</li>
+          <li><span className="font-medium">Toplam</span> = Bakiye + Grup Yükü.</li>
+        </ul>
+        <p className="mt-2">
+          Güncel aylık faiz oranı:{" "}
+          <span className="font-medium">%{(group.monthlyInterestRate * 100).toFixed(3).replace(/\.?0+$/, "") || "0"}</span>
+          {" · "}
+          Grup Yükü:{" "}
+          <span className={`font-medium ${group.interestEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+            {group.interestEnabled ? "Açık" : "Kapalı"}
+          </span>
+        </p>
+      </div>
+
+      {isManager && (
+        <form action={toggleInterestEnabledAction.bind(null, group.id)} className="mt-3">
+          <button
+            className={
+              group.interestEnabled
+                ? "flex items-center gap-1.5 rounded-md border border-red-500/40 px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                : "flex items-center gap-1.5 rounded-md border border-emerald-500/40 px-4 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+            }
+          >
+            {group.interestEnabled ? (
+              <>
+                <PauseCircle className="h-4 w-4" strokeWidth={1.75} />
+                Grup Yükünü Kapat
+              </>
+            ) : (
+              <>
+                <PlayCircle className="h-4 w-4" strokeWidth={1.75} />
+                Grup Yükünü Aç
+              </>
+            )}
+          </button>
+          <p className="mt-1 text-xs text-slate-500">
+            Kapatıldığında yeni grup yükü işlenmez; daha önce oluşmuş grup yükü kayıtları
+            korunur. Bazı gruplar bu özelliği hiç kullanmak istemeyebilir.
+          </p>
+        </form>
+      )}
+
+      {isManager && group.interestEnabled && (
+        <InterestRateForm groupId={group.id} currentRate={group.monthlyInterestRate} />
+      )}
 
       {isManager && (
         <ManualBalanceForm

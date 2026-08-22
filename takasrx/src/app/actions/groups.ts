@@ -158,6 +158,20 @@ export async function updateInterestRateAction(
   revalidatePath(`/groups/${groupId}/balances`);
 }
 
+export async function toggleInterestEnabledAction(groupId: string) {
+  await requireManager(groupId);
+
+  const group = await prisma.group.findUnique({ where: { id: groupId }, select: { interestEnabled: true } });
+  if (!group) throw new Error("Grup bulunamadı.");
+
+  await prisma.group.update({
+    where: { id: groupId },
+    data: { interestEnabled: !group.interestEnabled },
+  });
+
+  revalidatePath(`/groups/${groupId}/balances`);
+}
+
 export async function reopenGroupAction(groupId: string) {
   await requireManager(groupId);
 
