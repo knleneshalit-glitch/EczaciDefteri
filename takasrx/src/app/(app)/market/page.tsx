@@ -81,7 +81,7 @@ export default async function MarketPage() {
                 href={`/groups/${listing.groupId}/listings/${listing.id}`}
                 className={`flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border px-6 py-5 shadow-sm transition hover:shadow-md ${
                   targetReached
-                    ? "border-emerald-400 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-500/10"
+                    ? "border-emerald-600 bg-emerald-600 dark:border-emerald-500 dark:bg-emerald-600"
                     : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400"
                 }`}
               >
@@ -90,11 +90,13 @@ export default async function MarketPage() {
                 </span>
 
                 <div className="min-w-[200px] flex-1">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">{listing.medicineName}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className={`font-semibold ${targetReached ? "text-white" : "text-slate-900 dark:text-slate-100"}`}>
+                    {listing.medicineName}
+                  </p>
+                  <p className={`text-xs ${targetReached ? "text-emerald-50" : "text-slate-500"}`}>
                     {listing.barkod ?? "—"} · {listing.user.pharmacyName ?? listing.user.contactName} · {listing.group.name}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
+                  <p className={`mt-0.5 text-[11px] ${targetReached ? "text-emerald-100" : "text-slate-400"}`}>
                     İlan Tarihi: {listing.createdAt.toLocaleDateString("tr-TR")}
                   </p>
                 </div>
@@ -105,7 +107,7 @@ export default async function MarketPage() {
                       {listing.totalStock! - listing.dealBonusQuantity!}+{listing.dealBonusQuantity} MF
                     </span>
                     {listing.expiryDate && (
-                      <p className="mt-1 text-[11px] text-slate-500">
+                      <p className={`mt-1 text-[11px] ${targetReached ? "text-emerald-50" : "text-slate-500"}`}>
                         Miad: {listing.expiryDate.toLocaleDateString("tr-TR")}
                       </p>
                     )}
@@ -114,8 +116,8 @@ export default async function MarketPage() {
 
                 {listing.totalStock != null && (
                   <div className="text-center">
-                    <p className="text-xs text-slate-500">Kalan</p>
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">
+                    <p className={`text-xs ${targetReached ? "text-emerald-50" : "text-slate-500"}`}>Kalan</p>
+                    <p className={`font-semibold ${targetReached ? "text-white" : "text-slate-800 dark:text-slate-200"}`}>
                       {remaining} / {listing.totalStock}
                     </p>
                   </div>
@@ -123,18 +125,28 @@ export default async function MarketPage() {
 
                 <div className="text-center">
                   {netFiyat != null && (
-                    <p className="font-bold text-emerald-600 dark:text-emerald-400">{netFiyat.toFixed(2)} ₺ Net</p>
+                    <p className={`font-bold ${targetReached ? "text-white" : "text-emerald-600 dark:text-emerald-400"}`}>
+                      {netFiyat.toFixed(2)} ₺ Net
+                    </p>
                   )}
                   {hasBonus && listing.birimFiyat != null && (
-                    <p className="text-xs text-slate-500 line-through">{listing.birimFiyat.toFixed(2)} ₺ Depo</p>
+                    <p className={`text-xs line-through ${targetReached ? "text-emerald-100" : "text-slate-500"}`}>
+                      {listing.birimFiyat.toFixed(2)} ₺ Depo
+                    </p>
                   )}
                 </div>
 
                 {daysLeft != null && daysLeft >= 0 && (
-                  <p className="text-xs font-medium text-amber-600 dark:text-amber-400">{daysLeft} gün kaldı</p>
+                  <p className={`text-xs font-medium ${targetReached ? "text-white" : "text-amber-600 dark:text-amber-400"}`}>
+                    {daysLeft} gün kaldı
+                  </p>
                 )}
 
-                <span className="ml-auto flex items-center gap-1 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white">
+                <span
+                  className={`ml-auto flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-semibold ${
+                    targetReached ? "bg-white text-emerald-700" : "bg-emerald-600 text-white"
+                  }`}
+                >
                   {targetReached
                     ? "Hedefe Ulaşıldı"
                     : STATUS_LABEL[listing.status] === "Açık"

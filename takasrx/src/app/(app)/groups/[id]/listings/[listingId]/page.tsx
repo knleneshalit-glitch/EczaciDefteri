@@ -201,6 +201,11 @@ export default async function ListingDetailPage(
                 {listing.totalStock! - listing.dealBonusQuantity!}+{listing.dealBonusQuantity} MF
               </span>
             )}
+            {targetReached && (
+              <span className="rounded-full border-2 border-red-500 bg-red-100 dark:bg-red-500/20 px-3 py-0.5 text-xs font-bold text-red-700 dark:text-red-400">
+                Hedefe Ulaşıldı
+              </span>
+            )}
             {listing.ekstraIskontoYuzde != null && listing.ekstraIskontoYuzde > 0 && (
               <span className="rounded-full bg-blue-100 dark:bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-400">
                 %{listing.ekstraIskontoYuzde} Yüzde İskonto
