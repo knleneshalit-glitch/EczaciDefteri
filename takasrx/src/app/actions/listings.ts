@@ -80,6 +80,11 @@ export async function createListingAction(
   const listingKind = String(formData.get("listingKind") ?? "STOK") === "DEPO_OZEL_SART" ? "DEPO_OZEL_SART" : "STOK";
   const allowExceedDemand = listingKind === "DEPO_OZEL_SART" && formData.get("allowExceedDemand") === "on";
 
+  const expiryDate = dateOrNull(formData.get("expiryDate"));
+  if (listingKind === "STOK" && !expiryDate) {
+    return { error: "Stoğumdaki ürün için son kullanma tarihi (SKT) girmeniz gerekiyor." };
+  }
+
   await prisma.listing.create({
     data: {
       groupId,
@@ -101,7 +106,7 @@ export async function createListingAction(
       maxAlim: numberOrNull(formData.get("maxAlim")),
       minAlim: numberOrNull(formData.get("minAlim")),
       alimKatlari: numberOrNull(formData.get("alimKatlari")),
-      expiryDate: dateOrNull(formData.get("expiryDate")),
+      expiryDate,
       listingKind,
       allowExceedDemand,
       targetUserId,

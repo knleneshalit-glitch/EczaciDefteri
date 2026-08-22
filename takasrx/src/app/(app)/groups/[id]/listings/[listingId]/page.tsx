@@ -101,6 +101,27 @@ export default async function ListingDetailPage(
   const targetReached = listing.status === "OPEN" && listing.targetReachedAt != null;
   const isDepoOzelSart = listing.listingKind === "DEPO_OZEL_SART";
 
+  let expiryWarning: { label: string; className: string } | null = null;
+  if (listing.expiryDate) {
+    const daysUntilExpiry = Math.ceil((listing.expiryDate.getTime() - Date.now()) / 86400000);
+    if (daysUntilExpiry < 91) {
+      expiryWarning = {
+        label: "3 Ay Altında Miad",
+        className: "border-red-400 bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400",
+      };
+    } else if (daysUntilExpiry < 182) {
+      expiryWarning = {
+        label: "6 Ay Altında Miad",
+        className: "border-orange-400 bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-400",
+      };
+    } else if (daysUntilExpiry < 365) {
+      expiryWarning = {
+        label: "1 Yıl Altında Miad",
+        className: "border-yellow-400 bg-yellow-100 dark:bg-yellow-500/20 text-yellow-800 dark:text-yellow-400",
+      };
+    }
+  }
+
   const acceptedQty = listing.offers
     .filter((o) => o.status === "ACCEPTED")
     .reduce((sum, o) => sum + o.quantity, 0);
@@ -215,9 +236,16 @@ export default async function ListingDetailPage(
           </p>
         )}
         {listing.expiryDate && (
-          <p className="text-sm text-slate-700 dark:text-slate-300">
-            <span className="font-medium">SKT:</span>{" "}
-            {listing.expiryDate.toLocaleDateString("tr-TR")}
+          <p className="flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <span>
+              <span className="font-medium">SKT:</span>{" "}
+              {listing.expiryDate.toLocaleDateString("tr-TR")}
+            </span>
+            {expiryWarning && (
+              <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${expiryWarning.className}`}>
+                {expiryWarning.label}
+              </span>
+            )}
           </p>
         )}
         {listing.description && (
@@ -237,8 +265,9 @@ export default async function ListingDetailPage(
                 Toplam Talep: {demandQty} adet · {demandPharmacyCount} eczane
               </p>
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                Ürün henüz depodan temin edilmedi. Teklifler burada birikiyor, siz stoğa
-                dönüştürene kadar Gönderimlerim ekranınıza düşmez ve kabul/red edilemez.
+                {isOwner
+                  ? "Ürün henüz depodan temin edilmedi. Teklifler burada birikiyor, siz stoğa dönüştürene kadar Gönderimlerim ekranınıza düşmez ve kabul/red edilemez."
+                  : "Ürün henüz depodan temin edilmedi. Teklifler burada birikiyor."}
                 {listing.totalStock != null &&
                   (listing.allowExceedDemand
                     ? " Talep sınırsız kabul ediliyor (girilen stoğu geçebilir)."

@@ -68,6 +68,11 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [expiryDate, setExpiryDate] = useState("");
   const [minAlim, setMinAlim] = useState(0);
   const [maxAlim, setMaxAlim] = useState(0);
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  });
   const [listingKind, setListingKind] = useState<"STOK" | "DEPO_OZEL_SART">("STOK");
   const [allowExceedDemand, setAllowExceedDemand] = useState(false);
 
@@ -383,15 +388,19 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Son Kullanma Tarihi
+                Son Kullanma Tarihi{listingKind === "STOK" && <span className="text-red-500"> *</span>}
               </label>
               <input
                 type="date"
                 name="expiryDate"
+                required={listingKind === "STOK"}
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
+              {listingKind === "DEPO_OZEL_SART" && (
+                <p className="mt-1 text-xs text-slate-500">Depo özel şartında opsiyoneldir.</p>
+              )}
             </div>
           </div>
         </section>
@@ -610,6 +619,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               <input
                 type="date"
                 name="endDate"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
