@@ -156,6 +156,18 @@ export default async function MarketPage() {
                     <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
                   )}
                 </span>
+
+                {listing.description && (
+                  <p
+                    className={`mt-1 w-full border-t pt-3 text-xs ${
+                      targetReached
+                        ? "border-emerald-400/50 text-emerald-50"
+                        : "border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400"
+                    }`}
+                  >
+                    {listing.description}
+                  </p>
+                )}
               </Link>
             );
           })}
