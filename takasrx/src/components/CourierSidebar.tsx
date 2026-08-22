@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeftRight, Truck, Bell, LogOut } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
+import PaletteSelector from "@/components/PaletteSelector";
 
 export default function CourierSidebar({
   user,
@@ -48,6 +49,7 @@ export default function CourierSidebar({
 
       <div className="border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-800">
         <ThemeToggle className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800" />
+        <PaletteSelector className="mb-3" />
         <p className="truncate font-medium text-slate-900 dark:text-slate-100">
           {user.contactName}
         </p>

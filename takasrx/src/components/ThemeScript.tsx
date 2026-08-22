@@ -4,6 +4,8 @@ const THEME_SCRIPT = `
     var stored = localStorage.getItem("theme");
     var dark = stored ? stored === "dark" : true;
     document.documentElement.classList.toggle("dark", dark);
+    var palette = localStorage.getItem("palette");
+    if (palette) document.documentElement.setAttribute("data-palette", palette);
   } catch (e) {}
 })();
 `;

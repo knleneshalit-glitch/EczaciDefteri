@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
+import PaletteSelector from "@/components/PaletteSelector";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Ana Sayfa", Icon: LayoutDashboard },
@@ -87,6 +88,7 @@ export default function Sidebar({
 
       <div className="border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-800">
         <ThemeToggle className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800" />
+        <PaletteSelector className="mb-3" />
         <Link
           href="/profile"
           className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
