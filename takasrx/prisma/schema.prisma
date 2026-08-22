@@ -1,0 +1,320 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum MembershipStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MembershipRole {
+  MEMBER
+  MANAGER
+}
+
+enum ListingStatus {
+  OPEN
+  MATCHED
+  CLOSED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum LedgerEntryType {
+  TRADE
+  INTEREST
+  MANUAL
+}
+
+enum AccountType {
+  PHARMACY
+  COURIER
+}
+
+enum ShipmentStatus {
+  HAZIRLANIYOR
+  TESLIM_ALINDI
+  TESLIM_EDILDI
+}
+
+enum NeedStatus {
+  OPEN
+  FULFILLED
+  CLOSED
+}
+
+enum ListingKind {
+  STOK
+  DEPO_OZEL_SART
+}
+
+model User {
+  id            String      @id @default(cuid())
+  email         String      @unique
+  passwordHash  String
+  accountType   AccountType @default(PHARMACY)
+  pharmacyName  String?
+  contactName   String
+  gln           String?     @unique
+  region        String
+  district      String?
+  address       String?
+  isSuperAdmin  Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  memberships    GroupMember[]
+  createdGroups  Group[]       @relation("GroupCreator")
+  listings       Listing[]     @relation("ListingOwner")
+  targetListings Listing[]     @relation("ListingTarget")
+  offers         Offer[]
+  ledgerEntries LedgerEntry[]
+  notifications Notification[]
+  needRequests  NeedRequest[]
+  needResponses NeedResponse[]
+
+  courierFor     CourierAssignment[] @relation("CourierAssignmentCourier")
+  assignedTo     CourierAssignment[] @relation("CourierAssignmentPharmacy")
+  shipments      Shipment[]          @relation("ShipmentCourier")
+  announcements  Announcement[]
+  medicineImages MedicineImage[]
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  active    Boolean  @default(true)
+  authorId  String
+  createdAt DateTime @default(now())
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model Medicine {
+  id        String   @id @default(cuid())
+  barkod    String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  @@index([name])
+}
+
+enum ImageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model MedicineImage {
+  id        String      @id @default(cuid())
+  barkod    String
+  userId    String
+  dataUrl   String
+  status    ImageStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([barkod])
+  @@index([status])
+}
+
+model CourierAssignment {
+  id         String   @id @default(cuid())
+  courierId  String
+  pharmacyId String
+  createdAt  DateTime @default(now())
+
+  courier  User @relation("CourierAssignmentCourier", fields: [courierId], references: [id], onDelete: Cascade)
+  pharmacy User @relation("CourierAssignmentPharmacy", fields: [pharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([courierId, pharmacyId])
+}
+
+model Shipment {
+  id                 String         @id @default(cuid())
+  offerId            String         @unique
+  courierId          String?
+  code               String         @unique
+  status             ShipmentStatus @default(HAZIRLANIYOR)
+  createdAt          DateTime       @default(now())
+  printedAt          DateTime?
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  barcodes           String?
+  barcodesUploadedAt DateTime?
+
+  offer   Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  courier User? @relation("ShipmentCourier", fields: [courierId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+model Group {
+  id                String    @id @default(cuid())
+  name              String
+  region            String
+  description       String?
+  monthlyInterestRate Float   @default(0)
+  interestEnabled   Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  closedAt          DateTime?
+  grupYukuResetAt   DateTime?
+
+  creatorId String
+  creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])
+
+  members       GroupMember[]
+  listings      Listing[]
+  ledgerEntries LedgerEntry[]
+  needRequests  NeedRequest[]
+
+  @@index([region])
+}
+
+model GroupMember {
+  id       String           @id @default(cuid())
+  groupId  String
+  userId   String
+  role     MembershipRole   @default(MEMBER)
+  status   MembershipStatus @default(PENDING)
+  joinedAt DateTime         @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model Listing {
+  id                String        @id @default(cuid())
+  groupId           String
+  userId            String
+  title             String
+  description       String?
+  medicineName      String
+  barkod            String?
+  quantity          String?
+  totalStock        Int?
+  birimFiyat        Float?
+  dealBonusQuantity Int?
+  ekstraIndirim     Float?
+  ekstraIskontoYuzde Float?
+  etiketFiyati      Float?
+  startDate         DateTime?
+  endDate           DateTime?
+  hedefAlim         Int?
+  maxAlim           Int?
+  minAlim           Int?
+  alimKatlari       Int?
+  expiryDate        DateTime?
+  status            ListingStatus @default(OPEN)
+  targetReachedAt   DateTime?
+  listingKind       ListingKind   @default(STOK)
+  allowExceedDemand Boolean       @default(false)
+  targetUserId      String?
+  createdAt         DateTime      @default(now())
+
+  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User    @relation("ListingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  targetUser User?   @relation("ListingTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  offers     Offer[]
+
+  @@index([groupId])
+  @@index([targetUserId])
+}
+
+model Offer {
+  id         String      @id @default(cuid())
+  listingId  String
+  userId     String
+  message    String?
+  quantity   Int         @default(1)
+  unitPrice  Float?
+  totalPrice Float?
+  status     OfferStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+
+  listing       Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shipment      Shipment?
+  ledgerEntries LedgerEntry[]
+
+  @@index([listingId])
+}
+
+model NeedRequest {
+  id           String     @id @default(cuid())
+  groupId      String
+  userId       String
+  title        String
+  medicineName String
+  barkod       String?
+  quantity     Int?
+  description  String?
+  status       NeedStatus @default(OPEN)
+  createdAt    DateTime   @default(now())
+
+  group     Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses NeedResponse[]
+
+  @@index([groupId])
+}
+
+model NeedResponse {
+  id            String      @id @default(cuid())
+  needRequestId String
+  userId        String
+  quantity      Int         @default(1)
+  unitPrice     Float?
+  totalPrice    Float?
+  message       String?
+  status        OfferStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+
+  needRequest NeedRequest @relation(fields: [needRequestId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([needRequestId])
+}
+
+model LedgerEntry {
+  id           String          @id @default(cuid())
+  groupId      String
+  userId       String
+  type         LedgerEntryType
+  amount       Float
+  note         String?
+  offerId      String?
+  interestDate DateTime?
+  createdAt    DateTime        @default(now())
+
+  group Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer Offer? @relation(fields: [offerId], references: [id])
+
+  @@unique([groupId, userId, interestDate])
+  @@index([groupId, userId])
+}

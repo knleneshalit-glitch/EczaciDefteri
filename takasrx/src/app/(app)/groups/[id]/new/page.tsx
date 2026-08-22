@@ -1,0 +1,716 @@
+"use client";
+
+import { use, useActionState, useEffect, useState } from "react";
+import { PackagePlus, Send, History, Copy, ChevronDown, Users, Building2 } from "lucide-react";
+import { createListingAction } from "@/app/actions/listings";
+import { myApprovedGroupsAction, groupApprovedPharmaciesAction } from "@/app/actions/groups";
+import {
+  searchMedicinesByNameAction,
+  lookupMedicineByBarcodeAction,
+  previousGroupListingsAction,
+} from "@/app/actions/medicines";
+
+type MyGroup = { id: string; name: string };
+type GroupPharmacy = { id: string; pharmacyName: string };
+type MedicineMatch = { id: string; barkod: string; name: string };
+type PreviousListing = {
+  id: string;
+  medicineName: string;
+  barkod: string | null;
+  quantity: string | null;
+  birimFiyat: number | null;
+  totalStock: number | null;
+  dealBonusQuantity: number | null;
+  ekstraIndirim: number | null;
+  ekstraIskontoYuzde: number | null;
+  etiketFiyati: number | null;
+  expiryDate: Date | null;
+  minAlim: number | null;
+  maxAlim: number | null;
+  createdAt: Date;
+  user: { pharmacyName: string | null; contactName: string };
+};
+
+const BAKIYE_TRANSFERI = "BAKİYE TRANSFERİ";
+
+function effectivePricePreview(
+  birimFiyat: number,
+  totalStock: number,
+  bonus: number,
+  ekstraIndirim: number,
+  ekstraIskontoYuzde: number
+) {
+  if (!birimFiyat || !totalStock) return birimFiyat || 0;
+  const hasBonus = bonus > 0 && bonus < totalStock;
+  const paidQuantity = hasBonus ? totalStock - bonus : totalStock;
+  let totalCost = birimFiyat * paidQuantity;
+  if (ekstraIskontoYuzde > 0) totalCost = totalCost * (1 - Math.min(ekstraIskontoYuzde, 100) / 100);
+  if (ekstraIndirim > 0) totalCost = Math.max(0, totalCost - ekstraIndirim);
+  return totalCost / totalStock;
+}
+
+export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
+  const { id } = use(props.params);
+  const [state, formAction, pending] = useActionState(createListingAction, undefined);
+  const [myGroups, setMyGroups] = useState<MyGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState(id);
+  const [targetMode, setTargetMode] = useState<"GROUP" | "PHARMACY">("GROUP");
+  const [pharmacies, setPharmacies] = useState<GroupPharmacy[]>([]);
+  const [targetUserId, setTargetUserId] = useState("");
+  const [pharmacyAccordionOpen, setPharmacyAccordionOpen] = useState(true);
+  const [medicineName, setMedicineName] = useState("");
+  const [barkod, setBarkod] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [birimFiyat, setBirimFiyat] = useState(0);
+  const [totalStock, setTotalStock] = useState(0);
+  const [dealBonusQuantity, setDealBonusQuantity] = useState(0);
+  const [ekstraIndirim, setEkstraIndirim] = useState(0);
+  const [ekstraIskontoYuzde, setEkstraIskontoYuzde] = useState(0);
+  const [etiketFiyati, setEtiketFiyati] = useState(0);
+  const [expiryDate, setExpiryDate] = useState("");
+  const [minAlim, setMinAlim] = useState(0);
+  const [maxAlim, setMaxAlim] = useState(0);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [listingKind, setListingKind] = useState<"STOK" | "DEPO_OZEL_SART">("STOK");
+  const [allowExceedDemand, setAllowExceedDemand] = useState(false);
+
+  const [suggestions, setSuggestions] = useState<MedicineMatch[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [previousListings, setPreviousListings] = useState<PreviousListing[]>([]);
+
+  useEffect(() => {
+    myApprovedGroupsAction().then(setMyGroups);
+  }, []);
+
+  useEffect(() => {
+    if (targetMode !== "PHARMACY" || !selectedGroupId) {
+      setPharmacies([]);
+      return;
+    }
+    groupApprovedPharmaciesAction(selectedGroupId).then(setPharmacies);
+    setTargetUserId("");
+  }, [targetMode, selectedGroupId]);
+
+  useEffect(() => {
+    if (medicineName.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchMedicinesByNameAction(medicineName).then(setSuggestions);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [medicineName]);
+
+  useEffect(() => {
+    if (barkod.trim().length < 6) return;
+    const timer = setTimeout(() => {
+      lookupMedicineByBarcodeAction(barkod).then((match) => {
+        if (match && match.name !== medicineName) {
+          setMedicineName(match.name);
+        }
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barkod]);
+
+  useEffect(() => {
+    if (medicineName.trim().length < 3 && barkod.trim().length < 6) {
+      setPreviousListings([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      previousGroupListingsAction(selectedGroupId, medicineName, barkod).then(setPreviousListings);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [selectedGroupId, medicineName, barkod]);
+
+  function applyPreviousListing(l: PreviousListing) {
+    setMedicineName(l.medicineName);
+    setBarkod(l.barkod ?? "");
+    setQuantity(l.quantity ?? "");
+    setBirimFiyat(l.birimFiyat ?? 0);
+    setTotalStock(l.totalStock ?? 0);
+    setDealBonusQuantity(l.dealBonusQuantity ?? 0);
+    setEkstraIndirim(l.ekstraIndirim ?? 0);
+    setEkstraIskontoYuzde(l.ekstraIskontoYuzde ?? 0);
+    setEtiketFiyati(l.etiketFiyati ?? 0);
+    setExpiryDate(l.expiryDate ? new Date(l.expiryDate).toISOString().slice(0, 10) : "");
+    setMinAlim(l.minAlim ?? 0);
+    setMaxAlim(l.maxAlim ?? 0);
+  }
+
+  const netFiyat = effectivePricePreview(
+    birimFiyat,
+    totalStock,
+    dealBonusQuantity,
+    ekstraIndirim,
+    ekstraIskontoYuzde
+  );
+  const hasBonus = dealBonusQuantity > 0 && totalStock > dealBonusQuantity;
+  const isBakiyeTransferi = medicineName.trim().toLocaleUpperCase("tr-TR") === BAKIYE_TRANSFERI;
+
+  function selectBakiyeTransferi() {
+    setMedicineName(BAKIYE_TRANSFERI);
+    setBarkod("");
+    setShowSuggestions(false);
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-6xl px-6 py-10">
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+        <PackagePlus className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+        Yeni Talep / Teklif Oluştur
+      </h1>
+
+      <form action={formAction} className="mt-8 flex flex-col gap-8">
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Kime Çıkacak?</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            İlanı grubun tamamına mı, yoksa gruptaki tek bir eczaneye özel mi yayınlayacağınızı
+            seçin.
+          </p>
+          <input type="hidden" name="targetMode" value={targetMode} />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                targetMode === "GROUP"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={targetMode === "GROUP"}
+                  onChange={() => setTargetMode("GROUP")}
+                />
+                Gruba
+              </span>
+              <span className="text-xs text-slate-500">İlan seçtiğim grubun tüm üyelerine açık olsun.</span>
+            </label>
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                targetMode === "PHARMACY"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={targetMode === "PHARMACY"}
+                  onChange={() => setTargetMode("PHARMACY")}
+                />
+                Eczaneye Özel
+              </span>
+              <span className="text-xs text-slate-500">Sadece seçeceğim tek bir eczane görebilsin.</span>
+            </label>
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Grup</label>
+            <select
+              name="groupId"
+              value={selectedGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              className="w-full max-w-sm rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
+            >
+              {myGroups.length === 0 && <option value={id}>Yükleniyor...</option>}
+              {myGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {targetMode === "PHARMACY" && (
+            <div className="mt-4 rounded-lg border border-indigo-300 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-500/5">
+              <button
+                type="button"
+                onClick={() => setPharmacyAccordionOpen((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100"
+              >
+                <span className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" strokeWidth={1.75} />
+                  Grupta Kayıtlı Eczaneler ({pharmacies.length})
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 transition-transform ${pharmacyAccordionOpen ? "rotate-180" : ""}`}
+                  strokeWidth={1.75}
+                />
+              </button>
+              {pharmacyAccordionOpen && (
+                <div className="flex flex-col gap-1 border-t border-indigo-200 dark:border-indigo-900 p-3">
+                  {pharmacies.length === 0 && (
+                    <p className="px-2 py-2 text-xs text-slate-500">
+                      Bu grupta seçebileceğiniz başka onaylı eczane yok.
+                    </p>
+                  )}
+                  {pharmacies.map((p) => (
+                    <label
+                      key={p.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm ${
+                        targetUserId === p.id
+                          ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300"
+                          : "hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        checked={targetUserId === p.id}
+                        onChange={() => setTargetUserId(p.id)}
+                      />
+                      <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                      {p.pharmacyName}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <input type="hidden" name="targetUserId" value={targetUserId} />
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">İlan Türü</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Elinizde hazır stok varsa &quot;Stoğumdaki Ürün&quot;ü seçin — teklif gelince hemen
+            Gönderimlerim ekranınıza düşer. Henüz depodan almadığınız ama özel şart
+            çıkacak bir ürün için grup içinde talep toplamak isterseniz &quot;Depo Özel
+            Şartı&quot;nı seçin — teklifler siz ürünü stoğa dönüştürene kadar Gönderimlerim
+            ekranına düşmez, sadece ilan içinde birikir.
+          </p>
+          <input type="hidden" name="listingKind" value={listingKind} />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                listingKind === "STOK"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={listingKind === "STOK"}
+                  onChange={() => setListingKind("STOK")}
+                />
+                Stoğumdaki Ürün
+              </span>
+              <span className="text-xs text-slate-500">Elimde hazır stok var, hemen satabilirim.</span>
+            </label>
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                listingKind === "DEPO_OZEL_SART"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={listingKind === "DEPO_OZEL_SART"}
+                  onChange={() => setListingKind("DEPO_OZEL_SART")}
+                />
+                Depo Özel Şartı
+              </span>
+              <span className="text-xs text-slate-500">Henüz almadım, önce grupta talep topluyorum.</span>
+            </label>
+          </div>
+          {listingKind === "DEPO_OZEL_SART" && (
+            <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                name="allowExceedDemand"
+                checked={allowExceedDemand}
+                onChange={(e) => setAllowExceedDemand(e.target.checked)}
+              />
+              Talep, girdiğim toplam stok miktarını geçebilsin (işaretlenmezse talep toplam
+              stoğu geçemez)
+            </label>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ürün Bilgisi</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="relative">
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">İlaç Adı</label>
+              <input
+                name="medicineName"
+                required
+                autoComplete="off"
+                value={medicineName}
+                onChange={(e) => setMedicineName(e.target.value.toLocaleUpperCase("tr-TR"))}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none uppercase"
+              />
+              {showSuggestions && (
+                <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
+                  <li>
+                    <button
+                      type="button"
+                      onMouseDown={selectBakiyeTransferi}
+                      className="flex w-full flex-col items-start bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-left text-sm hover:bg-amber-100 dark:hover:bg-amber-500/20"
+                    >
+                      <span className="font-medium text-amber-800 dark:text-amber-400">💰 {BAKIYE_TRANSFERI}</span>
+                      <span className="text-xs text-amber-700/80 dark:text-amber-400/70">Fiziksel ürün değil — miad istenmez</span>
+                    </button>
+                  </li>
+                  {suggestions.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        onMouseDown={() => {
+                          setMedicineName(m.name);
+                          setBarkod(m.barkod);
+                          setShowSuggestions(false);
+                        }}
+                        className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-emerald-50 dark:hover:bg-slate-700"
+                      >
+                        <span className="font-medium text-slate-900 dark:text-slate-100">{m.name}</span>
+                        <span className="text-xs text-slate-500">{m.barkod}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Barkod</label>
+              <input
+                name="barkod"
+                value={barkod}
+                onChange={(e) => setBarkod(e.target.value.trim())}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Miktar Açıklaması (opsiyonel)
+              </label>
+              <input
+                name="quantity"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="10 kutu"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Son Kullanma Tarihi
+                {listingKind === "STOK" && !isBakiyeTransferi && <span className="text-red-500"> *</span>}
+              </label>
+              <input
+                type="date"
+                name="expiryDate"
+                required={listingKind === "STOK" && !isBakiyeTransferi}
+                disabled={isBakiyeTransferi}
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+              />
+              {isBakiyeTransferi ? (
+                <p className="mt-1 text-xs text-slate-500">Bakiye transferinde miad istenmez.</p>
+              ) : (
+                listingKind === "DEPO_OZEL_SART" && (
+                  <p className="mt-1 text-xs text-slate-500">Depo özel şartında opsiyoneldir.</p>
+                )
+              )}
+            </div>
+          </div>
+        </section>
+
+        {previousListings.length > 0 && (
+          <section className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <History className="h-4 w-4 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
+              Bu Grupta Bu Ürün İçin Önceki İlanlar
+            </h2>
+            <div className="mt-3 overflow-x-auto rounded-md border border-blue-500/20">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-blue-500/20 bg-blue-500/10 uppercase text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Eczane Adı</th>
+                    <th className="px-3 py-2">İlaç Adı</th>
+                    <th className="px-3 py-2">Birim Fiyat</th>
+                    <th className="px-3 py-2">Mal Fazlası</th>
+                    <th className="px-3 py-2">İskonto</th>
+                    <th className="px-3 py-2">İndirim</th>
+                    <th className="px-3 py-2">Tarih</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {previousListings.map((l) => (
+                    <tr key={l.id} className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 last:border-0">
+                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                        {l.user.pharmacyName ?? l.user.contactName}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{l.medicineName}</td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.birimFiyat != null ? `${l.birimFiyat.toFixed(2)} ₺` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.totalStock != null && l.dealBonusQuantity
+                          ? `${l.totalStock - l.dealBonusQuantity}+${l.dealBonusQuantity}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.ekstraIskontoYuzde != null && l.ekstraIskontoYuzde > 0 ? `%${l.ekstraIskontoYuzde}` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {l.ekstraIndirim != null && l.ekstraIndirim > 0 ? `${l.ekstraIndirim.toFixed(0)} ₺` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">{new Date(l.createdAt).toLocaleDateString("tr-TR")}</td>
+                      <td className="px-3 py-2 pr-4">
+                        <button
+                          type="button"
+                          onClick={() => applyPreviousListing(l)}
+                          className="flex w-fit items-center gap-1 whitespace-nowrap rounded-full border border-emerald-500/40 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+                        >
+                          <Copy className="h-3 w-3" strokeWidth={1.75} />
+                          İlanı Kullan
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Depo Alım Şartı</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Depodan aldığınız toplu alım şartını girin (ör. 1000 adet parayla alıp 500 adet
+            mal fazlası kazandıysanız: birim fiyat, toplam stok 1500, mal fazlası 500). Sistem,
+            bu mal fazlası sayesindeki gerçek (efektif) birim maliyeti hesaplayıp grup
+            üyelerine o fiyattan satış yapmanızı sağlar.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Depo Birim Fiyatı (₺)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                required
+                name="birimFiyat"
+                value={birimFiyat || ""}
+                onChange={(e) => setBirimFiyat(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Toplam Stok (adet)<span className="text-red-500"> *</span>
+              </label>
+              <input
+                type="number"
+                min={1}
+                required
+                name="totalStock"
+                value={totalStock || ""}
+                onChange={(e) => setTotalStock(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="1500"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Bunun Kaçı Mal Fazlası
+              </label>
+              <input
+                type="number"
+                min={0}
+                name="dealBonusQuantity"
+                value={dealBonusQuantity || ""}
+                onChange={(e) => setDealBonusQuantity(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="500"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Ekstra İskonto (%, kampanya, opsiyonel)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                name="ekstraIskontoYuzde"
+                value={ekstraIskontoYuzde || ""}
+                onChange={(e) => setEkstraIskontoYuzde(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="3"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Depo kampanya ile toplam tutara ek bir yüzde iskonto uyguladıysa (ör. %3), buraya
+                girin.
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Ekstra İndirim (₺, toplam tutar üzerinden, opsiyonel)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                name="ekstraIndirim"
+                value={ekstraIndirim || ""}
+                onChange={(e) => setEkstraIndirim(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="1000"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Firma faturaya yansımayan sabit bir nakit indirim de yaptıysa (ör. elden 1000 ₺),
+                buraya toplam tutarı girin.
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Her iki indirim de toplam tutar üzerinden hesaplanıp tüm adede bölünerek efektif
+            birim fiyata otomatik yansıtılır.
+          </p>
+
+          <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
+            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{netFiyat.toFixed(2)} ₺</p>
+            {hasBonus && birimFiyat > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                {birimFiyat.toFixed(2)} ₺ yerine, {dealBonusQuantity} adet mal fazlası sayesinde
+                bu fiyattan satış yapabilirsiniz.
+              </p>
+            )}
+            {ekstraIskontoYuzde > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Ayrıca %{ekstraIskontoYuzde} kampanya iskontosu tüm adede yansıtıldı.
+              </p>
+            )}
+            {ekstraIndirim > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                Ayrıca {ekstraIndirim.toFixed(2)} ₺ ekstra indirim tüm adede yansıtıldı.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Etiket Fiyatı (₺, opsiyonel)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              name="etiketFiyati"
+              value={etiketFiyati || ""}
+              onChange={(e) => setEtiketFiyati(Number(e.target.value) || 0)}
+              className="w-full max-w-xs rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Yayın ve Alım Koşulları</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Başlangıç</label>
+              <input
+                type="date"
+                name="startDate"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Bitiş</label>
+              <input
+                type="date"
+                name="endDate"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Kişi Başı Minimum
+              </label>
+              <input
+                type="number"
+                min={1}
+                name="minAlim"
+                value={minAlim || ""}
+                onChange={(e) => setMinAlim(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="1"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Kişi Başı Maksimum
+              </label>
+              <input
+                type="number"
+                min={0}
+                name="maxAlim"
+                value={maxAlim || ""}
+                onChange={(e) => setMaxAlim(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Teklif Açıklaması
+          </label>
+          <textarea
+            name="description"
+            rows={3}
+            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            placeholder="En fazla 100 karakter"
+            maxLength={500}
+          />
+        </section>
+
+        {state?.error && (
+          <p className="text-sm text-red-600 dark:text-red-400" aria-live="polite">
+            {state.error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={pending || (targetMode === "PHARMACY" && !targetUserId)}
+          className="flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+        >
+          <Send className="h-4 w-4" strokeWidth={1.75} />
+          {pending ? "Yayınlanıyor..." : "Teklifi Yayınla"}
+        </button>
+      </form>
+    </div>
+  );
+}

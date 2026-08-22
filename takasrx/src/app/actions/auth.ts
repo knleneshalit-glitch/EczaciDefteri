@@ -1,0 +1,242 @@
+"use server";
+
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import { createSession, destroySession } from "@/lib/session";
+import { REGIONS } from "@/lib/regions";
+
+export type AuthState = { error?: string } | undefined;
+export type RecoveryState = { error?: string; success?: string } | undefined;
+
+function safeEqual(a: string, b: string) {
+  const bufA = crypto.createHash("sha256").update(a).digest();
+  const bufB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export async function registerPharmacyAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  const pharmacyName = String(formData.get("pharmacyName") ?? "").trim();
+  const contactName = String(formData.get("contactName") ?? "").trim();
+  const gln = String(formData.get("gln") ?? "").trim();
+  const region = String(formData.get("region") ?? "");
+  const district = String(formData.get("district") ?? "").trim();
+  const address = String(formData.get("address") ?? "").trim();
+
+  if (!email || !email.includes("@")) {
+    return { error: "Geçerli bir e-posta girin." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (!pharmacyName) {
+    return { error: "Eczane adı gerekli." };
+  }
+  if (!contactName) {
+    return { error: "Yetkili adı soyadı gerekli." };
+  }
+  if (!/^\d{13}$/.test(gln)) {
+    return { error: "GLN numarası 13 haneli olmalı." };
+  }
+  if (!REGIONS.includes(region as (typeof REGIONS)[number])) {
+    return { error: "Geçerli bir bölge seçin." };
+  }
+
+  const [existingEmail, existingGln] = await Promise.all([
+    prisma.user.findUnique({ where: { email } }),
+    prisma.user.findUnique({ where: { gln } }),
+  ]);
+  if (existingEmail) {
+    return { error: "Bu e-posta ile zaten bir hesap var." };
+  }
+  if (existingGln) {
+    return { error: "Bu GLN numarası ile zaten bir hesap var." };
+  }
+
+  const systemAdminEmail = (process.env.SYSTEM_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  const isSystemAdmin = !!systemAdminEmail && email === systemAdminEmail;
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      accountType: "PHARMACY",
+      pharmacyName,
+      contactName,
+      gln,
+      region,
+      district: district || null,
+      address: address || null,
+      isSuperAdmin: isSystemAdmin,
+    },
+  });
+
+  if (isSystemAdmin) {
+    // Bu hesap zaten kurulmuş tüm gruplara yönetici olarak eklenir; bundan
+    // sonra kurulan gruplara da createGroupAction içinde otomatik eklenir.
+    const existingGroups = await prisma.group.findMany({ select: { id: true } });
+    await Promise.all(
+      existingGroups.map((g) =>
+        prisma.groupMember.upsert({
+          where: { groupId_userId: { groupId: g.id, userId: user.id } },
+          update: { role: "MANAGER", status: "APPROVED" },
+          create: { groupId: g.id, userId: user.id, role: "MANAGER", status: "APPROVED" },
+        })
+      )
+    );
+  }
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect("/dashboard");
+}
+
+export async function registerCourierAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  const contactName = String(formData.get("contactName") ?? "").trim();
+  const region = String(formData.get("region") ?? "");
+
+  if (!email || !email.includes("@")) {
+    return { error: "Geçerli bir e-posta girin." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (!contactName) {
+    return { error: "Ad soyad gerekli." };
+  }
+  if (!REGIONS.includes(region as (typeof REGIONS)[number])) {
+    return { error: "Geçerli bir bölge seçin." };
+  }
+
+  const existingEmail = await prisma.user.findUnique({ where: { email } });
+  if (existingEmail) {
+    return { error: "Bu e-posta ile zaten bir hesap var." };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      accountType: "COURIER",
+      contactName,
+      region,
+    },
+  });
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect("/courier/dashboard");
+}
+
+export async function loginAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+
+  if (!email || !password) {
+    return { error: "E-posta ve şifre gerekli." };
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    return { error: "E-posta veya şifre hatalı." };
+  }
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
+}
+
+export async function resetPasswordAction(
+  _prevState: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const identifier = String(formData.get("identifier") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  if (!email || !email.includes("@")) {
+    return { error: "Geçerli bir e-posta girin." };
+  }
+  if (!identifier) {
+    return { error: "GLN numaranızı veya yetkili adı soyadınızı girin." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Şifreler eşleşmiyor." };
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  const matches =
+    !!user &&
+    ((user.gln && user.gln === identifier) ||
+      user.contactName.trim().toLowerCase() === identifier.toLowerCase());
+
+  if (!user || !matches) {
+    return { error: "Bu bilgilerle eşleşen bir hesap bulunamadı." };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  await createSession({ userId: user.id, email: user.email });
+  redirect(user.accountType === "COURIER" ? "/courier/dashboard" : "/dashboard");
+}
+
+export async function adminRecoveryResetAction(
+  _prevState: RecoveryState,
+  formData: FormData
+): Promise<RecoveryState> {
+  const secret = String(formData.get("secret") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  const recoverySecret = process.env.ADMIN_RECOVERY_SECRET ?? "";
+  if (!recoverySecret) {
+    return { error: "Kurtarma özelliği aktif değil. Vercel'de ADMIN_RECOVERY_SECRET tanımlanmamış." };
+  }
+  if (!secret || !safeEqual(secret, recoverySecret)) {
+    return { error: "Kurtarma anahtarı hatalı." };
+  }
+  if (password.length < 8) {
+    return { error: "Şifre en az 8 karakter olmalı." };
+  }
+  if (password !== confirmPassword) {
+    return { error: "Şifreler eşleşmiyor." };
+  }
+
+  const systemAdminEmail = (process.env.SYSTEM_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  if (!systemAdminEmail) {
+    return { error: "SYSTEM_ADMIN_EMAIL tanımlı değil." };
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: systemAdminEmail } });
+  if (!user) {
+    return { error: `${systemAdminEmail} adresiyle kayıtlı bir hesap bulunamadı. Önce bu e-postayla kayıt olun.` };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+  return { success: `${systemAdminEmail} hesabının şifresi güncellendi. Giriş sayfasından yeni şifreyle giriş yapabilirsiniz.` };
+}
+
+export async function logoutAction() {
+  await destroySession();
+  redirect("/");
+}
