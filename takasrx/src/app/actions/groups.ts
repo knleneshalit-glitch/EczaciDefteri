@@ -53,6 +53,40 @@ export async function createGroupAction(
   redirect(`/groups/${group.id}`);
 }
 
+export async function myApprovedGroupsAction() {
+  const user = await requireUser();
+
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId: user.id, status: "APPROVED" },
+    include: { group: { select: { id: true, name: true, closedAt: true } } },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  return memberships
+    .filter((m) => !m.group.closedAt)
+    .map((m) => ({ id: m.group.id, name: m.group.name }));
+}
+
+export async function groupApprovedPharmaciesAction(groupId: string) {
+  const user = await requireUser();
+
+  const membership = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId: user.id } },
+  });
+  if (!membership || membership.status !== "APPROVED") return [];
+
+  const members = await prisma.groupMember.findMany({
+    where: { groupId, status: "APPROVED", userId: { not: user.id } },
+    include: { user: { select: { id: true, pharmacyName: true, contactName: true } } },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  return members.map((m) => ({
+    id: m.user.id,
+    pharmacyName: m.user.pharmacyName ?? m.user.contactName,
+  }));
+}
+
 export async function requestJoinAction(groupId: string) {
   const user = await requireUser();
 

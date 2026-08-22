@@ -1,14 +1,17 @@
 "use client";
 
 import { use, useActionState, useEffect, useState } from "react";
-import { PackagePlus, Send, History, Copy } from "lucide-react";
+import { PackagePlus, Send, History, Copy, ChevronDown, Users, Building2 } from "lucide-react";
 import { createListingAction } from "@/app/actions/listings";
+import { myApprovedGroupsAction, groupApprovedPharmaciesAction } from "@/app/actions/groups";
 import {
   searchMedicinesByNameAction,
   lookupMedicineByBarcodeAction,
   previousGroupListingsAction,
 } from "@/app/actions/medicines";
 
+type MyGroup = { id: string; name: string };
+type GroupPharmacy = { id: string; pharmacyName: string };
 type MedicineMatch = { id: string; barkod: string; name: string };
 type PreviousListing = {
   id: string;
@@ -46,8 +49,13 @@ function effectivePricePreview(
 
 export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const { id } = use(props.params);
-  const action = createListingAction.bind(null, id);
-  const [state, formAction, pending] = useActionState(action, undefined);
+  const [state, formAction, pending] = useActionState(createListingAction, undefined);
+  const [myGroups, setMyGroups] = useState<MyGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState(id);
+  const [targetMode, setTargetMode] = useState<"GROUP" | "PHARMACY">("GROUP");
+  const [pharmacies, setPharmacies] = useState<GroupPharmacy[]>([]);
+  const [targetUserId, setTargetUserId] = useState("");
+  const [pharmacyAccordionOpen, setPharmacyAccordionOpen] = useState(true);
   const [medicineName, setMedicineName] = useState("");
   const [barkod, setBarkod] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -66,6 +74,19 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [suggestions, setSuggestions] = useState<MedicineMatch[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [previousListings, setPreviousListings] = useState<PreviousListing[]>([]);
+
+  useEffect(() => {
+    myApprovedGroupsAction().then(setMyGroups);
+  }, []);
+
+  useEffect(() => {
+    if (targetMode !== "PHARMACY" || !selectedGroupId) {
+      setPharmacies([]);
+      return;
+    }
+    groupApprovedPharmaciesAction(selectedGroupId).then(setPharmacies);
+    setTargetUserId("");
+  }, [targetMode, selectedGroupId]);
 
   useEffect(() => {
     if (medicineName.trim().length < 2) {
@@ -97,10 +118,10 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
       return;
     }
     const timer = setTimeout(() => {
-      previousGroupListingsAction(id, medicineName, barkod).then(setPreviousListings);
+      previousGroupListingsAction(selectedGroupId, medicineName, barkod).then(setPreviousListings);
     }, 350);
     return () => clearTimeout(timer);
-  }, [id, medicineName, barkod]);
+  }, [selectedGroupId, medicineName, barkod]);
 
   function applyPreviousListing(l: PreviousListing) {
     setMedicineName(l.medicineName);
@@ -134,6 +155,115 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
       </h1>
 
       <form action={formAction} className="mt-8 flex flex-col gap-8">
+        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Kime Çıkacak?</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            İlanı grubun tamamına mı, yoksa gruptaki tek bir eczaneye özel mi yayınlayacağınızı
+            seçin.
+          </p>
+          <input type="hidden" name="targetMode" value={targetMode} />
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                targetMode === "GROUP"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={targetMode === "GROUP"}
+                  onChange={() => setTargetMode("GROUP")}
+                />
+                Gruba
+              </span>
+              <span className="text-xs text-slate-500">İlan seçtiğim grubun tüm üyelerine açık olsun.</span>
+            </label>
+            <label
+              className={`flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-3 text-sm ${
+                targetMode === "PHARMACY"
+                  ? "border-emerald-500 bg-emerald-500/5"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+            >
+              <span className="flex items-center gap-2 font-medium text-slate-900 dark:text-slate-100">
+                <input
+                  type="radio"
+                  checked={targetMode === "PHARMACY"}
+                  onChange={() => setTargetMode("PHARMACY")}
+                />
+                Eczaneye Özel
+              </span>
+              <span className="text-xs text-slate-500">Sadece seçeceğim tek bir eczane görebilsin.</span>
+            </label>
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Grup</label>
+            <select
+              name="groupId"
+              value={selectedGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              className="w-full max-w-sm rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
+            >
+              {myGroups.length === 0 && <option value={id}>Yükleniyor...</option>}
+              {myGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {targetMode === "PHARMACY" && (
+            <div className="mt-4 rounded-lg border border-indigo-300 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-500/5">
+              <button
+                type="button"
+                onClick={() => setPharmacyAccordionOpen((v) => !v)}
+                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-slate-900 dark:text-slate-100"
+              >
+                <span className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-indigo-600 dark:text-indigo-400" strokeWidth={1.75} />
+                  Grupta Kayıtlı Eczaneler ({pharmacies.length})
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 transition-transform ${pharmacyAccordionOpen ? "rotate-180" : ""}`}
+                  strokeWidth={1.75}
+                />
+              </button>
+              {pharmacyAccordionOpen && (
+                <div className="flex flex-col gap-1 border-t border-indigo-200 dark:border-indigo-900 p-3">
+                  {pharmacies.length === 0 && (
+                    <p className="px-2 py-2 text-xs text-slate-500">
+                      Bu grupta seçebileceğiniz başka onaylı eczane yok.
+                    </p>
+                  )}
+                  {pharmacies.map((p) => (
+                    <label
+                      key={p.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm ${
+                        targetUserId === p.id
+                          ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300"
+                          : "hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        checked={targetUserId === p.id}
+                        onChange={() => setTargetUserId(p.id)}
+                      />
+                      <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                      {p.pharmacyName}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <input type="hidden" name="targetUserId" value={targetUserId} />
+            </div>
+          )}
+        </section>
+
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">İlan Türü</h2>
           <p className="mt-1 text-xs text-slate-500">
@@ -534,7 +664,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
 
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || (targetMode === "PHARMACY" && !targetUserId)}
           className="flex items-center justify-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
           <Send className="h-4 w-4" strokeWidth={1.75} />

@@ -81,10 +81,19 @@ export default async function ListingDetailPage(
     where: { id: listingId },
     include: {
       user: true,
+      targetUser: true,
       offers: { include: { user: true, shipment: true }, orderBy: { createdAt: "desc" } },
     },
   });
   if (!listing || listing.groupId !== id) notFound();
+  if (
+    listing.targetUserId &&
+    listing.targetUserId !== user.id &&
+    listing.userId !== user.id &&
+    !user.isSuperAdmin
+  ) {
+    notFound();
+  }
 
   const isOwner = listing.userId === user.id;
   const myPendingOffer = listing.offers.find((o) => o.userId === user.id && o.status === "PENDING");
@@ -143,6 +152,12 @@ export default async function ListingDetailPage(
               <span className="flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-500/20 px-2.5 py-1 text-xs font-medium text-violet-700 dark:text-violet-400">
                 <PackageSearch className="h-3.5 w-3.5" strokeWidth={1.75} />
                 Depo Özel Şartı
+              </span>
+            )}
+            {listing.targetUser && (
+              <span className="flex items-center gap-1 rounded-full bg-indigo-100 dark:bg-indigo-500/20 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-400">
+                <Users className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Sadece {listing.targetUser.pharmacyName ?? listing.targetUser.contactName} İçin
               </span>
             )}
             {isOwner && (

@@ -72,10 +72,11 @@ model User {
   isSuperAdmin  Boolean     @default(false)
   createdAt     DateTime    @default(now())
 
-  memberships   GroupMember[]
-  createdGroups Group[]       @relation("GroupCreator")
-  listings      Listing[]
-  offers        Offer[]
+  memberships    GroupMember[]
+  createdGroups  Group[]       @relation("GroupCreator")
+  listings       Listing[]     @relation("ListingOwner")
+  targetListings Listing[]     @relation("ListingTarget")
+  offers         Offer[]
   ledgerEntries LedgerEntry[]
   notifications Notification[]
   needRequests  NeedRequest[]
@@ -211,13 +212,16 @@ model Listing {
   targetReachedAt   DateTime?
   listingKind       ListingKind   @default(STOK)
   allowExceedDemand Boolean       @default(false)
+  targetUserId      String?
   createdAt         DateTime      @default(now())
 
-  group  Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offers Offer[]
+  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User    @relation("ListingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  targetUser User?   @relation("ListingTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  offers     Offer[]
 
   @@index([groupId])
+  @@index([targetUserId])
 }
 
 model Offer {

@@ -24,16 +24,31 @@ function dateOrNull(value: FormDataEntryValue | null) {
 }
 
 export async function createListingAction(
-  groupId: string,
   _prevState: ListingState,
   formData: FormData
 ): Promise<ListingState> {
   const user = await requireUser();
+
+  const groupId = String(formData.get("groupId") ?? "").trim();
+  if (!groupId) return { error: "Grup seçimi gerekli." };
   await requireApprovedMember(groupId, user);
 
   const group = await prisma.group.findUnique({ where: { id: groupId } });
   if (!group || group.closedAt) {
     return { error: "Bu grup kapatıldığı için yeni ilan verilemiyor." };
+  }
+
+  const targetMode = String(formData.get("targetMode") ?? "GROUP");
+  let targetUserId: string | null = null;
+  if (targetMode === "PHARMACY") {
+    targetUserId = String(formData.get("targetUserId") ?? "").trim() || null;
+    if (!targetUserId) return { error: "Eczaneye özel ilan için bir eczane seçin." };
+    const targetMembership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId: targetUserId } },
+    });
+    if (!targetMembership || targetMembership.status !== "APPROVED" || targetUserId === user.id) {
+      return { error: "Seçilen eczane bu grupta onaylı üye değil." };
+    }
   }
 
   const medicineName = String(formData.get("medicineName") ?? "").trim().toLocaleUpperCase("tr-TR");
@@ -89,6 +104,7 @@ export async function createListingAction(
       expiryDate: dateOrNull(formData.get("expiryDate")),
       listingKind,
       allowExceedDemand,
+      targetUserId,
     },
   });
 

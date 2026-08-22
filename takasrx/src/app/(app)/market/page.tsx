@@ -33,7 +33,11 @@ export default async function MarketPage() {
         orderBy: { createdAt: "desc" },
       })
     : await prisma.listing.findMany({
-        where: { status: "OPEN", groupId: { in: groupIds } },
+        where: {
+          status: "OPEN",
+          groupId: { in: groupIds },
+          OR: [{ targetUserId: null }, { targetUserId: user.id }, { userId: user.id }],
+        },
         include: {
           group: true,
           user: true,
@@ -90,8 +94,34 @@ export default async function MarketPage() {
                 </span>
 
                 <div className="min-w-[200px] flex-1">
-                  <p className={`font-semibold ${targetReached ? "text-white" : "text-slate-900 dark:text-slate-100"}`}>
+                  <p
+                    className={`flex flex-wrap items-center gap-1.5 font-semibold ${
+                      targetReached ? "text-white" : "text-slate-900 dark:text-slate-100"
+                    }`}
+                  >
                     {listing.medicineName}
+                    {listing.listingKind === "DEPO_OZEL_SART" && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          targetReached
+                            ? "bg-white/20 text-white"
+                            : "bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-400"
+                        }`}
+                      >
+                        Depo Özel Şartı
+                      </span>
+                    )}
+                    {listing.targetUserId && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          targetReached
+                            ? "bg-white/20 text-white"
+                            : "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400"
+                        }`}
+                      >
+                        Eczaneye Özel
+                      </span>
+                    )}
                   </p>
                   <p className={`text-xs ${targetReached ? "text-emerald-50" : "text-slate-500"}`}>
                     {listing.barkod ?? "—"} · {listing.user.pharmacyName ?? listing.user.contactName} · {listing.group.name}

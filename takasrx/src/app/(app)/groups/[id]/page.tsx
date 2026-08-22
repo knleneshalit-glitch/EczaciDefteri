@@ -54,7 +54,9 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
   const [listings, pendingMembers] = await Promise.all([
     isApproved
       ? prisma.listing.findMany({
-          where: { groupId: id },
+          where: user.isSuperAdmin
+            ? { groupId: id }
+            : { groupId: id, OR: [{ targetUserId: null }, { targetUserId: user.id }, { userId: user.id }] },
           include: {
             user: true,
             _count: { select: { offers: true } },
@@ -258,7 +260,19 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
                     </span>
 
                     <div className="min-w-[200px] flex-1">
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">{listing.medicineName}</p>
+                      <p className="flex flex-wrap items-center gap-1.5 font-semibold text-slate-900 dark:text-slate-100">
+                        {listing.medicineName}
+                        {listing.listingKind === "DEPO_OZEL_SART" && (
+                          <span className="rounded-full bg-violet-100 dark:bg-violet-500/20 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-400">
+                            Depo Özel Şartı
+                          </span>
+                        )}
+                        {listing.targetUserId && (
+                          <span className="rounded-full bg-indigo-100 dark:bg-indigo-500/20 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:text-indigo-400">
+                            Eczaneye Özel
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-slate-500">
                         {listing.barkod ?? "—"} · {listing.user.pharmacyName ?? listing.user.contactName}
                       </p>
