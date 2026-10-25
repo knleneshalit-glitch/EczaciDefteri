@@ -14,66 +14,142 @@ import {
   Scale,
   ChevronRight,
   ShoppingBag,
-  Megaphone,
   TrendingUp,
   Star,
   BellRing,
+  Sparkles,
+  ShoppingCart,
+  Banknote,
+  Truck,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
-import { getEarnings, alimKazancYuzde, toplamKazanc, type EarningsSummary } from "@/lib/earnings";
+import { getEarnings, alimKazancYuzde, grupKazancYuzde, toplamKazanc, type EarningsSummary } from "@/lib/earnings";
+import { istanbulDateKey, istanbulDayStartFromKey } from "@/lib/dates";
+import PeriodPicker from "@/components/PeriodPicker";
+import AnnouncementsPanel from "@/components/AnnouncementsPanel";
 import CariOzetiPager from "@/components/CariOzetiPager";
 import { findFavoriteMatches } from "@/lib/favorite-matches";
 import { effectiveUnitPrice } from "@/lib/pricing";
 
-function EarningsCard({ title, earnings }: { title: string; earnings: EarningsSummary }) {
-  const toplam = toplamKazanc(earnings);
-  const rows = [
-    {
-      label: "Alımlarımdan Kazanç",
-      value: `${earnings.alimKazanci.toFixed(2)} ₺`,
-      hint: `%${alimKazancYuzde(earnings).toFixed(1)} · ${earnings.alimAdedi} adet`,
-    },
-    {
-      label: "Stoğa Bağlanmayan Nakit",
-      value: `${earnings.satisNakdi.toFixed(2)} ₺`,
-      hint: "Satışlarınızdan nakde dönen",
-    },
-    {
-      label: "Valör (Grup Yükü) Getirisi",
-      value: `${earnings.valorGetirisi.toFixed(2)} ₺`,
-      hint: "Bakiyenize işlenen aylık valör",
-    },
-    {
-      label: "Grup Kazancı",
-      value: `${earnings.grupKazanci.toFixed(2)} ₺`,
-      hint: "Gruplarınızdaki tüm alımların kazancı",
-    },
-  ];
-
+function EarningsTile({
+  label,
+  value,
+  help,
+  chip,
+  Icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  help: string;
+  chip?: string;
+  Icon: LucideIcon;
+  tone: "emerald" | "blue" | "slate";
+}) {
+  const TONES = {
+    emerald: "border-emerald-500/30 bg-emerald-500/5",
+    blue: "border-blue-500/30 bg-blue-500/5",
+    slate: "border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-800/40",
+  };
+  const CHIP = {
+    emerald: "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    blue: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    slate: "border-slate-400/50 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+  };
   return (
-    <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-white to-teal-500/5 dark:via-slate-900 p-5 shadow-sm">
-      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        <TrendingUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
-        {title}
-      </p>
-      <p
-        className={`mt-1 text-3xl font-extrabold ${
-          toplam >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-        }`}
+    <div className={`relative flex gap-3 rounded-xl border p-3 ${TONES[tone]}`}>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm">
+        <Icon className="h-4 w-4" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">{label}</p>
+        <p className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{value.toFixed(2)} ₺</p>
+        {chip && (
+          <span className={`mt-0.5 inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[tone]}`}>
+            {chip}
+          </span>
+        )}
+      </div>
+      <span
+        title={help}
+        className="absolute right-2 top-2 flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-red-400 text-[10px] font-bold text-red-500"
       >
-        {toplam.toFixed(2)} ₺
-      </p>
-      <p className="text-xs text-slate-500">Toplam kazanç (alım kazancı + valör getirisi)</p>
-      <dl className="mt-4 grid grid-cols-2 gap-3">
-        {rows.map((r) => (
-          <div key={r.label} className="rounded-lg bg-white/70 dark:bg-slate-800/50 p-3">
-            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{r.label}</dt>
-            <dd className="mt-0.5 font-bold text-slate-900 dark:text-slate-100">{r.value}</dd>
-            <dd className="text-[11px] text-slate-500">{r.hint}</dd>
-          </div>
-        ))}
-      </dl>
+        ?
+      </span>
+    </div>
+  );
+}
+
+function EarningsCard({
+  title,
+  picker,
+  earnings,
+}: {
+  title: string;
+  picker: React.ReactNode;
+  earnings: EarningsSummary;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        {picker}
+        <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{title}</p>
+      </div>
+      <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+        <span className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+          <TrendingUp className="h-4 w-4" strokeWidth={2} />
+          Toplam TakasRX Kazancım
+        </span>
+        <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400">{toplamKazanc(earnings).toFixed(2)} ₺</span>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <EarningsTile
+          label="Alımlarımdan Kazancım"
+          value={earnings.alimKazanci}
+          chip={`%${alimKazancYuzde(earnings).toFixed(2)} kazancım`}
+          help="Depo fiyatıyla alsaydınız ödeyeceğiniz tutar ile gruptan ödediğiniz net tutar arasındaki fark. İskonto/MF içermeyen teklifler ve Bakiye Transferi yüzdeye yansımaz."
+          Icon={Sparkles}
+          tone="emerald"
+        />
+        <EarningsTile
+          label="Grubumun Kazancı"
+          value={earnings.grupKazanci}
+          chip={`%${grupKazancYuzde(earnings).toFixed(2)} grup kazancı`}
+          help="Üye olduğunuz gruplardaki tüm eczanelerin alımlarından sağladığı toplam kazanç."
+          Icon={Users}
+          tone="blue"
+        />
+        <EarningsTile
+          label="Benim Toplam Alımım"
+          value={earnings.alimTutari}
+          help="Seçilen dönemde gruplardan yaptığınız alımların net toplamı."
+          Icon={ShoppingCart}
+          tone="slate"
+        />
+        <EarningsTile
+          label="Grubumun Toplam Alımı"
+          value={earnings.grupToplamAlim}
+          help="Gruplarınızdaki tüm eczanelerin seçilen dönemdeki alımlarının toplamı."
+          Icon={Users}
+          tone="slate"
+        />
+        <EarningsTile
+          label="Stoğa Bağlamadığım Nakit"
+          value={earnings.stogaBaglanmayanNakit}
+          chip={`${earnings.valorKazanci.toFixed(2)} ₺ valör kazancı`}
+          help="Aynı fiyatı tek başınıza yakalamak için depo şartının tamamını almanız gerekirdi. İhtiyacınız kadar alarak rafa bağlamadığınız tutar. Valör kazancı bu nakdin grubun aylık faiz oranıyla bir aylık finansman değeridir."
+          Icon={Banknote}
+          tone="emerald"
+        />
+        <EarningsTile
+          label="Grubumun Stok Valör Kazancı"
+          value={earnings.grupValorKazanci}
+          help="Gruplarınızdaki tüm eczanelerin stoğa bağlamadığı nakdin finansman değeri."
+          Icon={Wallet}
+          tone="blue"
+        />
+      </div>
     </div>
   );
 }
@@ -84,12 +160,14 @@ function StatCard({
   href,
   Icon,
   accent,
+  highlight,
 }: {
   label: string;
   value: string | number;
   href: string;
   Icon: LucideIcon;
   accent?: "emerald" | "amber" | "red" | "blue" | "purple" | "orange" | "slate";
+  highlight?: string;
 }) {
   const COLORS: Record<string, string> = {
     emerald: "text-emerald-600 dark:text-emerald-400",
@@ -113,12 +191,16 @@ function StatCard({
   const badgeBg = BADGES[accent ?? "slate"];
   const valueLength = String(value).length;
   const valueSizeClass =
-    valueLength > 10 ? "text-lg" : valueLength > 7 ? "text-xl" : "text-3xl";
+    valueLength > 8 ? "text-lg" : valueLength > 6 ? "text-xl" : "text-3xl";
 
   return (
     <Link
       href={href}
-      className="group flex flex-col rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm hover:border-emerald-400 hover:shadow-md transition"
+      className={`group flex flex-col rounded-xl border p-5 shadow-sm hover:shadow-md transition ${
+        highlight
+          ? "border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-500/10"
+          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400"
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <p className={`min-w-0 flex-1 whitespace-nowrap font-bold leading-tight ${valueSizeClass} ${color}`}>
@@ -129,6 +211,9 @@ function StatCard({
         </span>
       </div>
       <p className="mt-2 text-sm font-medium uppercase tracking-wide text-slate-500 break-words">{label}</p>
+      {highlight && (
+        <p className="mt-0.5 text-xs font-bold uppercase text-amber-700 dark:text-amber-400">{highlight}</p>
+      )}
       <span className="mt-auto flex items-center gap-0.5 pt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400 opacity-0 transition group-hover:opacity-100">
         Tümünü Görüntüle
         <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
@@ -137,8 +222,19 @@ function StatCard({
   );
 }
 
-export default async function DashboardPage() {
+function monthKey(year: number, month: number) {
+  const d = new Date(Date.UTC(year, month - 1, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("tr-TR", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+export default async function DashboardPage(props: PageProps<"/dashboard">) {
   const user = await requireUser();
+  const sp = await props.searchParams;
 
   const [memberships, openListingsCount, receivedPendingCount, sentPendingCount, ledgerEntries, announcements] =
     await Promise.all([
@@ -148,7 +244,7 @@ export default async function DashboardPage() {
         orderBy: { joinedAt: "desc" },
       }),
       prisma.listing.count({ where: { userId: user.id, status: "OPEN" } }),
-      prisma.offer.count({ where: { listing: { userId: user.id }, status: "PENDING" } }),
+      prisma.offer.count({ where: { listing: { userId: user.id, listingKind: "STOK" }, status: "PENDING" } }),
       prisma.offer.count({ where: { userId: user.id, status: "PENDING" } }),
       prisma.ledgerEntry.findMany({
         where: { userId: user.id },
@@ -157,7 +253,7 @@ export default async function DashboardPage() {
       prisma.announcement.findMany({
         where: { active: true },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        take: 10,
       }),
     ]);
 
@@ -167,6 +263,14 @@ export default async function DashboardPage() {
   const marketListingsCount = user.isSuperAdmin
     ? await prisma.listing.count({ where: { status: "OPEN" } })
     : await prisma.listing.count({ where: { status: "OPEN", groupId: { in: groupIds } } });
+
+  const pendingShipmentsCount = await prisma.offer.count({
+    where: {
+      listing: { userId: user.id },
+      status: "ACCEPTED",
+      OR: [{ shipment: null }, { shipment: { printedAt: null } }],
+    },
+  });
 
   const groupLedgerEntries = groupIds.length
     ? await prisma.ledgerEntry.findMany({
@@ -201,9 +305,22 @@ export default async function DashboardPage() {
   });
   const favoriteMatches = (await findFavoriteMatches(user.id, favorites)).slice(0, 5);
 
-  const now = new Date();
-  const earnings = await getEarnings(user.id, groupIds, now);
-  const monthTitle = now.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  const [todayY, todayM] = istanbulDateKey(new Date()).split("-").map(Number);
+  const monthOptions = Array.from({ length: 12 }, (_, i) => monthKey(todayY, todayM - i));
+  const yearOptions = [todayY, todayY - 1, todayY - 2].map(String);
+  const selectedMonth = typeof sp.ay === "string" && monthOptions.includes(sp.ay) ? sp.ay : monthOptions[0];
+  const selectedYear = typeof sp.yil === "string" && yearOptions.includes(sp.yil) ? sp.yil : yearOptions[0];
+  const [selY, selM] = selectedMonth.split("-").map(Number);
+  const [monthEarnings, yearEarnings] = await Promise.all([
+    getEarnings(user.id, groupIds, {
+      from: istanbulDayStartFromKey(`${selectedMonth}-01`),
+      to: istanbulDayStartFromKey(`${monthKey(selY, selM + 1)}-01`),
+    }),
+    getEarnings(user.id, groupIds, {
+      from: istanbulDayStartFromKey(`${selectedYear}-01-01`),
+      to: istanbulDayStartFromKey(`${Number(selectedYear) + 1}-01-01`),
+    }),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
@@ -226,7 +343,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Gruptaki Aktif Teklifler"
           value={marketListingsCount}
@@ -242,11 +359,20 @@ export default async function DashboardPage() {
           accent="blue"
         />
         <StatCard
-          label="Gönderimlerim"
+          label="Bekleyen Teklifler"
           value={receivedPendingCount}
           href="/offers/received"
           Icon={Inbox}
           accent="purple"
+          highlight={receivedPendingCount > 0 ? "Bekleyen teklifiniz var" : undefined}
+        />
+        <StatCard
+          label="Bekleyen Gönderimler"
+          value={pendingShipmentsCount}
+          href="/offers/received"
+          Icon={Truck}
+          accent="blue"
+          highlight={pendingShipmentsCount > 0 ? "Gönderilmeyi bekliyor" : undefined}
         />
         <StatCard
           label="Alımlarım"
@@ -264,15 +390,47 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <section className="mt-8">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
-          <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
-          Kazancım
-        </h2>
-        <div className="mt-3 grid gap-4 md:grid-cols-2">
-          <EarningsCard title={`Bu Ay · ${monthTitle}`} earnings={earnings.month} />
-          <EarningsCard title={`Bu Yıl · ${now.getFullYear()}`} earnings={earnings.year} />
+      <section className="mt-8 overflow-hidden rounded-2xl border border-emerald-500/30">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-emerald-700 to-emerald-600 px-5 py-3 text-white">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <TrendingUp className="h-5 w-5" strokeWidth={2} />
+            Kazancım
+          </h2>
+          <span className="flex items-center gap-3 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold">
+            BAKİYEM
+            <span className={toplamCari < 0 ? "text-red-200" : "text-white"}>{toplamCari.toFixed(2)} ₺</span>
+          </span>
         </div>
+        <div className="grid gap-4 bg-slate-50 dark:bg-slate-950/40 p-4 xl:grid-cols-2">
+          <EarningsCard
+            title={`${monthLabel(selectedMonth)} Ayı Kazanç Bilgileri`}
+            earnings={monthEarnings}
+            picker={
+              <PeriodPicker
+                param="ay"
+                value={selectedMonth}
+                options={monthOptions.map((m) => ({ value: m, label: monthLabel(m) }))}
+                otherParams={{ yil: selectedYear }}
+              />
+            }
+          />
+          <EarningsCard
+            title={`${selectedYear} Yılı Kazanç Bilgileri`}
+            earnings={yearEarnings}
+            picker={
+              <PeriodPicker
+                param="yil"
+                value={selectedYear}
+                options={yearOptions.map((y) => ({ value: y, label: y }))}
+                otherParams={{ ay: selectedMonth }}
+              />
+            }
+          />
+        </div>
+        <p className="border-t border-emerald-500/20 bg-amber-50 dark:bg-amber-500/5 px-5 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+          Herhangi bir iskonto/MF içermeyen tekliflerden yapılan alımlar yüzdelik kazanç hesabına
+          yansımaz. Bakiye transferi teklifleri de kazanç hesabına yansımaz.
+        </p>
       </section>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1.3fr_1fr]">
@@ -364,18 +522,7 @@ export default async function DashboardPage() {
 
           {announcements.length > 0 && (
             <section className="mt-6">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                <Megaphone className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />
-                Duyurular
-              </h2>
-              <div className="mt-2 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                {announcements.map((a) => (
-                  <div key={a.id} className="text-sm">
-                    <p className="font-medium text-amber-900 dark:text-amber-300">{a.title}</p>
-                    <p className="text-xs text-amber-800/80 dark:text-amber-400/80">{a.body}</p>
-                  </div>
-                ))}
-              </div>
+              <AnnouncementsPanel announcements={announcements} />
             </section>
           )}
 
