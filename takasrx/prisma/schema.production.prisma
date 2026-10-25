@@ -83,6 +83,7 @@ model User {
   region       String
   district     String?
   address      String?
+  phone        String?
   isSuperAdmin Boolean     @default(false)
   createdAt    DateTime    @default(now())
 
@@ -168,9 +169,13 @@ model Shipment {
   deliveredAt        DateTime?
   barcodes           String?
   barcodesUploadedAt DateTime?
+  packageCode        String?
+  buyerConfirmedAt   DateTime?
 
   offer   Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
   courier User? @relation("ShipmentCourier", fields: [courierId], references: [id])
+
+  @@index([packageCode])
 }
 
 model Notification {

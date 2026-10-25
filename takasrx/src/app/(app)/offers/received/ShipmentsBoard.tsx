@@ -17,6 +17,7 @@ import {
   Info,
   QrCode,
   ExternalLink,
+  Boxes,
 } from "lucide-react";
 import {
   bulkRespondOffersAction,
@@ -24,10 +25,12 @@ import {
   bulkRemoveFromShipmentAction,
   bulkCancelOffersAction,
   ensureShipmentsAction,
+  bulkPackShipmentsAction,
   type BulkResult,
 } from "@/app/actions/shipments";
 import { downloadCsv } from "@/lib/csv";
 import { priceWithoutVat } from "@/lib/pricing";
+import { foldTr } from "@/lib/search";
 
 export type BoardProduct = {
   listingId: string;
@@ -72,6 +75,7 @@ export type BoardLine = {
     status: string;
     printedAt: Date | null;
     courierName: string | null;
+    packageCode: string | null;
     barcodeCount: number;
   } | null;
 };
@@ -120,7 +124,6 @@ const TABS: { key: string; label: string; match: (s: LineState, l: BoardLine) =>
 
 const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("tr-TR") : "—");
 const fmtMoney = (n: number | null) => (n != null ? `${n.toFixed(2)} ₺` : "—");
-const lower = (s: string) => s.toLocaleLowerCase("tr-TR");
 
 export default function ShipmentsBoard({ products, lines }: { products: BoardProduct[]; lines: BoardLine[] }) {
   const router = useRouter();
@@ -139,13 +142,13 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
     [lines]
   );
 
-  const needle = lower(query.trim());
+  const needle = foldTr(query.trim());
 
   const productRows = useMemo(
     () =>
       products
         .filter((p) => tabLines.some((l) => l.listingId === p.listingId))
-        .filter((p) => !needle || lower(p.medicineName).includes(needle) || (p.barkod ?? "").includes(needle))
+        .filter((p) => !needle || foldTr(p.medicineName).includes(needle) || (p.barkod ?? "").includes(needle))
         .map((p) => {
           const own = lines.filter((l) => l.listingId === p.listingId);
           const accepted = own.filter((l) => l.status === "ACCEPTED");
@@ -168,7 +171,7 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
       byBuyer.set(l.buyer.id, row);
     }
     return Array.from(byBuyer.values())
-      .filter((r) => !needle || lower(r.buyer.name).includes(needle) || (r.buyer.gln ?? "").includes(needle))
+      .filter((r) => !needle || foldTr(r.buyer.name).includes(needle) || (r.buyer.gln ?? "").includes(needle))
       .sort((a, b) => a.buyer.name.localeCompare(b.buyer.name, "tr"));
   }, [tabLines, needle]);
 
@@ -186,6 +189,9 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
     label: selectedLines.some((l) => l.status === "ACCEPTED"),
     remove: selectedStates.includes("READY"),
     cancel: selectedStates.some((s) => s === "UNSENT" || s === "PREPARING" || s === "READY"),
+    pack:
+      selectedLines.filter((l) => l.status === "ACCEPTED").length >= 2 &&
+      new Set(selectedLines.map((l) => l.buyer.id)).size === 1,
   };
 
   const activeTitle = activeKey
@@ -248,6 +254,18 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
         return;
       }
       router.push(`/shipments/labels?ids=${shipmentIds.join(",")}`);
+    });
+  }
+
+  function packLabels() {
+    setNotice(null);
+    startTransition(async () => {
+      const res = await bulkPackShipmentsAction(ids);
+      if (res.error) {
+        setNotice({ kind: "err", text: res.error });
+        return;
+      }
+      router.push(`/shipments/labels?ids=${res.shipmentIds.join(",")}`);
     });
   }
 
@@ -533,6 +551,16 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
               </button>
               <button
                 type="button"
+                disabled={!can.pack || isPending}
+                onClick={packLabels}
+                title="Aynı eczaneye giden seçili ürünleri tek koli etiketinde birleştirir"
+                className={`${btn} border-violet-500/40 text-violet-700 dark:text-violet-400 hover:bg-violet-500/10`}
+              >
+                <Boxes className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Tek Kolide Etiketle
+              </button>
+              <button
+                type="button"
                 disabled={!can.remove || isPending}
                 onClick={() => run(() => bulkRemoveFromShipmentAction(ids), "gönderim sevkiyattan çıkarıldı")}
                 className={`${btn} border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10`}
@@ -642,6 +670,9 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
                             {fmtDate(l.acceptedAt ?? l.createdAt)}
                             {l.shipment?.courierName ? ` · ${l.shipment.courierName}` : ""}
                           </p>
+                          {l.shipment?.packageCode && (
+                            <p className="font-mono text-[10px] text-violet-600 dark:text-violet-400">{l.shipment.packageCode}</p>
+                          )}
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">

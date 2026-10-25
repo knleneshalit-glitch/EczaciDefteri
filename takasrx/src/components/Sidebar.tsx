@@ -15,6 +15,7 @@ import {
   UserCog,
   Landmark,
   History,
+  Route,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/offers/sent", label: "Alımlarım", Icon: Send },
   { href: "/ledger", label: "Cari Hareketler", Icon: Wallet },
   { href: "/balances", label: "Grup Bakiyeleri", Icon: Landmark },
+  { href: "/shipments", label: "Sevkiyat Takibi", Icon: Route },
   { href: "/couriers", label: "Sevkiyatçılarım", Icon: Truck },
 ];
 

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { LISTING_CHANGE_LABEL, LISTING_CHANGE_TYPES } from "@/lib/listing-changes";
 import { listingDisplayStatus, listingDisplayStatusClass } from "@/lib/status-styles";
+import { foldTr } from "@/lib/search";
 
 const PAGE_SIZE = 15;
 
@@ -76,14 +77,14 @@ export default async function ListingUpdatesPage(props: PageProps<"/updates">) {
         })
       : [];
 
-  const eczaneNeedle = eczane.toLocaleLowerCase("tr-TR");
-  const urunNeedle = urun.toLocaleLowerCase("tr-TR");
+  const eczaneNeedle = foldTr(eczane);
+  const urunNeedle = foldTr(urun);
   const filtered = changes.filter((c) => {
     // Pasif ilanların değişikliklerini sadece ilan sahibi görür.
     if (c.listing.status === "PASSIVE" && c.listing.userId !== user.id && !user.isSuperAdmin) return false;
-    const pharmacy = (c.user.pharmacyName ?? c.user.contactName).toLocaleLowerCase("tr-TR");
+    const pharmacy = foldTr(c.user.pharmacyName ?? c.user.contactName);
     if (eczaneNeedle && !pharmacy.includes(eczaneNeedle)) return false;
-    if (urunNeedle && !c.listing.medicineName.toLocaleLowerCase("tr-TR").includes(urunNeedle)) return false;
+    if (urunNeedle && !foldTr(c.listing.medicineName).includes(urunNeedle)) return false;
     if (durum) {
       const key = listingDisplayStatus(c.listing).key;
       if (durum === "CLOSED" ? key !== "CLOSED" && key !== "MATCHED" : key !== durum) return false;

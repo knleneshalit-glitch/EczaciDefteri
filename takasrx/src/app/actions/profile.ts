@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { REGIONS } from "@/lib/regions";
+import { normalizePhone } from "@/lib/phone";
 
 export type ProfileState = { error?: string; success?: string } | undefined;
 
@@ -19,8 +20,13 @@ export async function updateProfileAction(
   const region = String(formData.get("region") ?? "");
   const district = String(formData.get("district") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
 
   if (!contactName) return { error: "Yetkili adı soyadı gerekli." };
+  if (phone === "invalid") return { error: "Geçerli bir telefon numarası girin (ör. 0532 123 45 67)." };
+  if (user.accountType === "COURIER" && !phone) {
+    return { error: "Sevkiyatçı hesabında telefon numarası zorunludur." };
+  }
   if (!REGIONS.includes(region as (typeof REGIONS)[number])) {
     return { error: "Geçerli bir bölge seçin." };
   }
@@ -35,11 +41,13 @@ export async function updateProfileAction(
       region,
       district: district || null,
       address: address || null,
+      phone,
       ...(user.accountType === "PHARMACY" ? { pharmacyName } : {}),
     },
   });
 
   revalidatePath("/profile");
+  revalidatePath("/courier/profile");
   return { success: "Bilgileriniz güncellendi." };
 }
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Search, FileSpreadsheet, ChevronLeft, ChevronRight, AlertTriangle, Tag } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
 import { priceWithoutVat } from "@/lib/pricing";
+import { foldTr } from "@/lib/search";
 
 export type PurchaseRow = {
   offerId: string;
@@ -90,14 +91,14 @@ export default function PurchasesTable({ rows }: { rows: PurchaseRow[] }) {
   const groups = useMemo(() => Array.from(new Set(rows.map((r) => r.groupName))).sort((a, b) => a.localeCompare(b, "tr")), [rows]);
   const sellers = useMemo(() => Array.from(new Set(rows.map((r) => r.seller))).sort((a, b) => a.localeCompare(b, "tr")), [rows]);
 
-  const needle = query.trim().toLocaleLowerCase("tr-TR");
+  const needle = foldTr(query.trim());
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
           (!group || r.groupName === group) &&
           (!seller || r.seller === seller) &&
-          (!needle || r.medicineName.toLocaleLowerCase("tr-TR").includes(needle) || (r.barkod ?? "").includes(needle))
+          (!needle || foldTr(r.medicineName).includes(needle) || (r.barkod ?? "").includes(needle))
       ),
     [rows, group, seller, needle]
   );

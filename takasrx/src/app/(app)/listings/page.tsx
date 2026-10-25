@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { listingDisplayStatus, listingDisplayStatusClass } from "@/lib/status-styles";
 import { closeExpiredTargetListingsForGroups } from "@/lib/listings";
+import { foldTr } from "@/lib/search";
 import { pauseListingAction, reopenListingAction } from "@/app/actions/listings";
 import ExportCsvButton from "@/components/ExportCsvButton";
 import NewListingPicker from "./NewListingPicker";
@@ -71,14 +72,14 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
 
   const openGroups = memberships.filter((m) => !m.group.closedAt).map((m) => m.group);
 
-  const needle = q.toLocaleLowerCase("tr-TR");
+  const needle = foldTr(q);
   const searched = listings.filter(
     (l) =>
       matchesKind(l, tur) &&
       (!needle ||
-        l.medicineName.toLocaleLowerCase("tr-TR").includes(needle) ||
+        foldTr(l.medicineName).includes(needle) ||
         (l.barkod ?? "").includes(needle) ||
-        l.group.name.toLocaleLowerCase("tr-TR").includes(needle))
+        foldTr(l.group.name).includes(needle))
   );
   const counts = new Map<StatusKey, number>([["tumu", searched.length]]);
   for (const l of searched) {

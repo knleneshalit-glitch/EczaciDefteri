@@ -73,6 +73,7 @@ export default async function ReceivedOffersPage() {
             status: o.shipment.status,
             printedAt: o.shipment.printedAt,
             courierName: o.shipment.courier?.contactName ?? null,
+            packageCode: o.shipment.packageCode,
             barcodeCount: o.shipment.barcodes ? o.shipment.barcodes.split("\n").filter(Boolean).length : 0,
           }
         : null,

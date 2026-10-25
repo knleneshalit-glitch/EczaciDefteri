@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createSession, destroySession } from "@/lib/session";
 import { REGIONS } from "@/lib/regions";
+import { normalizePhone } from "@/lib/phone";
 
 export type AuthState = { error?: string } | undefined;
 export type RecoveryState = { error?: string; success?: string } | undefined;
@@ -28,9 +29,13 @@ export async function registerPharmacyAction(
   const region = String(formData.get("region") ?? "");
   const district = String(formData.get("district") ?? "").trim();
   const address = String(formData.get("address") ?? "").trim();
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
 
   if (!email || !email.includes("@")) {
     return { error: "Geçerli bir e-posta girin." };
+  }
+  if (phone === "invalid") {
+    return { error: "Geçerli bir telefon numarası girin (ör. 0532 123 45 67)." };
   }
   if (password.length < 8) {
     return { error: "Şifre en az 8 karakter olmalı." };
@@ -74,6 +79,7 @@ export async function registerPharmacyAction(
       region,
       district: district || null,
       address: address || null,
+      phone,
       isSuperAdmin: isSystemAdmin,
     },
   });
@@ -105,9 +111,13 @@ export async function registerCourierAction(
   const password = String(formData.get("password") ?? "");
   const contactName = String(formData.get("contactName") ?? "").trim();
   const region = String(formData.get("region") ?? "");
+  const phone = normalizePhone(String(formData.get("phone") ?? ""));
 
   if (!email || !email.includes("@")) {
     return { error: "Geçerli bir e-posta girin." };
+  }
+  if (!phone || phone === "invalid") {
+    return { error: "Eczanelerin size ulaşabilmesi için geçerli bir telefon numarası girin." };
   }
   if (password.length < 8) {
     return { error: "Şifre en az 8 karakter olmalı." };
@@ -132,6 +142,7 @@ export async function registerCourierAction(
       accountType: "COURIER",
       contactName,
       region,
+      phone,
     },
   });
 

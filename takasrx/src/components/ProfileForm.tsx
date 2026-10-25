@@ -15,6 +15,7 @@ export default function ProfileForm({
     region: string;
     district: string | null;
     address: string | null;
+    phone: string | null;
   };
 }) {
   const [state, formAction, pending] = useActionState(updateProfileAction, undefined);
@@ -64,6 +65,25 @@ export default function ProfileForm({
             className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
           />
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          Telefon {user.accountType === "COURIER" ? "" : "(opsiyonel)"}
+        </label>
+        <input
+          type="tel"
+          name="phone"
+          required={user.accountType === "COURIER"}
+          defaultValue={user.phone ?? ""}
+          placeholder="0532 123 45 67"
+          className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          {user.accountType === "COURIER"
+            ? "Eczaneler sevkiyat ekranında bu numarayla size ulaşır."
+            : "Sevkiyatçınız ve grup üyeleri sevkiyat ekranlarında bu numarayı görür."}
+        </p>
       </div>
 
       <div>

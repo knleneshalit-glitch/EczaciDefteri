@@ -43,6 +43,7 @@ async function notifyCouriers(pharmacy: { id: string; pharmacyName: string | nul
 function revalidateShipmentViews() {
   revalidatePath("/offers/received");
   revalidatePath("/offers/sent");
+  revalidatePath("/shipments");
   revalidatePath("/courier/dashboard");
 }
 
@@ -402,4 +403,167 @@ export async function markDeliveredAction(shipmentId: string) {
   ]);
 
   revalidatePath("/courier/dashboard");
+}
+
+function generatePackageCode() {
+  return `KOLI-${Math.random().toString(36).slice(2, 6).toUpperCase()}${Date.now().toString(36).slice(-4).toUpperCase()}`;
+}
+
+/**
+ * "Birden Fazla Ürünü Tek Kolide Etiketle": aynı eczaneye giden seçili
+ * gönderimleri tek koli koduyla birleştirir ve etiket için sevkiyatları döndürür.
+ */
+export async function bulkPackShipmentsAction(
+  offerIds: string[]
+): Promise<{ shipmentIds: string[]; error?: string }> {
+  const pharmacy = await requirePharmacy();
+  const offers = (await loadSellerOffers(pharmacy.id, offerIds)).filter((o) => o.status === "ACCEPTED");
+
+  if (offers.length < 2) {
+    return { shipmentIds: [], error: "Tek kolide birleştirmek için en az iki kabul edilmiş gönderim seçin." };
+  }
+  if (new Set(offers.map((o) => o.userId)).size > 1) {
+    return { shipmentIds: [], error: "Tek koliye sadece aynı eczaneye giden ürünler konabilir." };
+  }
+  if (offers.some((o) => o.shipment && o.shipment.status !== "HAZIRLANIYOR")) {
+    return { shipmentIds: [], error: "Sevkiyatçının teslim aldığı gönderimler yeniden kolilenemez." };
+  }
+
+  const packageCode = generatePackageCode();
+  const shipmentIds: string[] = [];
+  for (const offer of offers) {
+    if (offer.shipment) {
+      await prisma.shipment.update({ where: { id: offer.shipment.id }, data: { packageCode } });
+      shipmentIds.push(offer.shipment.id);
+    } else {
+      const created = await prisma.shipment.create({
+        data: { offerId: offer.id, code: generateShipmentCode(), packageCode },
+      });
+      shipmentIds.push(created.id);
+    }
+  }
+
+  revalidateShipmentViews();
+  return { shipmentIds };
+}
+
+/** Alıcı eczane, kendisine gelen paketi teslim aldığını onaylar ("Eczacı Teslim Aldı"). */
+export async function confirmReceiptAction(shipmentIds: string[]): Promise<BulkResult> {
+  const pharmacy = await requirePharmacy();
+  const ids = Array.from(new Set(shipmentIds)).slice(0, MAX_BULK);
+  const shipments = await prisma.shipment.findMany({
+    where: { id: { in: ids }, offer: { userId: pharmacy.id }, status: { not: "TESLIM_EDILDI" } },
+    include: { offer: { include: { listing: true } } },
+  });
+  const result: BulkResult = { done: 0, errors: [] };
+  const now = new Date();
+
+  for (const s of shipments) {
+    if (!s.printedAt && s.status === "HAZIRLANIYOR") {
+      result.errors.push(`${s.offer.listing.title}: gönderen eczane henüz sevkiyata vermedi.`);
+      continue;
+    }
+    await prisma.shipment.update({
+      where: { id: s.id },
+      data: { status: "TESLIM_EDILDI", deliveredAt: s.deliveredAt ?? now, buyerConfirmedAt: now },
+    });
+    await createNotification({
+      userId: s.offer.listing.userId,
+      message: `${pharmacy.pharmacyName ?? pharmacy.contactName} eczanesi "${s.offer.listing.title}" (${s.offer.quantity} adet) ürününü teslim aldı.`,
+      link: "/offers/received",
+    });
+    result.done++;
+  }
+
+  revalidateShipmentViews();
+  return result;
+}
+
+/** Sevkiyatçı bir duraktaki paketleri toplu teslim alır. */
+export async function courierPickUpAction(shipmentIds: string[]) {
+  const courier = await requireCourier();
+  const ids = Array.from(new Set(shipmentIds)).slice(0, MAX_BULK);
+
+  const assignments = await prisma.courierAssignment.findMany({
+    where: { courierId: courier.id },
+    select: { pharmacyId: true },
+  });
+  const pharmacyIds = assignments.map((a) => a.pharmacyId);
+
+  const shipments = await prisma.shipment.findMany({
+    where: {
+      id: { in: ids },
+      status: "HAZIRLANIYOR",
+      printedAt: { not: null },
+      offer: { listing: { userId: { in: pharmacyIds } } },
+    },
+    include: { offer: { include: { listing: true } } },
+  });
+  if (shipments.length === 0) throw new Error("Teslim alınacak geçerli bir sevkiyat bulunamadı.");
+
+  const now = new Date();
+  await prisma.shipment.updateMany({
+    where: { id: { in: shipments.map((s) => s.id) } },
+    data: { courierId: courier.id, status: "TESLIM_ALINDI", pickedUpAt: now },
+  });
+
+  const bySeller = new Map<string, number>();
+  for (const s of shipments) bySeller.set(s.offer.listing.userId, (bySeller.get(s.offer.listing.userId) ?? 0) + 1);
+  await Promise.all([
+    ...Array.from(bySeller.entries()).map(([sellerId, count]) =>
+      createNotification({
+        userId: sellerId,
+        message: `Sevkiyat aracı eczanenize uğradı: ${courier.contactName} ${count} paketi teslim aldı.`,
+        link: "/shipments",
+      })
+    ),
+    ...shipments.map((s) =>
+      createNotification({
+        userId: s.offer.userId,
+        message: `"${s.offer.listing.title}" (${s.offer.quantity} adet) sevkiyatçıya teslim edildi, yolda.`,
+        link: "/shipments?tab=aktif",
+      })
+    ),
+  ]);
+
+  revalidateShipmentViews();
+}
+
+/** Sevkiyatçı bir duraktaki paketleri alıcı eczaneye toplu teslim eder. */
+export async function courierDeliverAction(shipmentIds: string[]) {
+  const courier = await requireCourier();
+  const ids = Array.from(new Set(shipmentIds)).slice(0, MAX_BULK);
+
+  const shipments = await prisma.shipment.findMany({
+    where: { id: { in: ids }, status: "TESLIM_ALINDI", courierId: courier.id },
+    include: { offer: { include: { listing: true, user: true } } },
+  });
+  if (shipments.length === 0) throw new Error("Teslim edilecek geçerli bir sevkiyat bulunamadı.");
+
+  const now = new Date();
+  await prisma.shipment.updateMany({
+    where: { id: { in: shipments.map((s) => s.id) } },
+    data: { status: "TESLIM_EDILDI", deliveredAt: now },
+  });
+
+  const byBuyer = new Map<string, number>();
+  for (const s of shipments) byBuyer.set(s.offer.userId, (byBuyer.get(s.offer.userId) ?? 0) + 1);
+  await Promise.all([
+    ...Array.from(byBuyer.entries()).map(([buyerId, count]) =>
+      createNotification({
+        userId: buyerId,
+        message: `Sevkiyat aracı eczanenize ulaştı: ${count} paket teslim edildi.`,
+        link: "/shipments?tab=gecmis",
+      })
+    ),
+    ...shipments.map((s) =>
+      createNotification({
+        userId: s.offer.listing.userId,
+        message: `${s.offer.user.pharmacyName ?? s.offer.user.contactName} eczanesine teslimat tamamlandı: ${s.offer.listing.title}.`,
+        link: "/offers/received",
+      })
+    ),
+  ]);
+
+  revalidateShipmentViews();
 }

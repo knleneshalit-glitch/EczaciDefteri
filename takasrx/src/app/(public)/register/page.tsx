@@ -98,6 +98,18 @@ export default function RegisterPage() {
 
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Telefon (opsiyonel)
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+            placeholder="0532 123 45 67"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
             E-posta
           </label>
           <input

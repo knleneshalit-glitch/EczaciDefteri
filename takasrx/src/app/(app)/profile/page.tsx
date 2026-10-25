@@ -40,6 +40,7 @@ export default async function ProfilePage() {
               region: user.region,
               district: user.district,
               address: user.address,
+              phone: user.phone,
             }}
           />
         </div>

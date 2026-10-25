@@ -36,7 +36,10 @@ export default async function CouriersPage() {
               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                 {a.courier.contactName}
               </p>
-              <p className="text-xs text-slate-500">{a.courier.email}</p>
+              <p className="text-xs text-slate-500">
+                {a.courier.email}
+                {a.courier.phone ? ` · ${a.courier.phone}` : ""}
+              </p>
             </div>
             <form action={removeCourierAssignmentAction.bind(null, a.id)}>
               <button className="flex items-center gap-1 rounded-md border border-red-500/40 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400">

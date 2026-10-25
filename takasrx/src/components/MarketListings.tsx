@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Search, Package, ArrowRight } from "lucide-react";
 import { effectiveUnitPrice } from "@/lib/pricing";
+import { foldTr } from "@/lib/search";
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
@@ -39,12 +40,12 @@ export default function MarketListings({ listings }: { listings: MarketListing[]
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase("tr-TR");
+    const q = foldTr(query.trim());
     if (!q) return listings;
     return listings.filter((listing) => {
-      const pharmacy = (listing.user.pharmacyName ?? listing.user.contactName).toLocaleLowerCase("tr-TR");
-      const medicine = listing.medicineName.toLocaleLowerCase("tr-TR");
-      const group = listing.group.name.toLocaleLowerCase("tr-TR");
+      const pharmacy = foldTr(listing.user.pharmacyName ?? listing.user.contactName);
+      const medicine = foldTr(listing.medicineName);
+      const group = foldTr(listing.group.name);
       return medicine.includes(q) || pharmacy.includes(q) || group.includes(q);
     });
   }, [listings, query]);
