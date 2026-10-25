@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Wallet, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import ExportCsvButton from "@/components/ExportCsvButton";
 
 export default async function LedgerPage() {
   const user = await requireUser();
@@ -15,15 +16,40 @@ export default async function LedgerPage() {
     orderBy: { createdAt: "desc" },
   });
 
+  const csvRows = offers.map((o) => {
+    const isBuyer = o.userId === user.id;
+    return [
+      (o.acceptedAt ?? o.createdAt).toLocaleDateString("tr-TR"),
+      isBuyer ? "Alım" : "Satış",
+      o.listing.medicineName,
+      o.listing.group.name,
+      isBuyer ? (o.listing.user.pharmacyName ?? o.listing.user.contactName) : (o.user.pharmacyName ?? o.user.contactName),
+      o.unitPrice,
+      o.listing.birimFiyat,
+      o.quantity,
+      o.totalPrice != null ? (isBuyer ? -o.totalPrice : o.totalPrice) : null,
+      o.listing.expiryDate ? o.listing.expiryDate.toLocaleDateString("tr-TR") : null,
+    ];
+  });
+
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
-        <Wallet className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
-        Cari Hareketler
-      </h1>
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-        Tamamlanan alım ve satış hareketleriniz (ürün gönderimleri).
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+            <Wallet className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+            Cari Hareketler
+          </h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            Tamamlanan alım ve satış hareketleriniz (ürün gönderimleri).
+          </p>
+        </div>
+        <ExportCsvButton
+          filename="cari-hareketler"
+          headers={["Tarih", "Yön", "Ürün", "Grup", "Karşı Eczane", "Net Fiyat", "Depo Fiyatı", "Adet", "Tutar", "S.K.T."]}
+          rows={csvRows}
+        />
+      </div>
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
         <table className="w-full min-w-[960px] text-left text-sm">
@@ -47,7 +73,7 @@ export default async function LedgerPage() {
               return (
                 <tr key={o.id} className="border-b border-slate-200 dark:border-slate-800/60 last:border-0">
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                    {o.createdAt.toLocaleDateString("tr-TR")}
+                    {(o.acceptedAt ?? o.createdAt).toLocaleDateString("tr-TR")}
                   </td>
                   <td className="px-4 py-3">
                     <span

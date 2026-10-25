@@ -21,6 +21,7 @@ export default async function EditListingPage(
         where: { status: { in: ["PENDING", "ACCEPTED"] } },
         include: { shipment: true },
       },
+      tiers: { orderBy: { sortOrder: "asc" } },
     },
   });
   if (!listing || listing.groupId !== id || listing.userId !== user.id) notFound();
@@ -47,7 +48,16 @@ export default async function EditListingPage(
         endDate: toDateInputValue(listing.endDate),
         minAlim: listing.minAlim ?? undefined,
         maxAlim: listing.maxAlim ?? undefined,
+        alimKatlari: listing.alimKatlari ?? undefined,
+        kdvOrani: listing.kdvOrani,
         expiryDate: toDateInputValue(listing.expiryDate),
+        isDepoOzelSart: listing.listingKind === "DEPO_OZEL_SART",
+        tiers: listing.tiers.map((t) => ({
+          alimMiktari: t.alimMiktari,
+          mfMiktari: t.mfMiktari,
+          iskontoYuzde: t.iskontoYuzde,
+          iskontoTL: t.iskontoTL,
+        })),
       }}
     />
   );

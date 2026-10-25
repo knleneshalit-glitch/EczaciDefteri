@@ -238,6 +238,7 @@ model Listing {
   ekstraIndirim      Float?
   ekstraIskontoYuzde Float?
   etiketFiyati       Float?
+  kdvOrani           Float         @default(10)
   startDate          DateTime?
   endDate            DateTime?
   hedefAlim          Int?
@@ -257,9 +258,27 @@ model Listing {
   targetUser User?           @relation("ListingTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
   offers     Offer[]
   changes    ListingChange[]
+  tiers      ListingTier[]
 
   @@index([groupId])
   @@index([targetUserId])
+}
+
+/// Depo özel şartı ilanlarında depo kademeleri (ör. 50+10, 100+30): grubun
+/// toplam talebi hangi kademeye ulaşırsa ilan sahibi stoğa dönüştürürken o
+/// şartı seçebilir.
+model ListingTier {
+  id           String @id @default(cuid())
+  listingId    String
+  alimMiktari  Int
+  mfMiktari    Int    @default(0)
+  iskontoYuzde Float?
+  iskontoTL    Float?
+  sortOrder    Int    @default(0)
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
 }
 
 /// İlan sahibinin ilanda yaptığı her değişikliğin kaydı ("Grup İçindeki Teklif

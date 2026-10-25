@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
-import { effectiveUnitPrice } from "@/lib/pricing";
+import { effectiveUnitPrice, type TierTerms } from "@/lib/pricing";
 import { createNotification } from "@/lib/notifications";
 import { logListingChanges, type ListingChangeInput } from "@/lib/listing-log";
 import { acceptOffer, rejectOffer } from "@/lib/offers";
@@ -41,8 +41,59 @@ function describeTerms(l: {
   return parts.join(" · ");
 }
 
-function describeLimits(l: { minAlim: number | null; maxAlim: number | null }) {
-  return `min ${l.minAlim ?? "—"} · maks ${l.maxAlim ?? "—"}`;
+function describeLimits(l: { minAlim: number | null; maxAlim: number | null; alimKatlari: number | null }) {
+  return `min ${l.minAlim ?? "—"} · maks ${l.maxAlim ?? "—"}${l.alimKatlari ? ` · ${l.alimKatlari}'in katları` : ""}`;
+}
+
+function describeTiers(tiers: TierTerms[]) {
+  if (tiers.length === 0) return "Kademe yok";
+  return tiers
+    .map((t) => {
+      const extra = [t.iskontoYuzde ? `%${t.iskontoYuzde}` : "", t.iskontoTL ? `${t.iskontoTL} ₺` : ""]
+        .filter(Boolean)
+        .join(" ");
+      return `${t.alimMiktari}+${t.mfMiktari}${extra ? ` (${extra})` : ""}`;
+    })
+    .join(", ");
+}
+
+const MAX_TIERS = 6;
+
+/** Formdaki "tiers" JSON alanını doğrulayıp kademe listesine çevirir. */
+function parseTiers(raw: FormDataEntryValue | null): { tiers: TierTerms[] } | { error: string } {
+  const text = String(raw ?? "").trim();
+  if (!text) return { tiers: [] };
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { error: "Kademe bilgileri okunamadı." };
+  }
+  if (!Array.isArray(data)) return { error: "Kademe bilgileri okunamadı." };
+
+  const tiers: TierTerms[] = [];
+  for (const item of data.slice(0, MAX_TIERS)) {
+    const t = (item ?? {}) as Record<string, unknown>;
+    const alim = Math.round(Number(t.alimMiktari));
+    const mf = Math.round(Number(t.mfMiktari ?? 0));
+    const iy = t.iskontoYuzde == null ? null : Number(t.iskontoYuzde);
+    const itl = t.iskontoTL == null ? null : Number(t.iskontoTL);
+    if (!Number.isFinite(alim) || alim <= 0) return { error: "Kademe alım miktarı 1 veya daha büyük olmalı." };
+    if (!Number.isFinite(mf) || mf < 0) return { error: "Kademe MF adedi negatif olamaz." };
+    if (iy != null && (!Number.isFinite(iy) || iy < 0 || iy > 100)) {
+      return { error: "Kademe iskonto yüzdesi 0-100 arasında olmalı." };
+    }
+    if (itl != null && (!Number.isFinite(itl) || itl < 0)) return { error: "Kademe iskonto tutarı negatif olamaz." };
+    tiers.push({ alimMiktari: alim, mfMiktari: mf, iskontoYuzde: iy || null, iskontoTL: itl || null });
+  }
+  tiers.sort((a, b) => a.alimMiktari + a.mfMiktari - (b.alimMiktari + b.mfMiktari));
+  return { tiers };
+}
+
+function parseKdv(value: FormDataEntryValue | null) {
+  const n = numberOrNull(value);
+  if (n == null) return 10;
+  return n >= 0 && n <= 100 ? n : null;
 }
 
 function describeDates(l: { startDate: Date | null; endDate: Date | null }) {
@@ -127,6 +178,15 @@ export async function createListingAction(
     return { error: "Stoğumdaki ürün için son kullanma tarihi (SKT) girmeniz gerekiyor." };
   }
 
+  const kdvOrani = parseKdv(formData.get("kdvOrani"));
+  if (kdvOrani == null) return { error: "KDV oranı 0-100 arasında olmalı." };
+  const alimKatlari = numberOrNull(formData.get("alimKatlari"));
+  if (alimKatlari != null && (alimKatlari < 1 || !Number.isInteger(alimKatlari))) {
+    return { error: "Alım katları 1 veya daha büyük bir tam sayı olmalı." };
+  }
+  const parsedTiers = listingKind === "DEPO_OZEL_SART" ? parseTiers(formData.get("tiers")) : { tiers: [] };
+  if ("error" in parsedTiers) return { error: parsedTiers.error };
+
   await prisma.listing.create({
     data: {
       groupId,
@@ -147,11 +207,15 @@ export async function createListingAction(
       hedefAlim: numberOrNull(formData.get("hedefAlim")),
       maxAlim: numberOrNull(formData.get("maxAlim")),
       minAlim: numberOrNull(formData.get("minAlim")),
-      alimKatlari: numberOrNull(formData.get("alimKatlari")),
+      alimKatlari,
+      kdvOrani,
       expiryDate,
       listingKind,
       allowExceedDemand,
       targetUserId,
+      tiers: parsedTiers.tiers.length
+        ? { create: parsedTiers.tiers.map((t, i) => ({ ...t, sortOrder: i })) }
+        : undefined,
     },
   });
 
@@ -174,11 +238,22 @@ export async function updateListingAction(
         where: { status: { in: ["PENDING", "ACCEPTED"] } },
         include: { shipment: true },
       },
+      tiers: { orderBy: { sortOrder: "asc" } },
     },
   });
   if (!listing || listing.groupId !== groupId || listing.userId !== user.id) {
     return { error: "Bu ilana ait değilsiniz." };
   }
+
+  const kdvOrani = parseKdv(formData.get("kdvOrani"));
+  if (kdvOrani == null) return { error: "KDV oranı 0-100 arasında olmalı." };
+  const alimKatlari = numberOrNull(formData.get("alimKatlari"));
+  if (alimKatlari != null && (alimKatlari < 1 || !Number.isInteger(alimKatlari))) {
+    return { error: "Alım katları 1 veya daha büyük bir tam sayı olmalı." };
+  }
+  const editTiers = listing.listingKind === "DEPO_OZEL_SART" && formData.has("tiers");
+  const parsedTiers = editTiers ? parseTiers(formData.get("tiers")) : { tiers: [] };
+  if ("error" in parsedTiers) return { error: parsedTiers.error };
 
   const medicineName = String(formData.get("medicineName") ?? "").trim().toLocaleUpperCase("tr-TR");
   const barkod = String(formData.get("barkod") ?? "").trim();
@@ -200,6 +275,8 @@ export async function updateListingAction(
     endDate: dateOrNull(formData.get("endDate")),
     maxAlim: numberOrNull(formData.get("maxAlim")),
     minAlim: numberOrNull(formData.get("minAlim")),
+    alimKatlari,
+    kdvOrani,
     expiryDate: dateOrNull(formData.get("expiryDate")),
   };
 
@@ -243,6 +320,7 @@ export async function updateListingAction(
     endDate: data.endDate as Date | null,
     minAlim: data.minAlim as number | null,
     maxAlim: data.maxAlim as number | null,
+    alimKatlari,
     expiryDate: data.expiryDate as Date | null,
     birimFiyat: hasShippedOffers ? listing.birimFiyat : (data.birimFiyat as number | null),
     totalStock: hasShippedOffers ? listing.totalStock : (data.totalStock as number | null),
@@ -282,7 +360,7 @@ export async function updateListingAction(
   if (!sameDate(listing.expiryDate, next.expiryDate)) {
     changes.push({ type: "SKT", oldValue: fmtDate(listing.expiryDate), newValue: fmtDate(next.expiryDate) });
   }
-  if (listing.minAlim !== next.minAlim || listing.maxAlim !== next.maxAlim) {
+  if (listing.minAlim !== next.minAlim || listing.maxAlim !== next.maxAlim || listing.alimKatlari !== next.alimKatlari) {
     changes.push({ type: "ALIM_LIMITI", oldValue: describeLimits(listing), newValue: describeLimits(next) });
   }
   if (!sameDate(listing.startDate, next.startDate) || !sameDate(listing.endDate, next.endDate)) {
@@ -298,6 +376,12 @@ export async function updateListingAction(
   if (listing.etiketFiyati !== next.etiketFiyati) {
     otherDiffs.push(`Etiket fiyatı: ${fmtMoney(listing.etiketFiyati)} → ${fmtMoney(next.etiketFiyati)}`);
   }
+  if (listing.kdvOrani !== kdvOrani) otherDiffs.push(`KDV oranı: %${listing.kdvOrani} → %${kdvOrani}`);
+  if (editTiers) {
+    const oldTiers = describeTiers(listing.tiers);
+    const newTiers = describeTiers(parsedTiers.tiers);
+    if (oldTiers !== newTiers) changes.push({ type: "SART", oldValue: `Kademeler: ${oldTiers}`, newValue: `Kademeler: ${newTiers}` });
+  }
   if (otherDiffs.length > 0) {
     changes.push({ type: "DIGER", oldValue: null, newValue: otherDiffs.join("\n") });
   }
@@ -311,6 +395,14 @@ export async function updateListingAction(
   const changeNote = String(formData.get("changeNote") ?? "").trim();
 
   await prisma.listing.update({ where: { id: listingId }, data });
+  if (editTiers) {
+    await prisma.$transaction([
+      prisma.listingTier.deleteMany({ where: { listingId } }),
+      prisma.listingTier.createMany({
+        data: parsedTiers.tiers.map((t, i) => ({ ...t, listingId, sortOrder: i })),
+      }),
+    ]);
+  }
   await logListingChanges(listing, user.id, changes, changeNote);
 
   if (!hasShippedOffers && oldNetFiyat != null && newNetFiyat != null && Math.abs(oldNetFiyat - newNetFiyat) > 0.001) {
@@ -385,10 +477,21 @@ export async function pauseListingAction(groupId: string, listingId: string) {
 export async function listingTemplateAction(listingId: string) {
   const user = await requireUser();
 
-  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    include: { tiers: { orderBy: { sortOrder: "asc" } } },
+  });
   if (!listing || listing.userId !== user.id) return null;
 
   return {
+    kdvOrani: listing.kdvOrani,
+    alimKatlari: listing.alimKatlari,
+    tiers: listing.tiers.map((t) => ({
+      alimMiktari: t.alimMiktari,
+      mfMiktari: t.mfMiktari,
+      iskontoYuzde: t.iskontoYuzde,
+      iskontoTL: t.iskontoTL,
+    })),
     groupId: listing.groupId,
     medicineName: listing.medicineName,
     barkod: listing.barkod,
@@ -459,6 +562,9 @@ export async function createOfferAction(
   if (listing.maxAlim && quantity > listing.maxAlim) {
     throw new Error(`Maksimum alım miktarı ${listing.maxAlim}.`);
   }
+  if (listing.alimKatlari && quantity % listing.alimKatlari !== 0) {
+    throw new Error(`Alım miktarı ${listing.alimKatlari} adedin katları olmalı.`);
+  }
   checkStockCap(listing, listing.offers, quantity);
 
   const unitPrice = effectiveUnitPrice(listing) ?? 0;
@@ -520,6 +626,9 @@ export async function updateOfferAction(
   }
   if (listing.maxAlim && quantity > listing.maxAlim) {
     throw new Error(`Maksimum alım miktarı ${listing.maxAlim}.`);
+  }
+  if (listing.alimKatlari && quantity % listing.alimKatlari !== 0) {
+    throw new Error(`Alım miktarı ${listing.alimKatlari} adedin katları olmalı.`);
   }
   checkStockCap(listing, listing.offers, quantity);
 
@@ -597,7 +706,13 @@ export async function reopenListingAction(groupId: string, listingId: string) {
   revalidatePath("/listings");
 }
 
-export async function convertToStockAction(groupId: string, listingId: string) {
+/**
+ * Depo özel şartı ilanını stoktaki ürüne dönüştürür. Formda kesinleşen depo
+ * şartı (ulaşılan kademe) girilirse ilan şartları güncellenir; fiyat düşerse
+ * bekleyen teklifler yeni fiyata otomatik çekilir, yükselirse alıcı onayı
+ * için ilan sayfasında uyarı çıkar.
+ */
+export async function convertToStockAction(groupId: string, listingId: string, formData?: FormData) {
   const user = await requireUser();
 
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
@@ -608,24 +723,76 @@ export async function convertToStockAction(groupId: string, listingId: string) {
     throw new Error("Bu ilan zaten stoktaki ürün olarak yayında.");
   }
 
-  await prisma.listing.update({ where: { id: listingId }, data: { listingKind: "STOK" } });
-  await logListingChanges(listing, user.id, [
+  const data: {
+    listingKind: "STOK";
+    totalStock?: number;
+    dealBonusQuantity?: number | null;
+    ekstraIskontoYuzde?: number | null;
+    ekstraIndirim?: number | null;
+  } = { listingKind: "STOK" };
+
+  const finalStock = numberOrNull(formData?.get("finalTotalStock") ?? null);
+  if (finalStock != null) {
+    if (finalStock <= 0 || !Number.isInteger(finalStock)) {
+      throw new Error("Toplam stok 1 veya daha büyük bir tam sayı olmalı.");
+    }
+    const finalBonus = numberOrNull(formData!.get("finalBonus")) ?? 0;
+    if (finalBonus < 0 || finalBonus >= finalStock) {
+      throw new Error("Mal fazlası, toplam stoktan küçük olmalı.");
+    }
+    const iskontoYuzde = numberOrNull(formData!.get("finalIskontoYuzde"));
+    if (iskontoYuzde != null && (iskontoYuzde < 0 || iskontoYuzde > 100)) {
+      throw new Error("İskonto yüzdesi 0-100 arasında olmalı.");
+    }
+    const iskontoTL = numberOrNull(formData!.get("finalIskontoTL"));
+    if (iskontoTL != null && iskontoTL < 0) throw new Error("İskonto tutarı negatif olamaz.");
+    data.totalStock = finalStock;
+    data.dealBonusQuantity = finalBonus || null;
+    data.ekstraIskontoYuzde = iskontoYuzde || null;
+    data.ekstraIndirim = iskontoTL || null;
+  }
+
+  const oldNet = effectiveUnitPrice(listing);
+  const updated = await prisma.listing.update({ where: { id: listingId }, data });
+  const newNet = effectiveUnitPrice(updated);
+
+  const changes: ListingChangeInput[] = [
     { type: "DURUM", oldValue: "Depo Özel Şartı", newValue: "Stoğa Dönüştürüldü" },
-  ]);
+  ];
+  const oldTerms = describeTerms(listing);
+  const newTerms = describeTerms(updated);
+  if (oldTerms !== newTerms || listing.totalStock !== updated.totalStock) {
+    changes.push({
+      type: "SART",
+      oldValue: `${listing.totalStock ?? "—"} adet · ${oldTerms} (net ${fmtMoney(oldNet)})`,
+      newValue: `${updated.totalStock ?? "—"} adet · ${newTerms} (net ${fmtMoney(newNet)})`,
+    });
+  }
+  await logListingChanges(listing, user.id, changes);
 
   const pendingOffers = await prisma.offer.findMany({
     where: { listingId, status: "PENDING" },
-    select: { userId: true },
+    select: { id: true, userId: true, quantity: true, unitPrice: true },
   });
-  await Promise.all(
-    pendingOffers.map((o) =>
-      createNotification({
+  for (const o of pendingOffers) {
+    if (newNet != null && o.unitPrice != null && newNet < o.unitPrice - 0.001) {
+      await prisma.offer.update({
+        where: { id: o.id },
+        data: { unitPrice: newNet, totalPrice: newNet * o.quantity },
+      });
+      await createNotification({
+        userId: o.userId,
+        message: `"${listing.title}" ilanı stoğa dönüştü ve birim fiyat ${fmtMoney(o.unitPrice)} yerine ${fmtMoney(newNet)} oldu; teklifiniz yeni fiyata güncellendi.`,
+        link: `/groups/${groupId}/listings/${listingId}`,
+      });
+    } else {
+      await createNotification({
         userId: o.userId,
         message: `"${listing.title}" ilanı stoğa dönüştü, teklifiniz değerlendirmeye alınacak.`,
         link: `/groups/${groupId}/listings/${listingId}`,
-      })
-    )
-  );
+      });
+    }
+  }
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath("/offers/received");

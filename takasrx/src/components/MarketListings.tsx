@@ -32,6 +32,7 @@ export type MarketListing = {
   group: { name: string };
   user: { pharmacyName: string | null; contactName: string };
   offers: { quantity: number }[];
+  _count?: { tiers: number };
 };
 
 export default function MarketListings({ listings }: { listings: MarketListing[] }) {
@@ -131,6 +132,17 @@ export default function MarketListings({ listings }: { listings: MarketListing[]
                         }`}
                       >
                         Depo Özel Şartı
+                      </span>
+                    )}
+                    {(listing._count?.tiers ?? 0) > 0 && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          targetReached
+                            ? "bg-white/20 text-white"
+                            : "bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-400"
+                        }`}
+                      >
+                        Kademeli Şart
                       </span>
                     )}
                     {listing.targetUserId && (

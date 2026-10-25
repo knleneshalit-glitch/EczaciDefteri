@@ -3,6 +3,9 @@
 import { useActionState, useState } from "react";
 import { Pencil, Save } from "lucide-react";
 import { updateListingAction } from "@/app/actions/listings";
+import { KDV_ORANLARI, priceWithoutVat, type TierTerms } from "@/lib/pricing";
+import TierEditor from "@/components/TierEditor";
+import MfCalculator from "@/components/MfCalculator";
 
 type Defaults = {
   medicineName: string;
@@ -19,7 +22,11 @@ type Defaults = {
   endDate: string;
   minAlim?: number;
   maxAlim?: number;
+  alimKatlari?: number;
+  kdvOrani: number;
   expiryDate: string;
+  isDepoOzelSart: boolean;
+  tiers: TierTerms[];
 };
 
 function effectivePricePreview(
@@ -57,6 +64,7 @@ export default function EditListingForm({
   const [dealBonusQuantity, setDealBonusQuantity] = useState(defaults.dealBonusQuantity);
   const [ekstraIndirim, setEkstraIndirim] = useState(defaults.ekstraIndirim ?? 0);
   const [ekstraIskontoYuzde, setEkstraIskontoYuzde] = useState(defaults.ekstraIskontoYuzde ?? 0);
+  const [kdvOrani, setKdvOrani] = useState(defaults.kdvOrani);
 
   const netFiyat = effectivePricePreview(
     birimFiyat,
@@ -126,9 +134,9 @@ export default function EditListingForm({
               bilgilendirilir.
             </p>
           )}
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className={labelClass}>Depo Birim Fiyatı (₺)</label>
+              <label className={labelClass}>Depo Birim Fiyatı (₺, KDV dahil)</label>
               <input
                 type="number"
                 min={0}
@@ -161,12 +169,33 @@ export default function EditListingForm({
                 min={0}
                 disabled={hasShippedOffers}
                 name="dealBonusQuantity"
-                defaultValue={defaults.dealBonusQuantity || ""}
+                value={dealBonusQuantity || ""}
                 onChange={(e) => setDealBonusQuantity(Number(e.target.value) || 0)}
                 className={inputClass}
               />
             </div>
+            <div>
+              <label className={labelClass}>KDV Oranı</label>
+              <select
+                name="kdvOrani"
+                value={kdvOrani}
+                onChange={(e) => setKdvOrani(Number(e.target.value))}
+                className={inputClass}
+              >
+                {KDV_ORANLARI.map((k) => (
+                  <option key={k} value={k}>
+                    %{k}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+          <MfCalculator
+            birimFiyat={birimFiyat}
+            totalStock={totalStock}
+            onApply={setDealBonusQuantity}
+            disabled={hasShippedOffers}
+          />
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
@@ -209,7 +238,10 @@ export default function EditListingForm({
           <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {netFiyat.toFixed(2)} ₺
+              {netFiyat.toFixed(2)} ₺{" "}
+              <span className="text-sm font-medium text-slate-500">
+                KDV&apos;li · {priceWithoutVat(netFiyat, kdvOrani)!.toFixed(2)} ₺ KDV&apos;siz
+              </span>
             </p>
             {hasBonus && birimFiyat > 0 && (
               <p className="mt-1 text-xs text-slate-500">
@@ -229,6 +261,10 @@ export default function EditListingForm({
             )}
           </div>
 
+          {defaults.isDepoOzelSart && (
+            <TierEditor birimFiyat={birimFiyat} kdvOrani={kdvOrani} initial={defaults.tiers} />
+          )}
+
           <div className="mt-4">
             <label className={labelClass}>Etiket Fiyatı (₺, opsiyonel)</label>
             <input
@@ -246,7 +282,7 @@ export default function EditListingForm({
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Yayın ve Alım Koşulları
           </h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <label className={labelClass}>Başlangıç</label>
               <input
@@ -282,6 +318,16 @@ export default function EditListingForm({
                 min={0}
                 name="maxAlim"
                 defaultValue={defaults.maxAlim ?? ""}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Alım Katları</label>
+              <input
+                type="number"
+                min={1}
+                name="alimKatlari"
+                defaultValue={defaults.alimKatlari ?? ""}
                 className={inputClass}
               />
             </div>

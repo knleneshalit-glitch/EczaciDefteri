@@ -27,6 +27,7 @@ import {
   type BulkResult,
 } from "@/app/actions/shipments";
 import { downloadCsv } from "@/lib/csv";
+import { priceWithoutVat } from "@/lib/pricing";
 
 export type BoardProduct = {
   listingId: string;
@@ -38,6 +39,7 @@ export type BoardProduct = {
   expiryDate: Date | null;
   birimFiyat: number | null;
   netFiyat: number | null;
+  kdvOrani: number;
   terms: string;
   extra: string;
   totalStock: number | null;
@@ -393,7 +395,8 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <p className="font-semibold">{fmtMoney(p.netFiyat)}</p>
-                        <p className="opacity-70">{fmtMoney(p.birimFiyat)}</p>
+                        <p className="opacity-70">KDV&apos;siz {fmtMoney(priceWithoutVat(p.netFiyat, p.kdvOrani))}</p>
+                        <p className="opacity-70">Depo {fmtMoney(p.birimFiyat)}</p>
                       </td>
                       <td className="px-3 py-2 text-right">
                         {distributed}

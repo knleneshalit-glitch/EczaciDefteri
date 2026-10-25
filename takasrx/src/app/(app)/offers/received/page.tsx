@@ -39,6 +39,7 @@ export default async function ReceivedOffersPage() {
         expiryDate: l.expiryDate,
         birimFiyat: l.birimFiyat,
         netFiyat: effectiveUnitPrice(l),
+        kdvOrani: l.kdvOrani,
         terms: hasBonus ? `${l.totalStock! - l.dealBonusQuantity!}+${l.dealBonusQuantity}` : "—",
         extra: extras.length ? extras.join(" + ") : "—",
         totalStock: l.totalStock,

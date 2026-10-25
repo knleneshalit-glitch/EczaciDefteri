@@ -3,6 +3,9 @@
 import { use, useActionState, useEffect, useState } from "react";
 import { PackagePlus, Send, History, Copy, ChevronDown, Users, Building2 } from "lucide-react";
 import { createListingAction, listingTemplateAction } from "@/app/actions/listings";
+import { KDV_ORANLARI, priceWithoutVat, type TierTerms } from "@/lib/pricing";
+import TierEditor from "@/components/TierEditor";
+import MfCalculator from "@/components/MfCalculator";
 import { myApprovedGroupsAction, groupApprovedPharmaciesAction } from "@/app/actions/groups";
 import {
   searchMedicinesByNameAction,
@@ -74,6 +77,9 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const [expiryDate, setExpiryDate] = useState("");
   const [minAlim, setMinAlim] = useState(0);
   const [maxAlim, setMaxAlim] = useState(0);
+  const [alimKatlari, setAlimKatlari] = useState(0);
+  const [kdvOrani, setKdvOrani] = useState(10);
+  const [templateTiers, setTemplateTiers] = useState<TierTerms[]>([]);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
@@ -99,6 +105,9 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
       setDescription(t.description ?? "");
       setListingKind(t.listingKind === "DEPO_OZEL_SART" ? "DEPO_OZEL_SART" : "STOK");
       setAllowExceedDemand(t.allowExceedDemand);
+      setKdvOrani(t.kdvOrani);
+      setAlimKatlari(t.alimKatlari ?? 0);
+      setTemplateTiers(t.tiers);
       setTemplateApplied(true);
     });
   }, [templateId]);
@@ -521,10 +530,10 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
             bu mal fazlası sayesindeki gerçek (efektif) birim maliyeti hesaplayıp grup
             üyelerine o fiyattan satış yapmanızı sağlar.
           </p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Depo Birim Fiyatı (₺)
+                Depo Birim Fiyatı (₺, KDV dahil)
               </label>
               <input
                 type="number"
@@ -567,7 +576,23 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 placeholder="500"
               />
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">KDV Oranı</label>
+              <select
+                name="kdvOrani"
+                value={kdvOrani}
+                onChange={(e) => setKdvOrani(Number(e.target.value))}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
+              >
+                {KDV_ORANLARI.map((k) => (
+                  <option key={k} value={k}>
+                    %{k}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+          <MfCalculator birimFiyat={birimFiyat} totalStock={totalStock} onApply={setDealBonusQuantity} />
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
@@ -617,7 +642,12 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
 
           <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
             <p className="text-xs text-slate-600 dark:text-slate-400">Grubun alacağı efektif birim fiyat</p>
-            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{netFiyat.toFixed(2)} ₺</p>
+            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+              {netFiyat.toFixed(2)} ₺{" "}
+              <span className="text-sm font-medium text-slate-500">
+                KDV&apos;li · {priceWithoutVat(netFiyat, kdvOrani)!.toFixed(2)} ₺ KDV&apos;siz
+              </span>
+            </p>
             {hasBonus && birimFiyat > 0 && (
               <p className="mt-1 text-xs text-slate-500">
                 {birimFiyat.toFixed(2)} ₺ yerine, {dealBonusQuantity} adet mal fazlası sayesinde
@@ -635,6 +665,15 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
               </p>
             )}
           </div>
+
+          {listingKind === "DEPO_OZEL_SART" && (
+            <TierEditor
+              key={templateTiers.length ? `tpl-${templateTiers.length}` : "empty"}
+              birimFiyat={birimFiyat}
+              kdvOrani={kdvOrani}
+              initial={templateTiers}
+            />
+          )}
 
           <div className="mt-4">
             <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -654,7 +693,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
 
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Yayın ve Alım Koşulları</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Başlangıç</label>
               <input
@@ -701,6 +740,21 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
                 onChange={(e) => setMaxAlim(Number(e.target.value) || 0)}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Alım Katları
+              </label>
+              <input
+                type="number"
+                min={1}
+                name="alimKatlari"
+                value={alimKatlari || ""}
+                onChange={(e) => setAlimKatlari(Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                placeholder="Ör. 5"
+              />
+              <p className="mt-1 text-xs text-slate-500">Alımlar bu sayının katları olmalı (koli adedi gibi).</p>
             </div>
           </div>
         </section>

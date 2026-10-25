@@ -6,7 +6,10 @@ import { requireUser } from "@/lib/require-user";
 import { listingDisplayStatus, listingDisplayStatusClass } from "@/lib/status-styles";
 import { closeExpiredTargetListingsForGroups } from "@/lib/listings";
 import { pauseListingAction, reopenListingAction } from "@/app/actions/listings";
+import ExportCsvButton from "@/components/ExportCsvButton";
 import NewListingPicker from "./NewListingPicker";
+
+const PAGE_SIZE = 25;
 
 const STATUS_TABS = [
   { key: "tumu", label: "Tümü" },
@@ -83,14 +86,38 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
     counts.set(tab, (counts.get(tab) ?? 0) + 1);
   }
   const visible = durum === "tumu" ? searched : searched.filter((l) => statusTabOf(l) === durum);
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const page = Math.min(totalPages, Math.max(1, Number(sp.sayfa) || 1));
+  const pageItems = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  function hrefWith(next: { durum?: StatusKey; tur?: KindKey }) {
+  const csvRows = visible.map((l) => {
+    const accepted = l.offers.filter((o) => o.status === "ACCEPTED").reduce((sum, o) => sum + o.quantity, 0);
+    return [
+      l.medicineName,
+      l.barkod,
+      l.group.name,
+      l.listingKind === "DEPO_OZEL_SART" ? "Depo Özel Şartı" : "Stoktan Teklif",
+      l.totalStock,
+      l.dealBonusQuantity,
+      l.birimFiyat,
+      effectiveUnitPrice(l),
+      l.kdvOrani,
+      accepted,
+      l.createdAt.toLocaleDateString("tr-TR"),
+      l.expiryDate ? l.expiryDate.toLocaleDateString("tr-TR") : null,
+      listingDisplayStatus(l).label,
+      l._count.offers,
+    ];
+  });
+
+  function hrefWith(next: { durum?: StatusKey; tur?: KindKey; sayfa?: number }) {
     const params = new URLSearchParams();
     const d = next.durum ?? durum;
     const t = next.tur ?? tur;
     if (d !== "tumu") params.set("durum", d);
     if (t !== "tumu") params.set("tur", t);
     if (q) params.set("q", q);
+    if (next.sayfa && next.sayfa > 1) params.set("sayfa", String(next.sayfa));
     const s = params.toString();
     return s ? `/listings?${s}` : "/listings";
   }
@@ -175,7 +202,14 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
                 </Link>
               ))}
             </div>
-            <form className="relative ml-auto w-full max-w-xs">
+            <div className="ml-auto">
+              <ExportCsvButton
+                filename="ilanlarim"
+                headers={["Ürün", "Barkod", "Grup", "Tür", "Toplam Stok", "MF", "Depo Fiyatı", "Net Fiyat", "KDV %", "Satılan", "İlan Tarihi", "SKT", "Durum", "Teklif"]}
+                rows={csvRows}
+              />
+            </div>
+            <form className="relative w-full max-w-xs">
               {durum !== "tumu" && <input type="hidden" name="durum" value={durum} />}
               {tur !== "tumu" && <input type="hidden" name="tur" value={tur} />}
               <Search
@@ -206,7 +240,7 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
                 </tr>
               </thead>
               <tbody>
-                {visible.map((l) => {
+                {pageItems.map((l) => {
                   const display = listingDisplayStatus(l);
                   const hasBonus =
                     l.dealBonusQuantity != null &&
@@ -335,6 +369,28 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
                 )}
               </tbody>
             </table>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 px-4 py-3 text-xs text-slate-500">
+                <span>
+                  Toplam {visible.length} kayıttan {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, visible.length)} arası
+                </span>
+                <div className="flex items-center gap-2">
+                  {page > 1 && (
+                    <Link href={hrefWith({ sayfa: page - 1 })} className="rounded border border-slate-300 dark:border-slate-700 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">
+                      ‹ Önceki
+                    </Link>
+                  )}
+                  <span>
+                    Sayfa {page} / {totalPages}
+                  </span>
+                  {page < totalPages && (
+                    <Link href={hrefWith({ sayfa: page + 1 })} className="rounded border border-slate-300 dark:border-slate-700 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">
+                      Sonraki ›
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

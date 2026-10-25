@@ -1,93 +1,75 @@
 import Link from "next/link";
-import type { LucideIcon } from "lucide-react";
-import { Send, Clock, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { Send } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { statusBadgeClass } from "@/lib/status-styles";
 import { requireUser } from "@/lib/require-user";
-
-const OFFER_STATUS_LABEL: Record<string, string> = {
-  PENDING: "Bekliyor",
-  ACCEPTED: "Kabul Edildi",
-  REJECTED: "Reddedildi",
-  CANCELLED: "İptal Edildi",
-};
-
-const OFFER_STATUS_ICON: Record<string, LucideIcon> = {
-  PENDING: Clock,
-  ACCEPTED: CheckCircle2,
-  REJECTED: XCircle,
-  CANCELLED: Ban,
-};
+import { effectiveUnitPrice } from "@/lib/pricing";
+import PurchasesTable, { type PurchaseRow } from "./PurchasesTable";
 
 export default async function SentOffersPage() {
   const user = await requireUser();
 
   const offers = await prisma.offer.findMany({
     where: { userId: user.id },
-    include: { listing: { include: { group: true, user: true } } },
+    include: {
+      listing: { include: { group: { select: { name: true } }, user: true } },
+      shipment: { include: { courier: { select: { contactName: true } } } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
+  const rows: PurchaseRow[] = offers.map((o) => {
+    const l = o.listing;
+    const netNow = effectiveUnitPrice(l);
+    return {
+      offerId: o.id,
+      listingId: l.id,
+      groupId: l.groupId,
+      groupName: l.group.name,
+      medicineName: l.medicineName,
+      barkod: l.barkod,
+      expiryDate: l.expiryDate,
+      seller: l.user.pharmacyName ?? l.user.contactName,
+      status: o.status,
+      quantity: o.quantity,
+      unitPrice: o.unitPrice,
+      totalPrice: o.totalPrice,
+      depoFiyati: l.birimFiyat,
+      kdvOrani: l.kdvOrani,
+      createdAt: o.createdAt,
+      acceptedAt: o.acceptedAt,
+      priceChanged:
+        o.status === "PENDING" && o.unitPrice != null && netNow != null && Math.abs(o.unitPrice - netNow) > 0.001,
+      shipment: o.shipment
+        ? {
+            status: o.shipment.status,
+            printedAt: o.shipment.printedAt,
+            deliveredAt: o.shipment.deliveredAt,
+            courierName: o.shipment.courier?.contactName ?? null,
+            barcodeCount: o.shipment.barcodes ? o.shipment.barcodes.split("\n").filter(Boolean).length : 0,
+          }
+        : null,
+    };
+  });
+
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <Send className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Alımlarım
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-        Başkalarının ilanlarına verdiğiniz alım teklifleri.
+        Başkalarının ilanlarına verdiğiniz alım teklifleri, kazancınız ve gönderim durumları.
       </p>
 
-      {offers.length === 0 ? (
-        <p className="mt-8 text-sm text-slate-600 dark:text-slate-400">Henüz teklif vermediniz.</p>
+      {rows.length === 0 ? (
+        <p className="mt-8 text-sm text-slate-600 dark:text-slate-400">
+          Henüz teklif vermediniz.{" "}
+          <Link href="/market" className="text-emerald-600 dark:text-emerald-400 hover:underline">
+            Gruptaki aktif tekliflere göz atın.
+          </Link>
+        </p>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/40 text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-4 py-3">İlan</th>
-                <th className="px-4 py-3">İlan Sahibi</th>
-                <th className="px-4 py-3">Miktar</th>
-                <th className="px-4 py-3">Tutar</th>
-                <th className="px-4 py-3">Durum</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {offers.map((o) => {
-                const StatusIcon = OFFER_STATUS_ICON[o.status];
-                return (
-                <tr key={o.id} className="border-b border-slate-200 dark:border-slate-800/60 last:border-0">
-                  <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
-                    {o.listing.title}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                    {o.listing.user.pharmacyName}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{o.quantity}</td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                    {o.totalPrice != null ? `${o.totalPrice.toFixed(2)} ₺` : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`flex w-fit items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(o.status)}`}>
-                      <StatusIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      {OFFER_STATUS_LABEL[o.status]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/groups/${o.listing.groupId}/listings/${o.listingId}`}
-                      className="text-emerald-600 dark:text-emerald-400 hover:underline"
-                    >
-                      Görüntüle
-                    </Link>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <PurchasesTable rows={rows} />
       )}
     </div>
   );

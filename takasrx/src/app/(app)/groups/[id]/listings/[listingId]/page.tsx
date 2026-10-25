@@ -27,6 +27,7 @@ import {
   CopyPlus,
   History,
   Ban,
+  Layers,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -42,7 +43,7 @@ import {
   confirmOfferPriceChangeAction,
   withdrawOfferAction,
 } from "@/app/actions/listings";
-import { effectiveUnitPrice } from "@/lib/pricing";
+import { effectiveUnitPrice, priceWithoutVat, tierUnitPrice, reachedTier } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { closeExpiredTargetListings } from "@/lib/listings";
 import { LISTING_CHANGE_LABEL } from "@/lib/listing-changes";
@@ -99,6 +100,7 @@ export default async function ListingDetailPage(
       targetUser: true,
       offers: { include: { user: true, shipment: true }, orderBy: { createdAt: "desc" } },
       changes: { orderBy: { createdAt: "desc" }, take: 20 },
+      tiers: { orderBy: { sortOrder: "asc" } },
     },
   });
   if (!listing || listing.groupId !== id) notFound();
@@ -173,6 +175,23 @@ export default async function ListingDetailPage(
     listing.totalStock != null &&
     listing.dealBonusQuantity > 0 &&
     listing.dealBonusQuantity < listing.totalStock;
+
+  const currentTier = reachedTier(listing.tiers, demandQty);
+  const qtyStep = listing.alimKatlari ?? 1;
+  const minQty = Math.max(listing.minAlim ?? 1, qtyStep);
+  const convertDefaults = currentTier
+    ? {
+        totalStock: currentTier.alimMiktari + currentTier.mfMiktari,
+        bonus: currentTier.mfMiktari,
+        iskontoYuzde: currentTier.iskontoYuzde,
+        iskontoTL: currentTier.iskontoTL,
+      }
+    : {
+        totalStock: listing.totalStock,
+        bonus: listing.dealBonusQuantity,
+        iskontoYuzde: listing.ekstraIskontoYuzde,
+        iskontoTL: listing.ekstraIndirim,
+      };
 
   const maxQty =
     remaining != null && listing.maxAlim != null
@@ -298,6 +317,11 @@ export default async function ListingDetailPage(
             {listing.maxAlim ? ` · maks ${listing.maxAlim}` : ""}
           </p>
         )}
+        {listing.alimKatlari && listing.alimKatlari > 1 && (
+          <p className="text-sm text-slate-700 dark:text-slate-300">
+            <span className="font-medium">Alım Katları:</span> {listing.alimKatlari} adet ve katları
+          </p>
+        )}
         {listing.expiryDate && (
           <p className="flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
             <span>
@@ -338,15 +362,124 @@ export default async function ListingDetailPage(
                     : ` Talep en fazla ${listing.totalStock} adede kadar kabul edilir.`)}
               </p>
             </div>
-            {isOwner && listing.status === "OPEN" && (
-              <form action={convertToStockAction.bind(null, id, listingId)}>
+          </div>
+
+          {listing.tiers.length > 0 && (
+            <div className="mt-4 overflow-x-auto rounded-lg border border-violet-500/30 bg-white/60 dark:bg-slate-900/60">
+              <p className="flex items-center gap-1.5 border-b border-violet-500/20 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                <Layers className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" strokeWidth={1.75} />
+                Depo Kademeleri — grubun toplam talebi kademeye ulaştıkça şart iyileşir
+              </p>
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th className="px-3 py-1.5">Kademe</th>
+                    <th className="px-3 py-1.5">Net Birim (KDV&apos;li / KDV&apos;siz)</th>
+                    <th className="px-3 py-1.5">Durum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listing.tiers.map((t) => {
+                    const size = t.alimMiktari + t.mfMiktari;
+                    const net = tierUnitPrice(listing.birimFiyat, t);
+                    const reached = size <= demandQty;
+                    const isCurrent = currentTier?.id === t.id;
+                    return (
+                      <tr
+                        key={t.id}
+                        className={`border-t border-violet-500/10 ${isCurrent ? "bg-emerald-500/10 font-semibold" : ""}`}
+                      >
+                        <td className="px-3 py-1.5 text-slate-800 dark:text-slate-200">
+                          {t.alimMiktari}+{t.mfMiktari}
+                          {t.iskontoYuzde ? ` · %${t.iskontoYuzde}` : ""}
+                          {t.iskontoTL ? ` · ${t.iskontoTL.toFixed(0)} ₺` : ""}
+                        </td>
+                        <td className="px-3 py-1.5 text-emerald-700 dark:text-emerald-400">
+                          {net != null ? `${net.toFixed(2)} ₺ / ${priceWithoutVat(net, listing.kdvOrani)!.toFixed(2)} ₺` : "—"}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          {reached ? (
+                            <span className="text-emerald-700 dark:text-emerald-400">
+                              ✓ Ulaşıldı{isCurrent ? " (geçerli kademe)" : ""}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">{size - demandQty} adet talep kaldı</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {isOwner && listing.status === "OPEN" && (
+            <form
+              action={convertToStockAction.bind(null, id, listingId)}
+              className="mt-4 rounded-lg border border-violet-500/30 bg-white/60 dark:bg-slate-900/60 p-3"
+            >
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                Ürünü depodan aldınız mı? Kesinleşen şartı girip stoğa dönüştürün
+                {currentTier ? " (ulaşılan kademe dolduruldu)" : ""}.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                <label className="text-[11px] text-slate-500">
+                  Toplam Adet
+                  <input
+                    type="number"
+                    name="finalTotalStock"
+                    min={1}
+                    required
+                    defaultValue={convertDefaults.totalStock ?? ""}
+                    className="mt-0.5 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100"
+                  />
+                </label>
+                <label className="text-[11px] text-slate-500">
+                  Bunun Kaçı MF
+                  <input
+                    type="number"
+                    name="finalBonus"
+                    min={0}
+                    defaultValue={convertDefaults.bonus ?? ""}
+                    className="mt-0.5 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100"
+                  />
+                </label>
+                <label className="text-[11px] text-slate-500">
+                  İskonto %
+                  <input
+                    type="number"
+                    name="finalIskontoYuzde"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    defaultValue={convertDefaults.iskontoYuzde ?? ""}
+                    className="mt-0.5 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100"
+                  />
+                </label>
+                <label className="text-[11px] text-slate-500">
+                  İskonto ₺ (toplam)
+                  <input
+                    type="number"
+                    name="finalIskontoTL"
+                    min={0}
+                    step="0.01"
+                    defaultValue={convertDefaults.iskontoTL ?? ""}
+                    className="mt-0.5 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-2 py-1.5 text-sm text-slate-900 dark:text-slate-100"
+                  />
+                </label>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <button className="flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-500">
                   <ArrowRightLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
                   Ürünü Temin Ettim → Stoğa Dönüştür
                 </button>
-              </form>
-            )}
-          </div>
+                <span className="text-[11px] text-slate-500">
+                  Net fiyat düşerse bekleyen teklifler yeni fiyata otomatik güncellenir.
+                </span>
+              </div>
+            </form>
+          )}
         </section>
       )}
 
@@ -380,8 +513,17 @@ export default async function ListingDetailPage(
           </div>
           <div className="mt-3 grid gap-4 sm:grid-cols-3">
             <div>
-              <p className="text-xs text-slate-500">Efektif Birim Fiyat</p>
+              <p className="text-xs text-slate-500">Efektif Birim Fiyat (KDV&apos;li)</p>
               <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{netFiyat.toFixed(2)} ₺</p>
+              <p className="text-xs text-slate-500">
+                KDV&apos;siz {priceWithoutVat(netFiyat, listing.kdvOrani)!.toFixed(2)} ₺ · KDV %{listing.kdvOrani}
+              </p>
+              {isDepoOzelSart && currentTier && (
+                <p className="mt-1 text-xs font-medium text-violet-700 dark:text-violet-400">
+                  Ulaşılan kademeyle tahmini net:{" "}
+                  {tierUnitPrice(listing.birimFiyat, currentTier)?.toFixed(2)} ₺ (stoğa dönüştürülünce kesinleşir)
+                </p>
+              )}
             </div>
             {hasBonus && listing.birimFiyat != null && (
               <div>
@@ -429,9 +571,10 @@ export default async function ListingDetailPage(
                 type="number"
                 name="quantity"
                 required
-                min={listing.minAlim ?? 1}
+                min={minQty}
+                step={qtyStep}
                 max={maxQty}
-                defaultValue={listing.minAlim ?? 1}
+                defaultValue={minQty}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
               />
             </div>
@@ -497,7 +640,8 @@ export default async function ListingDetailPage(
                 type="number"
                 name="quantity"
                 required
-                min={listing.minAlim ?? 1}
+                min={minQty}
+                step={qtyStep}
                 max={maxQty}
                 defaultValue={myPendingOffer.quantity}
                 className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"

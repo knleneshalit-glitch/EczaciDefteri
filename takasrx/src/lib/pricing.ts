@@ -36,3 +36,49 @@ export function effectiveUnitPrice(listing: {
 
   return totalCost / totalStock;
 }
+
+export const KDV_ORANLARI = [0, 1, 10, 20] as const;
+
+/** Depo fiyatı KDV dahil girildiği için net fiyattan KDV'yi ayırır. */
+export function priceWithoutVat(price: number | null, kdvOrani: number | null | undefined) {
+  if (price == null) return null;
+  return price / (1 + (kdvOrani ?? 10) / 100);
+}
+
+export type TierTerms = {
+  alimMiktari: number;
+  mfMiktari: number;
+  iskontoYuzde?: number | null;
+  iskontoTL?: number | null;
+};
+
+/** Bir depo kademesinin (ör. 50+10, %2 iskonto) efektif birim fiyatı. */
+export function tierUnitPrice(birimFiyat: number | null, tier: TierTerms) {
+  return effectiveUnitPrice({
+    birimFiyat,
+    totalStock: tier.alimMiktari + tier.mfMiktari,
+    dealBonusQuantity: tier.mfMiktari,
+    ekstraIskontoYuzde: tier.iskontoYuzde ?? null,
+    ekstraIndirim: tier.iskontoTL ?? null,
+  });
+}
+
+/** Grubun toplam talebiyle ulaşılan en yüksek kademeyi bulur. */
+export function reachedTier<T extends TierTerms>(tiers: T[], demandQty: number): T | null {
+  let best: T | null = null;
+  for (const t of tiers) {
+    if (t.alimMiktari + t.mfMiktari <= demandQty && (!best || t.alimMiktari + t.mfMiktari > best.alimMiktari + best.mfMiktari)) {
+      best = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * Hedef net fiyata inmek için toplam stoğun kaçının mal fazlası olması
+ * gerektiğini hesaplar ("Net Fiyattan MF Hesapla").
+ */
+export function bonusForTargetPrice(birimFiyat: number, totalStock: number, targetNet: number) {
+  if (birimFiyat <= 0 || totalStock <= 0 || targetNet <= 0 || targetNet >= birimFiyat) return 0;
+  return Math.min(totalStock - 1, Math.round(totalStock * (1 - targetNet / birimFiyat)));
+}

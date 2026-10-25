@@ -23,6 +23,7 @@ export default async function MarketPage() {
           group: true,
           user: true,
           offers: { where: { status: "ACCEPTED" }, select: { quantity: true } },
+          _count: { select: { tiers: true } },
         },
         orderBy: { createdAt: "desc" },
       })
@@ -36,6 +37,7 @@ export default async function MarketPage() {
           group: true,
           user: true,
           offers: { where: { status: "ACCEPTED" }, select: { quantity: true } },
+          _count: { select: { tiers: true } },
         },
         orderBy: { createdAt: "desc" },
       });
