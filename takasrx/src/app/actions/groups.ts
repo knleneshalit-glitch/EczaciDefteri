@@ -121,12 +121,19 @@ async function requireManager(groupId: string) {
 export async function approveMemberAction(groupId: string, memberId: string) {
   await requireManager(groupId);
 
-  await prisma.groupMember.update({
+  const member = await prisma.groupMember.update({
     where: { id: memberId },
     data: { status: "APPROVED" },
+    include: { group: { select: { name: true } } },
+  });
+  await createNotification({
+    userId: member.userId,
+    message: `"${member.group.name}" grubuna katılım isteğiniz onaylandı.`,
+    link: `/groups/${groupId}`,
   });
 
   revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
 }
 
 export async function rejectMemberAction(groupId: string, memberId: string) {
@@ -138,6 +145,84 @@ export async function rejectMemberAction(groupId: string, memberId: string) {
   });
 
   revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
+}
+
+/** Grup yöneticisi bir üyeyi yönetici yapar ya da yöneticiliğini kaldırır. */
+export async function setMemberRoleAction(groupId: string, memberId: string, role: "MEMBER" | "MANAGER") {
+  await requireManager(groupId);
+
+  const [group, target] = await Promise.all([
+    prisma.group.findUnique({ where: { id: groupId } }),
+    prisma.groupMember.findUnique({ where: { id: memberId } }),
+  ]);
+  if (!group || !target || target.groupId !== groupId || target.status !== "APPROVED") {
+    throw new Error("Üye bulunamadı.");
+  }
+  if (role === "MEMBER" && target.userId === group.creatorId) {
+    throw new Error("Grubu kuran eczanenin yöneticiliği kaldırılamaz.");
+  }
+
+  await prisma.groupMember.update({ where: { id: memberId }, data: { role } });
+  await createNotification({
+    userId: target.userId,
+    message:
+      role === "MANAGER"
+        ? `"${group.name}" grubunda grup yöneticisi yapıldınız.`
+        : `"${group.name}" grubundaki yöneticiliğiniz kaldırıldı.`,
+    link: `/groups/${groupId}`,
+  });
+
+  revalidatePath("/groups");
+  revalidatePath(`/groups/${groupId}/members`);
+}
+
+/** Üye kendi isteğiyle gruptan ayrılır (cari bakiyesi sıfırsa). */
+export async function leaveGroupAction(groupId: string) {
+  const user = await requireUser();
+
+  const [group, membership] = await Promise.all([
+    prisma.group.findUnique({ where: { id: groupId } }),
+    prisma.groupMember.findUnique({ where: { groupId_userId: { groupId, userId: user.id } } }),
+  ]);
+  if (!group || !membership) throw new Error("Bu grubun üyesi değilsiniz.");
+  if (group.creatorId === user.id) throw new Error("Grubu kuran eczane gruptan ayrılamaz.");
+
+  const balance = await prisma.ledgerEntry.aggregate({
+    where: { groupId, userId: user.id },
+    _sum: { amount: true },
+  });
+  if (Math.abs(balance._sum.amount ?? 0) > 0.01) {
+    throw new Error("Cari bakiyeniz sıfırlanmadan gruptan ayrılamazsınız.");
+  }
+
+  await prisma.groupMember.delete({ where: { id: membership.id } });
+
+  revalidatePath("/groups");
+  redirect("/groups");
+}
+
+export async function updateBalanceLimitAction(
+  groupId: string,
+  _prevState: GroupState,
+  formData: FormData
+): Promise<GroupState> {
+  await requireManager(groupId);
+
+  const enabled = formData.get("balanceLimitEnabled") === "on";
+  const raw = String(formData.get("balanceLimit") ?? "").trim().replace(",", ".");
+  const limit = raw ? Number(raw) : null;
+  if (enabled && (limit == null || !Number.isFinite(limit) || limit < 0)) {
+    return { error: "Bakiye kısıtlaması için 0 veya daha büyük bir borç limiti girin." };
+  }
+
+  await prisma.group.update({
+    where: { id: groupId },
+    data: { balanceLimitEnabled: enabled, balanceLimit: limit },
+  });
+
+  revalidatePath(`/groups/${groupId}/balances`);
+  revalidatePath("/groups");
 }
 
 export async function removeMemberAction(groupId: string, memberId: string) {
@@ -159,6 +244,7 @@ export async function removeMemberAction(groupId: string, memberId: string) {
 
   revalidatePath(`/groups/${groupId}`);
   revalidatePath(`/groups/${groupId}/members`);
+  revalidatePath("/groups");
 }
 
 export async function closeGroupAction(groupId: string) {

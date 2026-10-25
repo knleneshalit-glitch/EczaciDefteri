@@ -208,7 +208,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <Link
-          href="/groups"
+          href="/groups?tab=kesfet"
           className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
           <Search className="h-4 w-4" strokeWidth={1.75} />
@@ -275,7 +275,7 @@ export default async function DashboardPage() {
             {approved.length === 0 ? (
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
                 Henüz onaylı bir gruba üye değilsiniz.{" "}
-                <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
+                <Link href="/groups?tab=kesfet" className="text-emerald-600 dark:text-emerald-400 hover:underline">
                   Bölgenizdeki grupları keşfedin.
                 </Link>
               </p>

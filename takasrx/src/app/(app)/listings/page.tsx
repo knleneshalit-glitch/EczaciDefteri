@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardList, Plus, Search, CopyPlus, PauseCircle, PlayCircle, Eye } from "lucide-react";
+import { ClipboardList, Plus, Search, CopyPlus, PauseCircle, PlayCircle, Eye, FileUp } from "lucide-react";
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -25,7 +25,10 @@ const KIND_FILTERS = [
   { key: "stok", label: "Stoktan Teklif" },
   { key: "depo", label: "Depo Özel Şartı" },
   { key: "ozel", label: "Eczaneye Özel" },
+  { key: "miad", label: "Miadı Yakın (6 ay)" },
 ] as const;
+
+const SIX_MONTHS_MS = 182 * 24 * 60 * 60 * 1000;
 
 type StatusKey = (typeof STATUS_TABS)[number]["key"];
 type KindKey = (typeof KIND_FILTERS)[number]["key"];
@@ -38,10 +41,15 @@ function statusTabOf(l: { status: string; targetReachedAt: Date | null }): Exclu
   return "kapandi";
 }
 
-function matchesKind(l: { listingKind: string; targetUserId: string | null }, kind: KindKey) {
+function matchesKind(
+  l: { listingKind: string; targetUserId: string | null; expiryDate: Date | null },
+  kind: KindKey,
+  now: number
+) {
   if (kind === "stok") return l.listingKind === "STOK";
   if (kind === "depo") return l.listingKind === "DEPO_OZEL_SART";
   if (kind === "ozel") return l.targetUserId != null;
+  if (kind === "miad") return l.expiryDate != null && l.expiryDate.getTime() - now < SIX_MONTHS_MS;
   return true;
 }
 
@@ -73,9 +81,10 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
   const openGroups = memberships.filter((m) => !m.group.closedAt).map((m) => m.group);
 
   const needle = foldTr(q);
+  const now = new Date().getTime();
   const searched = listings.filter(
     (l) =>
-      matchesKind(l, tur) &&
+      matchesKind(l, tur, now) &&
       (!needle ||
         foldTr(l.medicineName).includes(needle) ||
         (l.barkod ?? "").includes(needle) ||
@@ -136,10 +145,19 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
           </p>
         </div>
         {openGroups.length > 0 ? (
-          <NewListingPicker groups={openGroups.map((g) => ({ id: g.id, name: g.name }))} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/listings/import"
+              className="flex items-center gap-1.5 rounded-md border border-emerald-500/50 px-3 py-2 text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
+            >
+              <FileUp className="h-4 w-4" strokeWidth={1.75} />
+              Excel&apos;den Teklif Aktar
+            </Link>
+            <NewListingPicker groups={openGroups.map((g) => ({ id: g.id, name: g.name }))} />
+          </div>
         ) : (
           <Link
-            href="/groups"
+            href="/groups?tab=kesfet"
             className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
             <Plus className="h-4 w-4" strokeWidth={2} />
@@ -153,7 +171,7 @@ export default async function MyListingsPage(props: PageProps<"/listings">) {
           {memberships.length === 0 ? (
             <>
               Henüz bir ilan vermediniz. Önce bir gruba katılın, ardından{" "}
-              <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
+              <Link href="/groups?tab=kesfet" className="text-emerald-600 dark:text-emerald-400 hover:underline">
                 grubunuzdan yeni ilan verin
               </Link>
               .

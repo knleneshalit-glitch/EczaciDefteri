@@ -28,6 +28,7 @@ import {
   History,
   Ban,
   Layers,
+  Share2,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -42,6 +43,7 @@ import {
   convertToStockAction,
   confirmOfferPriceChangeAction,
   withdrawOfferAction,
+  recommendListingAction,
 } from "@/app/actions/listings";
 import { effectiveUnitPrice, priceWithoutVat, tierUnitPrice, reachedTier } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
@@ -112,6 +114,15 @@ export default async function ListingDetailPage(
   ) {
     notFound();
   }
+
+  const recommendCandidates =
+    listing.status === "OPEN" && (!listing.targetUserId || listing.userId === user.id)
+      ? await prisma.groupMember.findMany({
+          where: { groupId: id, status: "APPROVED", userId: { notIn: [user.id, listing.userId] } },
+          include: { user: { select: { id: true, pharmacyName: true, contactName: true } } },
+          orderBy: { user: { pharmacyName: "asc" } },
+        })
+      : [];
 
   const approvedImage = listing.barkod
     ? await prisma.medicineImage.findFirst({
@@ -193,10 +204,38 @@ export default async function ListingDetailPage(
         iskontoTL: listing.ekstraIndirim,
       };
 
-  const maxQty =
+  const baseMaxQty =
     remaining != null && listing.maxAlim != null
       ? Math.min(remaining, listing.maxAlim)
       : (remaining ?? listing.maxAlim ?? undefined);
+
+  // Grupta bakiye kısıtlaması varsa kalan limite göre en fazla alınabilecek adet.
+  const groupLimit = await prisma.group.findUnique({
+    where: { id },
+    select: { balanceLimitEnabled: true, balanceLimit: true },
+  });
+  let creditLeft: number | null = null;
+  if (!isOwner && groupLimit?.balanceLimitEnabled && groupLimit.balanceLimit != null) {
+    const [ledgerSum, pendingSum] = await Promise.all([
+      prisma.ledgerEntry.aggregate({ where: { groupId: id, userId: user.id }, _sum: { amount: true } }),
+      prisma.offer.aggregate({
+        where: {
+          userId: user.id,
+          status: "PENDING",
+          listing: { groupId: id },
+          ...(myPendingOffer ? { id: { not: myPendingOffer.id } } : {}),
+        },
+        _sum: { totalPrice: true },
+      }),
+    ]);
+    creditLeft = (ledgerSum._sum.amount ?? 0) - (pendingSum._sum.totalPrice ?? 0) + groupLimit.balanceLimit;
+  }
+  const creditQty =
+    creditLeft != null && netFiyat
+      ? Math.max(0, Math.floor(Math.floor(creditLeft / netFiyat + 1e-9) / qtyStep) * qtyStep)
+      : null;
+  const maxQty = creditQty != null ? Math.min(baseMaxQty ?? creditQty, creditQty) : baseMaxQty;
+  const blockedByLimit = creditQty != null && creditQty < minQty;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
@@ -550,7 +589,15 @@ export default async function ListingDetailPage(
         </section>
       )}
 
-      {!isOwner && !myPendingOffer && listing.status === "OPEN" && (
+      {!isOwner && !myPendingOffer && listing.status === "OPEN" && blockedByLimit && (
+        <div className="mt-6 flex items-start gap-2 rounded-2xl border border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-500/5 p-4 text-sm text-red-700 dark:text-red-400">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+          Grubun bakiye kısıtlaması nedeniyle şu an bu ilana teklif veremezsiniz (kalan limitiniz{" "}
+          {Math.max(0, creditLeft ?? 0).toFixed(2)} ₺). Önce cari bakiyenizi kapatın.
+        </div>
+      )}
+
+      {!isOwner && !myPendingOffer && listing.status === "OPEN" && !blockedByLimit && (
         <form
           action={createOfferAction.bind(null, id, listing.id)}
           className="mt-6 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-500/5 p-4"
@@ -588,6 +635,12 @@ export default async function ListingDetailPage(
               />
             </div>
           </div>
+          {creditLeft != null && (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+              Bakiye kısıtlaması: bu grupta en fazla {Math.max(0, creditLeft).toFixed(2)} ₺ ({creditQty} adet) alım
+              yapabilirsiniz.
+            </p>
+          )}
           <button className="mt-3 flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">
             <Send className="h-4 w-4" strokeWidth={1.75} />
             Alım Teklifi Ver
@@ -748,6 +801,43 @@ export default async function ListingDetailPage(
           )}
         </ul>
       </section>
+
+      {recommendCandidates.length > 0 && (
+        <details className="mt-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+          <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <Share2 className="h-4 w-4 text-sky-600 dark:text-sky-400" strokeWidth={1.75} />
+            Teklif Yönlendirme — bu ilanı gruptaki bir eczaneye önerin
+          </summary>
+          <form action={recommendListingAction.bind(null, id, listing.id)} className="mt-3 flex flex-wrap items-end gap-2">
+            <select
+              name="targetUserId"
+              required
+              defaultValue=""
+              className="rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100"
+            >
+              <option value="" disabled>
+                Eczane seçin
+              </option>
+              {recommendCandidates.map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  {m.user.pharmacyName ?? m.user.contactName}
+                </option>
+              ))}
+            </select>
+            <input
+              name="note"
+              maxLength={200}
+              placeholder="Not (opsiyonel)"
+              className="min-w-[200px] flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500"
+            />
+            <button className="flex items-center gap-1.5 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">
+              <Share2 className="h-4 w-4" strokeWidth={1.75} />
+              Yönlendir
+            </button>
+          </form>
+          <p className="mt-2 text-xs text-slate-500">Seçtiğiniz eczaneye ilanın bağlantısıyla bildirim gider.</p>
+        </details>
+      )}
 
       {listing.changes.length > 0 && (
         <section className="mt-8">

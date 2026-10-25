@@ -103,6 +103,30 @@ model User {
   announcements  Announcement[]
   medicineImages MedicineImage[]
   listingChanges ListingChange[]
+  supportTickets SupportTicket[]
+}
+
+enum SupportStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+/// Eczanelerin TakasRX ekibine (süper admin) ilettiği destek talepleri.
+model SupportTicket {
+  id         String        @id @default(cuid())
+  userId     String
+  subject    String
+  body       String
+  status     SupportStatus @default(OPEN)
+  adminReply String?
+  createdAt  DateTime      @default(now())
+  repliedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([userId])
 }
 
 model Announcement {
@@ -201,6 +225,8 @@ model Group {
   createdAt           DateTime  @default(now())
   closedAt            DateTime?
   grupYukuResetAt     DateTime?
+  balanceLimitEnabled Boolean   @default(false)
+  balanceLimit        Float?
 
   creatorId String
   creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])

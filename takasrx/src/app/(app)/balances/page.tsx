@@ -30,7 +30,7 @@ export default async function BalancesRedirectPage() {
       {memberships.length === 0 ? (
         <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">
           Henüz onaylı bir gruba üye değilsiniz.{" "}
-          <Link href="/groups" className="text-emerald-600 dark:text-emerald-400 hover:underline">
+          <Link href="/groups?tab=kesfet" className="text-emerald-600 dark:text-emerald-400 hover:underline">
             Bölgenizdeki grupları keşfedin.
           </Link>
         </p>

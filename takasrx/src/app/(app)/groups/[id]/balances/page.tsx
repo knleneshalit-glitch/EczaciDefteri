@@ -7,6 +7,7 @@ import { accrueInterestForGroup, getGroupBalances } from "@/lib/ledger";
 import { yearEndSettlementAction, toggleInterestEnabledAction } from "@/app/actions/groups";
 import InterestRateForm from "./InterestRateForm";
 import ManualBalanceForm from "./ManualBalanceForm";
+import BalanceLimitForm from "./BalanceLimitForm";
 
 function money(n: number) {
   return `${n.toFixed(2)} ₺`;
@@ -69,6 +70,15 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
           <span className={`font-medium ${group.interestEnabled ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
             {group.interestEnabled ? "Açık" : "Kapalı"}
           </span>
+          {" · "}
+          Bakiye Kısıtlaması:{" "}
+          <span
+            className={`font-medium ${group.balanceLimitEnabled ? "text-amber-600 dark:text-amber-400" : "text-slate-500"}`}
+          >
+            {group.balanceLimitEnabled
+              ? `Açık (borç limiti ${(group.balanceLimit ?? 0).toFixed(2)} ₺)`
+              : "Kapalı"}
+          </span>
         </p>
       </div>
 
@@ -102,6 +112,10 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
 
       {isManager && group.interestEnabled && (
         <InterestRateForm groupId={group.id} currentRate={group.monthlyInterestRate} />
+      )}
+
+      {isManager && (
+        <BalanceLimitForm groupId={group.id} enabled={group.balanceLimitEnabled} limit={group.balanceLimit} />
       )}
 
       {isManager && (

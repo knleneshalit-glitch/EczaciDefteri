@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X, Pill, ImageIcon, Check } from "lucide-react";
+import { ShieldCheck, Users, Building2, Truck, ArrowRight, Lock, Wallet, Megaphone, X, Pill, ImageIcon, Check, LifeBuoy, Send } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/require-user";
 import { deactivateAnnouncementAction } from "@/app/actions/announcements";
 import { approveMedicineImageAction, rejectMedicineImageAction } from "@/app/actions/medicine-images";
 import AnnouncementForm from "@/components/AnnouncementForm";
+import { replySupportTicketAction, closeSupportTicketAction } from "@/app/actions/support";
+import { formatTr } from "@/lib/dates";
 import ImportMedicinesButton from "@/components/ImportMedicinesButton";
 
 export default async function AdminPage() {
@@ -26,6 +28,12 @@ export default async function AdminPage() {
       orderBy: { createdAt: "asc" },
     }),
   ]);
+
+  const supportTickets = await prisma.supportTicket.findMany({
+    where: { status: { in: ["OPEN", "ANSWERED"] } },
+    include: { user: { select: { pharmacyName: true, contactName: true, email: true, phone: true } } },
+    orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+  });
 
   const pendingBarkods = [...new Set(pendingImages.map((img) => img.barkod))];
   const medicineNames = pendingBarkods.length
@@ -69,6 +77,58 @@ export default async function AdminPage() {
               <p className="text-xs text-slate-500">{label}</p>
               <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
             </div>
+          </div>
+        ))}
+      </div>
+
+      <h2 id="destek" className="mt-8 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <LifeBuoy className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+        Destek Talepleri ({supportTickets.filter((t) => t.status === "OPEN").length} yanıt bekliyor)
+      </h2>
+      <div className="mt-3 flex flex-col gap-3">
+        {supportTickets.length === 0 && <p className="text-sm text-slate-500">Açık destek talebi yok.</p>}
+        {supportTickets.map((t) => (
+          <div key={t.id} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{t.subject}</p>
+                <p className="text-xs text-slate-500">
+                  {t.user.pharmacyName ?? t.user.contactName} · {t.user.email}
+                  {t.user.phone ? ` · ${t.user.phone}` : ""} · {formatTr(t.createdAt, true)}
+                </p>
+              </div>
+              <span
+                className={`rounded px-2 py-0.5 text-xs font-medium ${
+                  t.status === "OPEN"
+                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                }`}
+              >
+                {t.status === "OPEN" ? "Yanıt Bekliyor" : "Yanıtlandı"}
+              </span>
+            </div>
+            <p className="mt-2 whitespace-pre-line text-sm text-slate-700 dark:text-slate-300">{t.body}</p>
+            {t.adminReply && (
+              <p className="mt-2 whitespace-pre-line rounded-md bg-emerald-500/5 p-2 text-xs text-slate-700 dark:text-slate-300">
+                Yanıtınız: {t.adminReply}
+              </p>
+            )}
+            <form action={replySupportTicketAction.bind(null, t.id)} className="mt-3 flex flex-wrap items-end gap-2">
+              <textarea
+                name="reply"
+                required
+                rows={2}
+                placeholder="Yanıtınızı yazın..."
+                className="min-w-[260px] flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none"
+              />
+              <button className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">
+                <Send className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Yanıtla
+              </button>
+            </form>
+            <form action={closeSupportTicketAction.bind(null, t.id)} className="mt-2">
+              <button className="text-xs text-slate-500 hover:underline">Talebi kapat</button>
+            </form>
           </div>
         ))}
       </div>

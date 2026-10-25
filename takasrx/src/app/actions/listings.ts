@@ -9,6 +9,7 @@ import { effectiveUnitPrice, type TierTerms } from "@/lib/pricing";
 import { createNotification } from "@/lib/notifications";
 import { logListingChanges, type ListingChangeInput } from "@/lib/listing-log";
 import { acceptOffer, rejectOffer } from "@/lib/offers";
+import { assertWithinBalanceLimit } from "@/lib/balance-limit";
 
 export type ListingState = { error?: string } | undefined;
 
@@ -569,6 +570,7 @@ export async function createOfferAction(
 
   const unitPrice = effectiveUnitPrice(listing) ?? 0;
   const totalPrice = unitPrice * quantity;
+  await assertWithinBalanceLimit({ groupId, userId: user.id, amount: totalPrice });
 
   await prisma.offer.create({
     data: {
@@ -634,6 +636,7 @@ export async function updateOfferAction(
 
   const unitPrice = effectiveUnitPrice(listing) ?? 0;
   const totalPrice = unitPrice * quantity;
+  await assertWithinBalanceLimit({ groupId, userId: user.id, amount: totalPrice, excludeOfferId: offerId });
 
   await prisma.offer.update({
     where: { id: offerId },
@@ -828,6 +831,133 @@ export async function withdrawOfferAction(groupId: string, listingId: string, of
   }
 
   await prisma.offer.delete({ where: { id: offerId } });
+
+  revalidatePath(`/groups/${groupId}/listings/${listingId}`);
+}
+
+export type ImportRow = {
+  medicineName: string;
+  barkod?: string | null;
+  birimFiyat: number | null;
+  totalStock: number | null;
+  dealBonusQuantity?: number | null;
+  expiryDate?: string | null;
+  kdvOrani?: number | null;
+  description?: string | null;
+  minAlim?: number | null;
+  maxAlim?: number | null;
+  alimKatlari?: number | null;
+};
+
+const MAX_IMPORT_ROWS = 300;
+
+/** Excel/CSV'den okunan satırlardan toplu "Stoğumdaki Ürün" ilanı oluşturur. */
+export async function importListingsAction(
+  groupId: string,
+  rows: ImportRow[]
+): Promise<{ created: number; errors: { row: number; message: string }[] }> {
+  const user = await requireUser();
+  await requireApprovedMember(groupId, user);
+
+  const group = await prisma.group.findUnique({ where: { id: groupId } });
+  if (!group || group.closedAt) {
+    return { created: 0, errors: [{ row: 0, message: "Bu grup kapatıldığı için yeni ilan verilemiyor." }] };
+  }
+
+  const startDate = new Date();
+  const endDate = new Date();
+  endDate.setMonth(endDate.getMonth() + 1);
+
+  let created = 0;
+  const errors: { row: number; message: string }[] = [];
+
+  for (const [index, row] of rows.slice(0, MAX_IMPORT_ROWS).entries()) {
+    const rowNo = index + 1;
+    const medicineName = String(row.medicineName ?? "").trim().toLocaleUpperCase("tr-TR");
+    const birimFiyat = row.birimFiyat;
+    const totalStock = row.totalStock != null ? Math.round(row.totalStock) : null;
+    const bonus = row.dealBonusQuantity != null ? Math.round(row.dealBonusQuantity) : null;
+    const expiryDate = row.expiryDate ? new Date(row.expiryDate) : null;
+    const kdvOrani = row.kdvOrani ?? 10;
+    const isBakiyeTransferi = medicineName === "BAKİYE TRANSFERİ";
+
+    let message: string | null = null;
+    if (!medicineName) message = "İlaç adı boş.";
+    else if (birimFiyat == null || !Number.isFinite(birimFiyat) || birimFiyat <= 0) message = "Depo fiyatı geçersiz.";
+    else if (totalStock == null || totalStock <= 0) message = "Toplam stok geçersiz.";
+    else if (bonus != null && (bonus < 0 || bonus >= totalStock)) message = "MF, toplam stoktan küçük olmalı.";
+    else if (!isBakiyeTransferi && (!expiryDate || Number.isNaN(expiryDate.getTime()))) message = "SKT eksik ya da okunamadı.";
+    else if (kdvOrani < 0 || kdvOrani > 100) message = "KDV oranı 0-100 arasında olmalı.";
+    else if (row.alimKatlari != null && (row.alimKatlari < 1 || !Number.isInteger(row.alimKatlari))) {
+      message = "Alım katları 1 veya daha büyük bir tam sayı olmalı.";
+    }
+    if (message) {
+      errors.push({ row: rowNo, message });
+      continue;
+    }
+
+    await prisma.listing.create({
+      data: {
+        groupId,
+        userId: user.id,
+        title: medicineName,
+        medicineName,
+        barkod: row.barkod?.trim() || null,
+        description: row.description?.trim() || null,
+        birimFiyat,
+        totalStock,
+        dealBonusQuantity: bonus || null,
+        kdvOrani,
+        expiryDate: isBakiyeTransferi ? null : expiryDate,
+        minAlim: row.minAlim ?? null,
+        maxAlim: row.maxAlim ?? null,
+        alimKatlari: row.alimKatlari ?? null,
+        startDate,
+        endDate,
+        listingKind: "STOK",
+      },
+    });
+    created++;
+  }
+  if (rows.length > MAX_IMPORT_ROWS) {
+    errors.push({ row: MAX_IMPORT_ROWS + 1, message: `Tek seferde en fazla ${MAX_IMPORT_ROWS} satır aktarılabilir.` });
+  }
+
+  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/listings");
+  revalidatePath("/market");
+  return { created, errors };
+}
+
+/** "Teklif Yönlendirme": ilanı gruptaki bir eczaneye bildirimle önerir. */
+export async function recommendListingAction(groupId: string, listingId: string, formData: FormData) {
+  const user = await requireUser();
+  await requireApprovedMember(groupId, user);
+
+  const targetUserId = String(formData.get("targetUserId") ?? "");
+  const note = String(formData.get("note") ?? "").trim().slice(0, 200);
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  if (!listing || listing.groupId !== groupId || listing.status !== "OPEN") {
+    throw new Error("İlan bulunamadı ya da yayında değil.");
+  }
+  if (listing.targetUserId && listing.userId !== user.id) {
+    throw new Error("Eczaneye özel ilanlar başka eczaneye yönlendirilemez.");
+  }
+  const target = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId: targetUserId } },
+  });
+  if (!target || target.status !== "APPROVED" || targetUserId === user.id) {
+    throw new Error("Seçilen eczane bu grubun onaylı üyesi değil.");
+  }
+
+  await createNotification({
+    userId: targetUserId,
+    message: `${user.pharmacyName ?? user.contactName} eczanesi size "${listing.title}" ilanını yönlendirdi${
+      note ? `: "${note}"` : "."
+    }`,
+    link: `/groups/${groupId}/listings/${listingId}`,
+  });
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
 }

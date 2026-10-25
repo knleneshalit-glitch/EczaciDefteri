@@ -16,6 +16,7 @@ import {
   Landmark,
   History,
   Route,
+  LifeBuoy,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/balances", label: "Grup Bakiyeleri", Icon: Landmark },
   { href: "/shipments", label: "Sevkiyat Takibi", Icon: Route },
   { href: "/couriers", label: "Sevkiyatçılarım", Icon: Truck },
+  { href: "/support", label: "Destek", Icon: LifeBuoy },
 ];
 
 export default function Sidebar({
