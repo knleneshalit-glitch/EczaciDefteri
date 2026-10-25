@@ -16,11 +16,15 @@ import {
   ShoppingBag,
   Megaphone,
   TrendingUp,
+  Star,
+  BellRing,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { getEarnings, alimKazancYuzde, toplamKazanc, type EarningsSummary } from "@/lib/earnings";
 import CariOzetiPager from "@/components/CariOzetiPager";
+import { findFavoriteMatches } from "@/lib/favorite-matches";
+import { effectiveUnitPrice } from "@/lib/pricing";
 
 function EarningsCard({ title, earnings }: { title: string; earnings: EarningsSummary }) {
   const toplam = toplamKazanc(earnings);
@@ -191,6 +195,12 @@ export default async function DashboardPage() {
   const groupCari = computeCari(groupLedgerEntries);
   const { toplamCari } = personalCari;
 
+  const favorites = await prisma.favoriteProduct.findMany({
+    where: { userId: user.id },
+    select: { medicineName: true, barkod: true },
+  });
+  const favoriteMatches = (await findFavoriteMatches(user.id, favorites)).slice(0, 5);
+
   const now = new Date();
   const earnings = await getEarnings(user.id, groupIds, now);
   const monthTitle = now.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
@@ -300,6 +310,56 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className="mt-6">
+            <h2 className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <span className="flex items-center gap-2">
+                <BellRing className="h-3.5 w-3.5 text-amber-500" strokeWidth={1.75} />
+                Ürün Bildirimleri
+              </span>
+              <Link href="/favorites" className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline">
+                <Star className="h-3 w-3" strokeWidth={2} />
+                Favori Ürünlerim
+              </Link>
+            </h2>
+            <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              {favorites.length === 0 ? (
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Takip etmek istediğiniz ürünleri{" "}
+                  <Link href="/favorites" className="font-semibold text-amber-700 dark:text-amber-400 hover:underline">
+                    favorilerinize ekleyin
+                  </Link>
+                  ; gruba çıktıklarında burada ve bildirimlerde görünür.
+                </p>
+              ) : favoriteMatches.length === 0 ? (
+                <p className="text-xs text-slate-600 dark:text-slate-400">Bildirim bulunmamaktadır.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {favoriteMatches.map((l) => {
+                    const net = effectiveUnitPrice(l);
+                    return (
+                      <li key={l.id}>
+                        <Link
+                          href={`/groups/${l.groupId}/listings/${l.id}`}
+                          className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs hover:bg-amber-500/10"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-slate-900 dark:text-slate-100">{l.medicineName}</span>
+                            <span className="block truncate text-slate-500">
+                              {l.user.pharmacyName ?? l.user.contactName} · {l.group.name}
+                            </span>
+                          </span>
+                          <span className="shrink-0 font-bold text-emerald-600 dark:text-emerald-400">
+                            {net != null ? `${net.toFixed(2)} ₺` : ""}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </section>
 
           {announcements.length > 0 && (

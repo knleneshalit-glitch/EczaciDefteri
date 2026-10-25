@@ -10,6 +10,7 @@ import { createNotification } from "@/lib/notifications";
 import { logListingChanges, type ListingChangeInput } from "@/lib/listing-log";
 import { acceptOffer, rejectOffer } from "@/lib/offers";
 import { assertWithinBalanceLimit } from "@/lib/balance-limit";
+import { notifyFavoriteWatchers } from "@/lib/favorites";
 
 export type ListingState = { error?: string } | undefined;
 
@@ -188,7 +189,7 @@ export async function createListingAction(
   const parsedTiers = listingKind === "DEPO_OZEL_SART" ? parseTiers(formData.get("tiers")) : { tiers: [] };
   if ("error" in parsedTiers) return { error: parsedTiers.error };
 
-  await prisma.listing.create({
+  const created = await prisma.listing.create({
     data: {
       groupId,
       userId: user.id,
@@ -219,6 +220,7 @@ export async function createListingAction(
         : undefined,
     },
   });
+  await notifyFavoriteWatchers(created, user.pharmacyName ?? user.contactName);
 
   revalidatePath(`/groups/${groupId}`);
   redirect(`/groups/${groupId}`);
@@ -868,7 +870,7 @@ export async function importListingsAction(
   const endDate = new Date();
   endDate.setMonth(endDate.getMonth() + 1);
 
-  let created = 0;
+  let createdCount = 0;
   const errors: { row: number; message: string }[] = [];
 
   for (const [index, row] of rows.slice(0, MAX_IMPORT_ROWS).entries()) {
@@ -896,7 +898,7 @@ export async function importListingsAction(
       continue;
     }
 
-    await prisma.listing.create({
+    const created = await prisma.listing.create({
       data: {
         groupId,
         userId: user.id,
@@ -917,7 +919,8 @@ export async function importListingsAction(
         listingKind: "STOK",
       },
     });
-    created++;
+    await notifyFavoriteWatchers(created, user.pharmacyName ?? user.contactName);
+    createdCount++;
   }
   if (rows.length > MAX_IMPORT_ROWS) {
     errors.push({ row: MAX_IMPORT_ROWS + 1, message: `Tek seferde en fazla ${MAX_IMPORT_ROWS} satır aktarılabilir.` });
@@ -926,7 +929,7 @@ export async function importListingsAction(
   revalidatePath(`/groups/${groupId}`);
   revalidatePath("/listings");
   revalidatePath("/market");
-  return { created, errors };
+  return { created: createdCount, errors };
 }
 
 /** "Teklif Yönlendirme": ilanı gruptaki bir eczaneye bildirimle önerir. */

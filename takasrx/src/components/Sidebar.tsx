@@ -17,6 +17,7 @@ import {
   History,
   Route,
   LifeBuoy,
+  Star,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/groups", label: "Gruplarım", Icon: Users },
   { href: "/market", label: "Gruptaki Aktif Teklifler", Icon: ShoppingBag },
   { href: "/updates", label: "Teklif Güncellemeleri", Icon: History },
+  { href: "/favorites", label: "Favori Ürünlerim", Icon: Star },
   { href: "/listings", label: "Talep Oluştur - Yönet", Icon: ClipboardList },
   { href: "/offers/received", label: "Gönderimlerim", Icon: Inbox },
   { href: "/offers/sent", label: "Alımlarım", Icon: Send },

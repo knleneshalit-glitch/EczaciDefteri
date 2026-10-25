@@ -1,15 +1,17 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, ArrowLeft, QrCode } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { generateQrDataUrl } from "@/lib/qrcode";
+import ShipmentLabel from "@/components/ShipmentLabel";
 import PrintButton from "./PrintButton";
 
 export default async function ShipmentLabelPage(
   props: PageProps<"/groups/[id]/listings/[listingId]/offers/[offerId]/label">
 ) {
   const user = await requireUser();
-  const { listingId, offerId } = await props.params;
+  const { id, listingId, offerId } = await props.params;
 
   const offer = await prisma.offer.findUnique({
     where: { id: offerId },
@@ -25,68 +27,76 @@ export default async function ShipmentLabelPage(
   const isBuyer = offer.userId === user.id;
   if (!isOwner && !isBuyer) notFound();
 
-  const qrDataUrl = await generateQrDataUrl(offer.shipment.code);
+  const shipment = offer.shipment;
+  // Aynı koliye konmuş diğer ürünler de etikette görünür.
+  const packageItems = shipment.packageCode
+    ? await prisma.shipment.findMany({
+        where: { packageCode: shipment.packageCode, offer: { listing: { userId: offer.listing.userId } } },
+        include: { offer: { include: { listing: true } } },
+        orderBy: { createdAt: "asc" },
+      })
+    : null;
+  const code = shipment.packageCode ?? shipment.code;
+  const qrDataUrl = await generateQrDataUrl(code);
+  const barcodes = shipment.barcodes?.split("\n").filter(Boolean) ?? [];
+  const items = packageItems
+    ? packageItems.map((s) => ({ quantity: s.offer.quantity, name: s.offer.listing.medicineName }))
+    : [{ quantity: offer.quantity, name: offer.listing.medicineName }];
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-10 print:py-0">
-      <div className="flex items-center justify-between print:hidden">
-        {offer.shipment.printedAt ? (
-          <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-            <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
-            Transfere Hazır — Sevkiyatçının sayfasına düştü
-          </span>
-        ) : (
-          <span />
-        )}
-        <PrintButton shipmentId={offer.shipment.id} />
+    <div className="mx-auto w-full max-w-md px-6 py-10 print:m-0 print:max-w-none print:p-0">
+      <style>{`@media print { @page { size: 60mm 40mm; margin: 0; } html, body { background: #fff !important; } }`}</style>
+
+      <div className="print:hidden">
+        <Link
+          href={`/groups/${id}/listings/${listingId}`}
+          className="inline-flex items-center gap-1 text-sm text-slate-600 dark:text-slate-400 hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
+          İlana dön
+        </Link>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          {shipment.printedAt ? (
+            <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+              Transfere hazır — sevkiyatçının ekranına düştü
+            </span>
+          ) : (
+            <span className="text-sm text-slate-600 dark:text-slate-400">60 x 40 mm sevkiyat etiketi</span>
+          )}
+          {isOwner && <PrintButton shipmentId={shipment.id} />}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">Etiket yazıcınızda kağıt boyutunu 60 x 40 mm seçin.</p>
       </div>
 
-      <div className="mt-4 rounded-2xl border-2 border-slate-900 bg-white p-6 text-slate-900 print:mt-0 print:border-black">
-        <div className="flex items-center justify-between border-b-2 border-dashed border-slate-300 pb-4">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">Sevkiyat Kodu</p>
-            <p className="font-mono text-sm font-bold">{offer.shipment.code}</p>
-          </div>
-          <img src={qrDataUrl} alt="Sevkiyat karekodu" width={110} height={110} />
-        </div>
-
-        <div className="mt-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Gönderen Eczane</p>
-          <p className="font-semibold">{offer.listing.user.pharmacyName}</p>
-          <p className="text-sm text-slate-600">{offer.listing.user.address ?? "—"}</p>
-          <p className="text-sm text-slate-600">
-            {offer.listing.user.region}
-            {offer.listing.user.district ? ` / ${offer.listing.user.district}` : ""}
-          </p>
-        </div>
-
-        <div className="mt-4 border-t-2 border-dashed border-slate-300 pt-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Alıcı Eczane</p>
-          <p className="font-semibold">{offer.user.pharmacyName}</p>
-          <p className="text-sm text-slate-600">{offer.user.address ?? "—"}</p>
-          <p className="text-sm text-slate-600">
-            {offer.user.region}
-            {offer.user.district ? ` / ${offer.user.district}` : ""}
-          </p>
-        </div>
-
-        <div className="mt-4 border-t-2 border-dashed border-slate-300 pt-4">
-          <p className="text-xs uppercase tracking-wide text-slate-500">Teslim Alınan Ürün</p>
-          <p className="font-semibold">{offer.listing.medicineName}</p>
-          <p className="text-sm text-slate-600">Adet: {offer.quantity}</p>
-        </div>
-
-        {offer.shipment.barcodes && (
-          <div className="mt-4 border-t-2 border-dashed border-slate-300 pt-4">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Karekodlar</p>
-            <ul className="mt-1 font-mono text-[11px] leading-relaxed text-slate-700">
-              {offer.shipment.barcodes.split("\n").filter(Boolean).map((code) => (
-                <li key={code}>{code}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+      <div className="mt-4 print:mt-0">
+        <ShipmentLabel
+          code={code}
+          qrDataUrl={qrDataUrl}
+          senderName={offer.listing.user.pharmacyName ?? offer.listing.user.contactName}
+          receiver={{
+            name: offer.user.pharmacyName ?? offer.user.contactName,
+            region: offer.user.region,
+            district: offer.user.district,
+          }}
+          items={items}
+          date={shipment.createdAt}
+        />
       </div>
+
+      {barcodes.length > 0 && (
+        <div className="mt-6 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 print:hidden">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <QrCode className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Yüklenen Karekodlar ({barcodes.length})
+          </p>
+          <ul className="mt-2 font-mono text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+            {barcodes.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

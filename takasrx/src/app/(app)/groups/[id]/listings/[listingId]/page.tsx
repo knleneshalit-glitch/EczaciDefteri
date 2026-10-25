@@ -29,6 +29,7 @@ import {
   Ban,
   Layers,
   Share2,
+  Star,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -49,6 +50,7 @@ import { effectiveUnitPrice, priceWithoutVat, tierUnitPrice, reachedTier } from 
 import { statusBadgeClass } from "@/lib/status-styles";
 import { closeExpiredTargetListings } from "@/lib/listings";
 import { LISTING_CHANGE_LABEL } from "@/lib/listing-changes";
+import { toggleFavoriteAction } from "@/app/actions/favorites";
 import BackButton from "@/components/BackButton";
 import MedicineImageUpload from "@/components/MedicineImageUpload";
 
@@ -123,6 +125,11 @@ export default async function ListingDetailPage(
           orderBy: { user: { pharmacyName: "asc" } },
         })
       : [];
+
+  const isFavorite =
+    (await prisma.favoriteProduct.count({
+      where: { userId: user.id, medicineName: listing.medicineName },
+    })) > 0;
 
   const approvedImage = listing.barkod
     ? await prisma.medicineImage.findFirst({
@@ -263,6 +270,21 @@ export default async function ListingDetailPage(
               <Sparkles className="h-5 w-5 shrink-0 text-violet-500" strokeWidth={1.75} />
               {listing.title}
             </h1>
+            <form
+              action={toggleFavoriteAction.bind(null, listing.medicineName, listing.barkod, `/groups/${id}/listings/${listingId}`)}
+            >
+              <button
+                title={isFavorite ? "Favorilerden çıkar" : "Favorilere ekle — gruba çıkınca bildirim al"}
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  isFavorite
+                    ? "border-amber-400 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                    : "border-slate-300 text-slate-600 hover:border-amber-400 hover:text-amber-600 dark:border-slate-700 dark:text-slate-300"
+                }`}
+              >
+                <Star className={`h-3.5 w-3.5 ${isFavorite ? "fill-amber-400 text-amber-500" : ""}`} strokeWidth={1.75} />
+                {isFavorite ? "Favorilerimde" : "Favorilere Ekle"}
+              </button>
+            </form>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {isDepoOzelSart && (

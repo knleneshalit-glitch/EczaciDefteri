@@ -5,8 +5,9 @@ import { requireUser } from "@/lib/require-user";
 import { closeExpiredTargetListingsForGroups } from "@/lib/listings";
 import MarketListings from "@/components/MarketListings";
 
-export default async function MarketPage() {
+export default async function MarketPage(props: PageProps<"/market">) {
   const user = await requireUser();
+  const { q } = await props.searchParams;
 
   const memberships = await prisma.groupMember.findMany({
     where: { userId: user.id, status: "APPROVED" },
@@ -60,7 +61,7 @@ export default async function MarketPage() {
           </Link>
         </p>
       ) : (
-        <MarketListings listings={listings} />
+        <MarketListings listings={listings} initialQuery={typeof q === "string" ? q : ""} />
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { Tag, ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requirePharmacy } from "@/lib/require-user";
 import { generateQrDataUrl } from "@/lib/qrcode";
+import ShipmentLabel from "@/components/ShipmentLabel";
 import BulkPrintButton from "./BulkPrintButton";
 
 export default async function BulkLabelsPage(props: PageProps<"/shipments/labels">) {
@@ -74,44 +75,16 @@ export default async function BulkLabelsPage(props: PageProps<"/shipments/labels
       <div className="mt-6 flex flex-wrap gap-4 print:mt-0 print:block">
         {labels.map(({ key, code, items, qr }) => {
           const buyer = items[0].offer.user;
-          const isPackage = items.length > 1 || !!items[0].packageCode;
           return (
-            <div
+            <ShipmentLabel
               key={key}
-              className="flex h-[40mm] w-[60mm] flex-col overflow-hidden rounded-md border border-slate-900 bg-white p-[2mm] text-black print:break-after-page print:rounded-none print:border-0"
-            >
-              <div className="flex gap-[2mm]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={qr} alt="Sevkiyat karekodu" className="h-[17mm] w-[17mm] shrink-0" />
-                <div className="min-w-0 text-[7pt] leading-tight">
-                  <p className="font-mono text-[6.5pt] font-bold">{code}</p>
-                  <p className="mt-[0.5mm] truncate">
-                    <span className="font-semibold">Gönderen:</span> {pharmacy.pharmacyName ?? pharmacy.contactName}
-                  </p>
-                  <p className="truncate">
-                    <span className="font-semibold">Alıcı:</span> {buyer.pharmacyName ?? buyer.contactName}
-                  </p>
-                  <p className="truncate text-[6.5pt]">
-                    {buyer.region}
-                    {buyer.district ? ` / ${buyer.district}` : ""}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-[1mm] text-[7pt] font-bold leading-tight">
-                {items.slice(0, isPackage ? 3 : 1).map((s) => (
-                  <p key={s.id} className="truncate">
-                    {s.offer.quantity} X {s.offer.listing.medicineName}
-                  </p>
-                ))}
-                {items.length > 3 && <p className="font-normal">+{items.length - 3} ürün daha</p>}
-              </div>
-              <p className="mt-auto flex justify-between text-[6.5pt]">
-                <span>
-                  Koli: 1/1 · {items.length} ürün · {items.reduce((sum, s) => sum + s.offer.quantity, 0)} adet
-                </span>
-                <span>{items[0].createdAt.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}</span>
-              </p>
-            </div>
+              code={code}
+              qrDataUrl={qr}
+              senderName={pharmacy.pharmacyName ?? pharmacy.contactName}
+              receiver={{ name: buyer.pharmacyName ?? buyer.contactName, region: buyer.region, district: buyer.district }}
+              items={items.map((s) => ({ quantity: s.offer.quantity, name: s.offer.listing.medicineName }))}
+              date={items[0].createdAt}
+            />
           );
         })}
       </div>

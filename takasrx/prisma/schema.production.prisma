@@ -97,13 +97,14 @@ model User {
   needRequests   NeedRequest[]
   needResponses  NeedResponse[]
 
-  courierFor     CourierAssignment[] @relation("CourierAssignmentCourier")
-  assignedTo     CourierAssignment[] @relation("CourierAssignmentPharmacy")
-  shipments      Shipment[]          @relation("ShipmentCourier")
-  announcements  Announcement[]
-  medicineImages MedicineImage[]
-  listingChanges ListingChange[]
-  supportTickets SupportTicket[]
+  courierFor       CourierAssignment[] @relation("CourierAssignmentCourier")
+  assignedTo       CourierAssignment[] @relation("CourierAssignmentPharmacy")
+  shipments        Shipment[]          @relation("ShipmentCourier")
+  announcements    Announcement[]
+  medicineImages   MedicineImage[]
+  listingChanges   ListingChange[]
+  supportTickets   SupportTicket[]
+  favoriteProducts FavoriteProduct[]
 }
 
 enum SupportStatus {
@@ -127,6 +128,22 @@ model SupportTicket {
 
   @@index([status])
   @@index([userId])
+}
+
+/// Eczanenin takip ettiği ürünler: gruplarından birinde bu ürün ilana
+/// çıktığında "Ürün Bildirimi" gönderilir.
+model FavoriteProduct {
+  id           String   @id @default(cuid())
+  userId       String
+  medicineName String
+  barkod       String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, medicineName])
+  @@index([barkod])
+  @@index([medicineName])
 }
 
 model Announcement {

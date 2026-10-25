@@ -36,8 +36,14 @@ export type MarketListing = {
   _count?: { tiers: number };
 };
 
-export default function MarketListings({ listings }: { listings: MarketListing[] }) {
-  const [query, setQuery] = useState("");
+export default function MarketListings({
+  listings,
+  initialQuery = "",
+}: {
+  listings: MarketListing[];
+  initialQuery?: string;
+}) {
+  const [query, setQuery] = useState(initialQuery);
 
   const filtered = useMemo(() => {
     const q = foldTr(query.trim());
