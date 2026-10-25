@@ -26,6 +26,7 @@ import {
   PlayCircle,
   CopyPlus,
   History,
+  Ban,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -72,12 +73,14 @@ const OFFER_STATUS_LABEL: Record<string, string> = {
   PENDING: "Bekliyor",
   ACCEPTED: "Kabul Edildi",
   REJECTED: "Reddedildi",
+  CANCELLED: "İptal Edildi",
 };
 
 const OFFER_STATUS_ICON: Record<string, LucideIcon> = {
   PENDING: Clock,
   ACCEPTED: CheckCircle2,
   REJECTED: XCircle,
+  CANCELLED: Ban,
 };
 
 export default async function ListingDetailPage(
@@ -146,10 +149,10 @@ export default async function ListingDetailPage(
     .filter((o) => o.status === "ACCEPTED")
     .reduce((sum, o) => sum + o.quantity, 0);
   const demandQty = listing.offers
-    .filter((o) => o.status !== "REJECTED")
+    .filter((o) => o.status === "PENDING" || o.status === "ACCEPTED")
     .reduce((sum, o) => sum + o.quantity, 0);
   const demandPharmacyCount = new Set(
-    listing.offers.filter((o) => o.status !== "REJECTED").map((o) => o.userId)
+    listing.offers.filter((o) => o.status === "PENDING" || o.status === "ACCEPTED").map((o) => o.userId)
   ).size;
   const remaining =
     listing.totalStock != null

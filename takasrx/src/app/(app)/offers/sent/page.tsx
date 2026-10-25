@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { Send, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Send, Clock, CheckCircle2, XCircle, Ban } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { requireUser } from "@/lib/require-user";
@@ -9,12 +9,14 @@ const OFFER_STATUS_LABEL: Record<string, string> = {
   PENDING: "Bekliyor",
   ACCEPTED: "Kabul Edildi",
   REJECTED: "Reddedildi",
+  CANCELLED: "İptal Edildi",
 };
 
 const OFFER_STATUS_ICON: Record<string, LucideIcon> = {
   PENDING: Clock,
   ACCEPTED: CheckCircle2,
   REJECTED: XCircle,
+  CANCELLED: Ban,
 };
 
 export default async function SentOffersPage() {

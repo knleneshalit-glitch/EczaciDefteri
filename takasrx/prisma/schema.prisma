@@ -29,6 +29,7 @@ enum OfferStatus {
   PENDING
   ACCEPTED
   REJECTED
+  CANCELLED
 }
 
 enum LedgerEntryType {

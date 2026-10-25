@@ -10,6 +10,7 @@ const STATUS_COLORS: Record<string, string> = {
   PENDING: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
   ACCEPTED: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   REJECTED: "bg-red-500/10 text-red-700 dark:text-red-400",
+  CANCELLED: "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 line-through",
   // Shipment
   HAZIRLANIYOR: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
   TESLIM_ALINDI: "bg-blue-500/10 text-blue-700 dark:text-blue-400",

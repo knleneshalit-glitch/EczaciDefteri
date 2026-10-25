@@ -2,37 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { ListingChangeType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
 import { requireApprovedMember } from "@/lib/group-access";
 import { effectiveUnitPrice } from "@/lib/pricing";
-import { recordTrade } from "@/lib/ledger";
 import { createNotification } from "@/lib/notifications";
+import { logListingChanges, type ListingChangeInput } from "@/lib/listing-log";
+import { acceptOffer, rejectOffer } from "@/lib/offers";
 
 export type ListingState = { error?: string } | undefined;
-
-type ListingChangeInput = { type: ListingChangeType; oldValue: string | null; newValue: string | null };
-
-async function logListingChanges(
-  listing: { id: string; groupId: string },
-  userId: string,
-  changes: ListingChangeInput[],
-  note?: string | null
-) {
-  if (changes.length === 0) return;
-  await prisma.listingChange.createMany({
-    data: changes.map((c) => ({
-      listingId: listing.id,
-      groupId: listing.groupId,
-      userId,
-      changeType: c.type,
-      oldValue: c.oldValue,
-      newValue: c.newValue,
-      note: note || null,
-    })),
-  });
-}
 
 function fmtMoney(n: number | null | undefined) {
   return n != null ? `${n.toFixed(2)} ₺` : "—";
@@ -568,56 +546,17 @@ export async function respondOfferAction(
   if (!listing || listing.userId !== user.id) {
     throw new Error("Bu ilana ait değilsiniz.");
   }
-  if (listing.listingKind === "DEPO_OZEL_SART") {
-    throw new Error("Bu ilan depo özel şartı aşamasında. Önce ürünü stoğa dönüştürün.");
-  }
 
   const offer = await prisma.offer.findUnique({ where: { id: offerId } });
-  if (!offer || offer.listingId !== listingId || offer.status !== "PENDING") {
+  if (!offer) {
     throw new Error("Geçersiz teklif.");
   }
 
-  await prisma.offer.update({
-    where: { id: offerId },
-    data: accept ? { status: "ACCEPTED", acceptedAt: new Date() } : { status: "REJECTED" },
-  });
-
   if (accept) {
-    if (listing.totalStock != null && !listing.targetReachedAt) {
-      const acceptedOffers = await prisma.offer.findMany({
-        where: { listingId, status: "ACCEPTED" },
-        select: { quantity: true },
-      });
-      const soldQty = acceptedOffers.reduce((sum, o) => sum + o.quantity, 0);
-      if (soldQty >= listing.totalStock) {
-        // Hedefe ulaşıldığında ilan hemen kapanmaz; grup üyeleri "Hedefe
-        // Ulaşıldı" rozetiyle bir gün daha görebilsin diye açık kalır.
-        await prisma.listing.update({ where: { id: listingId }, data: { targetReachedAt: new Date() } });
-        await logListingChanges(listing, user.id, [
-          { type: "DURUM", oldValue: "Açık", newValue: `Hedefe Ulaşıldı (${soldQty} adet satıldı)` },
-        ]);
-      }
-    }
-
-    if (offer.totalPrice && offer.totalPrice > 0) {
-      await recordTrade({
-        groupId,
-        buyerId: offer.userId,
-        sellerId: user.id,
-        amount: offer.totalPrice,
-        offerId: offer.id,
-        note: `${listing.title} (${offer.quantity} adet)`,
-      });
-    }
+    await acceptOffer(listing, offer, user.id);
+  } else {
+    await rejectOffer(listing, offer);
   }
-
-  await createNotification({
-    userId: offer.userId,
-    message: accept
-      ? `Teklifiniz kabul edildi: ${listing.title}.`
-      : `Teklifiniz reddedildi: ${listing.title}.`,
-    link: `/groups/${groupId}/listings/${listingId}`,
-  });
 
   revalidatePath(`/groups/${groupId}/listings/${listingId}`);
   revalidatePath(`/groups/${groupId}/balances`);
