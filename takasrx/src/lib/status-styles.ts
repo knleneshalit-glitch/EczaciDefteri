@@ -4,6 +4,7 @@ const STATUS_COLORS: Record<string, string> = {
   OPEN: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   MATCHED: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
   CLOSED: "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400",
+  PASSIVE: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
   FULFILLED: "bg-blue-500/10 text-blue-700 dark:text-blue-400",
   // Offer / need response
   PENDING: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
@@ -17,4 +18,21 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function statusBadgeClass(status: string) {
   return STATUS_COLORS[status] ?? "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300";
+}
+
+/**
+ * İlanın listelerde gösterilecek durumu: açık ilan hedefe ulaştıysa
+ * "Hedefe Ulaşıldı" olarak ayrıca işaretlenir.
+ */
+export function listingDisplayStatus(listing: { status: string; targetReachedAt: Date | null }) {
+  if (listing.status === "PASSIVE") return { key: "PASSIVE", label: "Pasif" };
+  if (listing.targetReachedAt) return { key: "TARGET", label: "Hedefe Ulaşıldı" };
+  if (listing.status === "OPEN") return { key: "OPEN", label: "Açık" };
+  if (listing.status === "MATCHED") return { key: "MATCHED", label: "Eşleşti" };
+  return { key: "CLOSED", label: "Kapandı" };
+}
+
+export function listingDisplayStatusClass(key: string) {
+  if (key === "TARGET") return "bg-red-500/10 text-red-700 dark:text-red-400";
+  return statusBadgeClass(key);
 }

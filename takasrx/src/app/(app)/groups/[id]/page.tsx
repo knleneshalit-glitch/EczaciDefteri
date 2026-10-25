@@ -16,6 +16,7 @@ import {
   Ban,
   Unlock,
   Package,
+  History,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -33,6 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
   MATCHED: "Eşleşti",
   CLOSED: "Kapandı",
+  PASSIVE: "Pasif",
 };
 
 export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) {
@@ -51,7 +53,7 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
 
   if (isApproved) await closeExpiredTargetListings(id);
 
-  const [listings, pendingMembers] = await Promise.all([
+  const [allListings, pendingMembers] = await Promise.all([
     isApproved
       ? prisma.listing.findMany({
           where: user.isSuperAdmin
@@ -72,6 +74,11 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
         })
       : Promise.resolve([]),
   ]);
+
+  // Pasife çekilen ilanları sadece sahibi (ve süper admin) görür.
+  const listings = allListings.filter(
+    (l) => l.status !== "PASSIVE" || l.userId === user.id || user.isSuperAdmin
+  );
 
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
@@ -113,6 +120,13 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
             >
               <HelpCircle className="h-4 w-4" strokeWidth={1.75} />
               İhtiyaç Bildirimleri
+            </Link>
+            <Link
+              href={`/updates?group=${group.id}`}
+              className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <History className="h-4 w-4" strokeWidth={1.75} />
+              Teklif Güncellemeleri
             </Link>
             {!group.closedAt && (
               <Link

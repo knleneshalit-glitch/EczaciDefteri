@@ -22,6 +22,7 @@ enum ListingStatus {
   OPEN
   MATCHED
   CLOSED
+  PASSIVE
 }
 
 enum OfferStatus {
@@ -58,35 +59,48 @@ enum ListingKind {
   DEPO_OZEL_SART
 }
 
+enum ListingChangeType {
+  DEPO_FIYATI
+  STOK
+  SART
+  SKT
+  ALIM_LIMITI
+  TARIH
+  ACIKLAMA
+  DURUM
+  DIGER
+}
+
 model User {
-  id            String      @id @default(cuid())
-  email         String      @unique
-  passwordHash  String
-  accountType   AccountType @default(PHARMACY)
-  pharmacyName  String?
-  contactName   String
-  gln           String?     @unique
-  region        String
-  district      String?
-  address       String?
-  isSuperAdmin  Boolean     @default(false)
-  createdAt     DateTime    @default(now())
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  accountType  AccountType @default(PHARMACY)
+  pharmacyName String?
+  contactName  String
+  gln          String?     @unique
+  region       String
+  district     String?
+  address      String?
+  isSuperAdmin Boolean     @default(false)
+  createdAt    DateTime    @default(now())
 
   memberships    GroupMember[]
-  createdGroups  Group[]       @relation("GroupCreator")
-  listings       Listing[]     @relation("ListingOwner")
-  targetListings Listing[]     @relation("ListingTarget")
+  createdGroups  Group[]        @relation("GroupCreator")
+  listings       Listing[]      @relation("ListingOwner")
+  targetListings Listing[]      @relation("ListingTarget")
   offers         Offer[]
-  ledgerEntries LedgerEntry[]
-  notifications Notification[]
-  needRequests  NeedRequest[]
-  needResponses NeedResponse[]
+  ledgerEntries  LedgerEntry[]
+  notifications  Notification[]
+  needRequests   NeedRequest[]
+  needResponses  NeedResponse[]
 
   courierFor     CourierAssignment[] @relation("CourierAssignmentCourier")
   assignedTo     CourierAssignment[] @relation("CourierAssignmentPharmacy")
   shipments      Shipment[]          @relation("ShipmentCourier")
   announcements  Announcement[]
   medicineImages MedicineImage[]
+  listingChanges ListingChange[]
 }
 
 model Announcement {
@@ -172,23 +186,24 @@ model Notification {
 }
 
 model Group {
-  id                String    @id @default(cuid())
-  name              String
-  region            String
-  description       String?
-  monthlyInterestRate Float   @default(0)
-  interestEnabled   Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  closedAt          DateTime?
-  grupYukuResetAt   DateTime?
+  id                  String    @id @default(cuid())
+  name                String
+  region              String
+  description         String?
+  monthlyInterestRate Float     @default(0)
+  interestEnabled     Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  closedAt            DateTime?
+  grupYukuResetAt     DateTime?
 
   creatorId String
   creator   User   @relation("GroupCreator", fields: [creatorId], references: [id])
 
-  members       GroupMember[]
-  listings      Listing[]
-  ledgerEntries LedgerEntry[]
-  needRequests  NeedRequest[]
+  members        GroupMember[]
+  listings       Listing[]
+  ledgerEntries  LedgerEntry[]
+  needRequests   NeedRequest[]
+  listingChanges ListingChange[]
 
   @@index([region])
 }
@@ -208,41 +223,63 @@ model GroupMember {
 }
 
 model Listing {
-  id                String        @id @default(cuid())
-  groupId           String
-  userId            String
-  title             String
-  description       String?
-  medicineName      String
-  barkod            String?
-  quantity          String?
-  totalStock        Int?
-  birimFiyat        Float?
-  dealBonusQuantity Int?
-  ekstraIndirim     Float?
+  id                 String        @id @default(cuid())
+  groupId            String
+  userId             String
+  title              String
+  description        String?
+  medicineName       String
+  barkod             String?
+  quantity           String?
+  totalStock         Int?
+  birimFiyat         Float?
+  dealBonusQuantity  Int?
+  ekstraIndirim      Float?
   ekstraIskontoYuzde Float?
-  etiketFiyati      Float?
-  startDate         DateTime?
-  endDate           DateTime?
-  hedefAlim         Int?
-  maxAlim           Int?
-  minAlim           Int?
-  alimKatlari       Int?
-  expiryDate        DateTime?
-  status            ListingStatus @default(OPEN)
-  targetReachedAt   DateTime?
-  listingKind       ListingKind   @default(STOK)
-  allowExceedDemand Boolean       @default(false)
-  targetUserId      String?
-  createdAt         DateTime      @default(now())
+  etiketFiyati       Float?
+  startDate          DateTime?
+  endDate            DateTime?
+  hedefAlim          Int?
+  maxAlim            Int?
+  minAlim            Int?
+  alimKatlari        Int?
+  expiryDate         DateTime?
+  status             ListingStatus @default(OPEN)
+  targetReachedAt    DateTime?
+  listingKind        ListingKind   @default(STOK)
+  allowExceedDemand  Boolean       @default(false)
+  targetUserId       String?
+  createdAt          DateTime      @default(now())
 
-  group      Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user       User    @relation("ListingOwner", fields: [userId], references: [id], onDelete: Cascade)
-  targetUser User?   @relation("ListingTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  group      Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User            @relation("ListingOwner", fields: [userId], references: [id], onDelete: Cascade)
+  targetUser User?           @relation("ListingTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
   offers     Offer[]
+  changes    ListingChange[]
 
   @@index([groupId])
   @@index([targetUserId])
+}
+
+/// İlan sahibinin ilanda yaptığı her değişikliğin kaydı ("Grup İçindeki Teklif
+/// Güncellemeleri" ekranı ve ilan detayındaki güncelleme geçmişi için).
+model ListingChange {
+  id         String            @id @default(cuid())
+  listingId  String
+  groupId    String
+  userId     String
+  changeType ListingChangeType
+  oldValue   String?
+  newValue   String?
+  note       String?
+  createdAt  DateTime          @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+  @@index([listingId])
 }
 
 model Offer {
@@ -255,6 +292,7 @@ model Offer {
   totalPrice Float?
   status     OfferStatus @default(PENDING)
   createdAt  DateTime    @default(now())
+  acceptedAt DateTime?
 
   listing       Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)

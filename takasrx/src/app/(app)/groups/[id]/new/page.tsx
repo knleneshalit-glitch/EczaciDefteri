@@ -2,7 +2,7 @@
 
 import { use, useActionState, useEffect, useState } from "react";
 import { PackagePlus, Send, History, Copy, ChevronDown, Users, Building2 } from "lucide-react";
-import { createListingAction } from "@/app/actions/listings";
+import { createListingAction, listingTemplateAction } from "@/app/actions/listings";
 import { myApprovedGroupsAction, groupApprovedPharmaciesAction } from "@/app/actions/groups";
 import {
   searchMedicinesByNameAction,
@@ -51,7 +51,11 @@ function effectivePricePreview(
 
 export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   const { id } = use(props.params);
+  const searchParams = use(props.searchParams);
+  const templateId = typeof searchParams.from === "string" ? searchParams.from : "";
   const [state, formAction, pending] = useActionState(createListingAction, undefined);
+  const [templateApplied, setTemplateApplied] = useState(false);
+  const [description, setDescription] = useState("");
   const [myGroups, setMyGroups] = useState<MyGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState(id);
   const [targetMode, setTargetMode] = useState<"GROUP" | "PHARMACY">("GROUP");
@@ -86,6 +90,18 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   useEffect(() => {
     myApprovedGroupsAction().then(setMyGroups);
   }, []);
+
+  useEffect(() => {
+    if (!templateId) return;
+    listingTemplateAction(templateId).then((t) => {
+      if (!t) return;
+      applyPreviousListing({ ...t, id: templateId, createdAt: new Date(), user: { pharmacyName: null, contactName: "" } });
+      setDescription(t.description ?? "");
+      setListingKind(t.listingKind === "DEPO_OZEL_SART" ? "DEPO_OZEL_SART" : "STOK");
+      setAllowExceedDemand(t.allowExceedDemand);
+      setTemplateApplied(true);
+    });
+  }, [templateId]);
 
   useEffect(() => {
     if (targetMode !== "PHARMACY" || !selectedGroupId) {
@@ -168,6 +184,12 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
         <PackagePlus className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Yeni Talep / Teklif Oluştur
       </h1>
+      {templateApplied && (
+        <p className="mt-3 flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300">
+          <Copy className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+          Önceki ilanınızın şartları forma aktarıldı. Kontrol edip yayınlayabilirsiniz.
+        </p>
+      )}
 
       <form action={formAction} className="mt-8 flex flex-col gap-8">
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
@@ -690,6 +712,8 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
           <textarea
             name="description"
             rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
             placeholder="En fazla 100 karakter"
             maxLength={500}

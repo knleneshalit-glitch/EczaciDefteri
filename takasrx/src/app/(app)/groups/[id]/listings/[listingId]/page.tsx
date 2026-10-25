@@ -22,6 +22,10 @@ import {
   ArrowRightLeft,
   Users,
   AlertTriangle,
+  PauseCircle,
+  PlayCircle,
+  CopyPlus,
+  History,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
@@ -32,6 +36,7 @@ import {
   respondOfferAction,
   closeListingAction,
   reopenListingAction,
+  pauseListingAction,
   convertToStockAction,
   confirmOfferPriceChangeAction,
   withdrawOfferAction,
@@ -39,6 +44,7 @@ import {
 import { effectiveUnitPrice } from "@/lib/pricing";
 import { statusBadgeClass } from "@/lib/status-styles";
 import { closeExpiredTargetListings } from "@/lib/listings";
+import { LISTING_CHANGE_LABEL } from "@/lib/listing-changes";
 import BackButton from "@/components/BackButton";
 import MedicineImageUpload from "@/components/MedicineImageUpload";
 
@@ -52,12 +58,14 @@ const STATUS_LABEL: Record<string, string> = {
   OPEN: "Açık",
   MATCHED: "Eşleşti",
   CLOSED: "Kapandı",
+  PASSIVE: "Pasif",
 };
 
 const STATUS_ICON: Record<string, LucideIcon> = {
   OPEN: CircleDot,
   MATCHED: CheckCircle2,
   CLOSED: Lock,
+  PASSIVE: PauseCircle,
 };
 
 const OFFER_STATUS_LABEL: Record<string, string> = {
@@ -87,6 +95,7 @@ export default async function ListingDetailPage(
       user: true,
       targetUser: true,
       offers: { include: { user: true, shipment: true }, orderBy: { createdAt: "desc" } },
+      changes: { orderBy: { createdAt: "desc" }, take: 20 },
     },
   });
   if (!listing || listing.groupId !== id) notFound();
@@ -216,11 +225,36 @@ export default async function ListingDetailPage(
                 Düzenle
               </Link>
             )}
+            {isOwner && (
+              <Link
+                href={`/groups/${id}/new?from=${listingId}`}
+                className="flex items-center gap-1 rounded-full border border-emerald-300 dark:border-emerald-800 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+              >
+                <CopyPlus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Aynı Şartlarda Yeni İlan
+              </Link>
+            )}
+            {isOwner && listing.status === "OPEN" && (
+              <form action={pauseListingAction.bind(null, id, listingId)}>
+                <button className="flex items-center gap-1 rounded-full border border-orange-300 dark:border-orange-800 px-3 py-1 text-xs font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10">
+                  <PauseCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Pasife Çek
+                </button>
+              </form>
+            )}
             {isOwner && listing.status === "OPEN" && (
               <form action={closeListingAction.bind(null, id, listingId)}>
                 <button className="flex items-center gap-1 rounded-full border border-red-300 dark:border-red-800 px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10">
                   <Lock className="h-3.5 w-3.5" strokeWidth={1.75} />
                   İlanı Kapat
+                </button>
+              </form>
+            )}
+            {isOwner && listing.status === "PASSIVE" && (
+              <form action={reopenListingAction.bind(null, id, listingId)}>
+                <button className="flex items-center gap-1 rounded-full border border-blue-300 dark:border-blue-800 px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10">
+                  <PlayCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  Yayına Al
                 </button>
               </form>
             )}
@@ -567,6 +601,44 @@ export default async function ListingDetailPage(
           )}
         </ul>
       </section>
+
+      {listing.changes.length > 0 && (
+        <section className="mt-8">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <History className="h-4 w-4 text-blue-600 dark:text-blue-400" strokeWidth={1.75} />
+            Güncelleme Geçmişi ({listing.changes.length})
+          </h2>
+          <ol className="mt-3 flex flex-col gap-2 border-l-2 border-blue-500/30 pl-4">
+            {listing.changes.map((c) => (
+              <li key={c.id} className="text-sm">
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-slate-900 dark:text-slate-100">
+                    {LISTING_CHANGE_LABEL[c.changeType] ?? c.changeType}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {c.createdAt.toLocaleString("tr-TR", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                      timeZone: "Europe/Istanbul",
+                    })}
+                  </span>
+                </p>
+                {(c.oldValue || c.newValue) && (
+                  <p className="whitespace-pre-line text-xs text-slate-600 dark:text-slate-400">
+                    {c.oldValue ? (
+                      <>
+                        <span className="line-through">{c.oldValue}</span> →{" "}
+                      </>
+                    ) : null}
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{c.newValue ?? "—"}</span>
+                  </p>
+                )}
+                {c.note && <p className="text-xs italic text-slate-500">“{c.note}”</p>}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   );
 }

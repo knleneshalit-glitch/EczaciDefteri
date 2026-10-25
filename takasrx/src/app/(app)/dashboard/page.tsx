@@ -15,10 +15,64 @@ import {
   ChevronRight,
   ShoppingBag,
   Megaphone,
+  TrendingUp,
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/require-user";
+import { getEarnings, alimKazancYuzde, toplamKazanc, type EarningsSummary } from "@/lib/earnings";
 import CariOzetiPager from "@/components/CariOzetiPager";
+
+function EarningsCard({ title, earnings }: { title: string; earnings: EarningsSummary }) {
+  const toplam = toplamKazanc(earnings);
+  const rows = [
+    {
+      label: "Alımlarımdan Kazanç",
+      value: `${earnings.alimKazanci.toFixed(2)} ₺`,
+      hint: `%${alimKazancYuzde(earnings).toFixed(1)} · ${earnings.alimAdedi} adet`,
+    },
+    {
+      label: "Stoğa Bağlanmayan Nakit",
+      value: `${earnings.satisNakdi.toFixed(2)} ₺`,
+      hint: "Satışlarınızdan nakde dönen",
+    },
+    {
+      label: "Valör (Grup Yükü) Getirisi",
+      value: `${earnings.valorGetirisi.toFixed(2)} ₺`,
+      hint: "Bakiyenize işlenen aylık valör",
+    },
+    {
+      label: "Grup Kazancı",
+      value: `${earnings.grupKazanci.toFixed(2)} ₺`,
+      hint: "Gruplarınızdaki tüm alımların kazancı",
+    },
+  ];
+
+  return (
+    <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-white to-teal-500/5 dark:via-slate-900 p-5 shadow-sm">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <TrendingUp className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={2} />
+        {title}
+      </p>
+      <p
+        className={`mt-1 text-3xl font-extrabold ${
+          toplam >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+        }`}
+      >
+        {toplam.toFixed(2)} ₺
+      </p>
+      <p className="text-xs text-slate-500">Toplam kazanç (alım kazancı + valör getirisi)</p>
+      <dl className="mt-4 grid grid-cols-2 gap-3">
+        {rows.map((r) => (
+          <div key={r.label} className="rounded-lg bg-white/70 dark:bg-slate-800/50 p-3">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{r.label}</dt>
+            <dd className="mt-0.5 font-bold text-slate-900 dark:text-slate-100">{r.value}</dd>
+            <dd className="text-[11px] text-slate-500">{r.hint}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 function StatCard({
   label,
@@ -137,6 +191,10 @@ export default async function DashboardPage() {
   const groupCari = computeCari(groupLedgerEntries);
   const { toplamCari } = personalCari;
 
+  const now = new Date();
+  const earnings = await getEarnings(user.id, groupIds, now);
+  const monthTitle = now.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+
   return (
     <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
       <div className="flex items-center justify-between">
@@ -195,6 +253,17 @@ export default async function DashboardPage() {
           accent={toplamCari >= 0 ? "emerald" : "red"}
         />
       </div>
+
+      <section className="mt-8">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+          Kazancım
+        </h2>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <EarningsCard title={`Bu Ay · ${monthTitle}`} earnings={earnings.month} />
+          <EarningsCard title={`Bu Yıl · ${now.getFullYear()}`} earnings={earnings.year} />
+        </div>
+      </section>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1.3fr_1fr]">
         <div>

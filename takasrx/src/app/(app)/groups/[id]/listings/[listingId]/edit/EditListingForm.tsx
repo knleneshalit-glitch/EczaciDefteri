@@ -299,6 +299,21 @@ export default function EditListingForm({
           />
         </section>
 
+        <section className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-5">
+          <label className={labelClass}>Güncelleme Açıklaması (opsiyonel)</label>
+          <textarea
+            name="changeNote"
+            rows={2}
+            maxLength={300}
+            placeholder="Ör. Depo kampanyası bitti, fiyat güncellendi."
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Yaptığınız değişiklikler &quot;Teklif Güncellemeleri&quot; ekranında grup üyelerine bu
+            açıklamayla birlikte görünür.
+          </p>
+        </section>
+
         {state?.error && (
           <p className="text-sm text-red-600 dark:text-red-400" aria-live="polite">
             {state.error}
