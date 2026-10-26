@@ -245,12 +245,12 @@ export default async function ListingDetailPage(
   const blockedByLimit = creditQty != null && creditQty < minQty;
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-4">
         <BackButton />
       </div>
       <div
-        className={`rounded-2xl border p-6 shadow-sm ${
+        className={`rounded-2xl border p-4 sm:p-6 shadow-sm ${
           targetReached
             ? "border-emerald-400 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-500/10"
             : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
@@ -286,7 +286,7 @@ export default async function ListingDetailPage(
               </button>
             </form>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isDepoOzelSart && (
               <span className="flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-500/20 px-2.5 py-1 text-xs font-medium text-violet-700 dark:text-violet-400">
                 <PackageSearch className="h-3.5 w-3.5" strokeWidth={1.75} />

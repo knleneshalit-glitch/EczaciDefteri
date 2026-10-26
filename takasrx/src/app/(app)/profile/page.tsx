@@ -7,7 +7,7 @@ export default async function ProfilePage() {
   const user = await requireUser();
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 py-10">
+    <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <UserCog className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Hesap Ayarları

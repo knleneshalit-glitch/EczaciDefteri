@@ -188,7 +188,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <PackagePlus className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Yeni Talep / Teklif Oluştur
@@ -200,7 +200,7 @@ export default function NewListingPage(props: PageProps<"/groups/[id]/new">) {
         </p>
       )}
 
-      <form action={formAction} className="mt-8 flex flex-col gap-8">
+      <form action={formAction} className="mt-6 flex flex-col gap-6 sm:mt-8 sm:gap-8">
         <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Kime Çıkacak?</h2>
           <p className="mt-1 text-xs text-slate-500">

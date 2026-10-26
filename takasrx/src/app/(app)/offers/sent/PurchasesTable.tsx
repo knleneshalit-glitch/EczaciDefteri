@@ -296,7 +296,7 @@ export default function PurchasesTable({ rows }: { rows: PurchaseRow[] }) {
             })}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-3 py-8 text-left sm:text-center text-sm text-slate-500">
                   Bu filtreyle eşleşen alım yok.
                 </td>
               </tr>

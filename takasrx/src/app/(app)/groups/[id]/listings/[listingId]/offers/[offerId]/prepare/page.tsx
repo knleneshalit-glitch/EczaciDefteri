@@ -29,7 +29,7 @@ export default async function PrepareShipmentPage(
   const qrDataUrl = offer.shipment ? await generateQrDataUrl(offer.shipment.code) : null;
 
   return (
-    <div className="mx-auto w-full max-w-lg px-6 py-10">
+    <div className="mx-auto w-full max-w-lg px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <QrCode className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Sevkiyat Hazırlama
@@ -38,7 +38,7 @@ export default async function PrepareShipmentPage(
         Teklifi kabul ettiniz. Şimdi sevkiyatı karekodla eşleştirip transfere hazırlayın.
       </p>
 
-      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
+      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-6">
         <p className="font-semibold text-slate-900 dark:text-slate-100">{offer.listing.medicineName}</p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
           {offer.quantity} adet
@@ -60,7 +60,7 @@ export default async function PrepareShipmentPage(
           </form>
         </>
       ) : (
-        <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 text-center">
+        <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 sm:p-6 text-center">
           <ShieldCheck className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
           <p className="mt-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
             Karekodlar yüklendi — transfer için hazır.

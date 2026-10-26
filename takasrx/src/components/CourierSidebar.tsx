@@ -3,6 +3,9 @@ import { ArrowLeftRight, Truck, Bell, LogOut, Route, History, Search, UserCog } 
 import { logoutAction } from "@/app/actions/auth";
 import ThemeToggle from "@/components/ThemeToggle";
 import PaletteSelector from "@/components/PaletteSelector";
+import NavLink from "@/components/NavLink";
+import SidebarCollapseButton from "@/components/SidebarCollapseButton";
+import { NAV_ICON_CLASS, NAV_LINK_CLASS, SIDEBAR_CLASS } from "@/components/Sidebar";
 
 const COURIER_NAV = [
   { href: "/courier/dashboard", label: "Bugünün Rotası", Icon: Route },
@@ -20,19 +23,22 @@ export default function CourierSidebar({
   unreadCount?: number;
 }) {
   return (
-    <div className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 print:hidden">
-      <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-        <div className="flex items-center justify-between">
+    <div className={SIDEBAR_CLASS}>
+      <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800 lg:sidebar-collapsed:px-0">
+        <div className="flex items-center justify-between lg:sidebar-collapsed:flex-col lg:sidebar-collapsed:gap-3">
           <Link
             href="/courier/dashboard"
+            title="Bugünün Rotası"
             className="flex items-center gap-2 text-lg font-bold text-emerald-600 dark:text-emerald-400"
           >
             <ArrowLeftRight className="h-5 w-5" strokeWidth={2.5} />
-            TakasRX
+            <span className="lg:sidebar-collapsed:hidden">TakasRX</span>
           </Link>
           <Link
             href="/courier/notifications"
-            className="relative text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            title="Bildirimler"
+            aria-label="Bildirimler"
+            className="relative hidden text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white lg:block"
           >
             <Bell className="h-5 w-5" strokeWidth={1.75} />
             {unreadCount > 0 && (
@@ -42,33 +48,44 @@ export default function CourierSidebar({
             )}
           </Link>
         </div>
-        <p className="mt-1 text-xs text-slate-500">Sevkiyatçı Paneli</p>
+        <p className="mt-1 text-xs text-slate-500 lg:sidebar-collapsed:hidden">Sevkiyatçı Paneli</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3">
         {COURIER_NAV.map(({ href, label, Icon }) => (
-          <Link
+          <NavLink
             key={href}
             href={href}
-            className="flex items-center gap-3 px-5 py-2.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            title={label}
+            matchTab={href.startsWith("/courier/dashboard")}
+            className={NAV_LINK_CLASS}
           >
-            <Icon className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.75} />
-            <span>{label}</span>
-          </Link>
+            <Icon className={NAV_ICON_CLASS} strokeWidth={1.75} />
+            <span className="lg:sidebar-collapsed:hidden">{label}</span>
+          </NavLink>
         ))}
       </nav>
 
-      <div className="border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-800">
-        <ThemeToggle className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800" />
-        <PaletteSelector className="mb-3" />
-        <p className="truncate font-medium text-slate-900 dark:text-slate-100">
-          {user.contactName}
-        </p>
-        <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+      <div className="border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-800 lg:sidebar-collapsed:px-3">
+        <SidebarCollapseButton />
+        <ThemeToggle
+          labelClassName="lg:sidebar-collapsed:hidden"
+          className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 lg:sidebar-collapsed:px-0"
+        />
+        <PaletteSelector className="mb-3 lg:sidebar-collapsed:hidden" />
+        <div className="lg:sidebar-collapsed:hidden">
+          <p className="truncate font-medium text-slate-900 dark:text-slate-100">
+            {user.contactName}
+          </p>
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+        </div>
         <form action={logoutAction} className="mt-2">
-          <button className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-            <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Çıkış Yap
+          <button
+            title="Çıkış Yap"
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white lg:sidebar-collapsed:w-full lg:sidebar-collapsed:justify-center"
+          >
+            <LogOut className="h-3.5 w-3.5 lg:sidebar-collapsed:h-4 lg:sidebar-collapsed:w-4" strokeWidth={1.75} />
+            <span className="lg:sidebar-collapsed:hidden">Çıkış Yap</span>
           </button>
         </form>
       </div>

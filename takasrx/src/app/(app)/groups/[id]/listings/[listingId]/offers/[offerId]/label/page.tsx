@@ -44,7 +44,7 @@ export default async function ShipmentLabelPage(
     : [{ quantity: offer.quantity, name: offer.listing.medicineName }];
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 py-10 print:m-0 print:max-w-none print:p-0">
+    <div className="mx-auto w-full max-w-md px-4 py-6 sm:px-6 sm:py-10 print:m-0 print:max-w-none print:p-0">
       <style>{`@media print { @page { size: 60mm 40mm; margin: 0; } html, body { background: #fff !important; } }`}</style>
 
       <div className="print:hidden">

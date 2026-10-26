@@ -19,7 +19,7 @@ export default function BarcodeUploadForm({
   return (
     <form
       action={formAction}
-      className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6"
+      className="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 sm:p-6"
     >
       <div className="text-center">
         <ClipboardList className="mx-auto h-8 w-8 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />

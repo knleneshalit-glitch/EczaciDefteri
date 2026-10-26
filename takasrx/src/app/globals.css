@@ -2,6 +2,9 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Masaüstünde yan menü ikon şeridine daraltıldığında (<html data-sidebar="collapsed">). */
+@custom-variant sidebar-collapsed (&:where([data-sidebar="collapsed"] *));
+
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;

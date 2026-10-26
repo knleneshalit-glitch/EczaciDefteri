@@ -81,14 +81,15 @@ export default async function ReceivedOffersPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 py-10">
+    <div className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <Inbox className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Gönderimlerim
       </h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-        İlanlarınıza gelen alım teklifleri ve gönderim durumları. Ürün ya da eczane seçip sağ
-        panelden toplu işlem yapabilirsiniz.
+        İlanlarınıza gelen alım teklifleri ve gönderim durumları. Ürün ya da eczane seçip{" "}
+        <span className="xl:hidden">alttaki</span>
+        <span className="hidden xl:inline">sağ</span> panelden toplu işlem yapabilirsiniz.
       </p>
 
       {lines.length === 0 ? (

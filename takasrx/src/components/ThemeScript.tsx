@@ -6,6 +6,9 @@ const THEME_SCRIPT = `
     document.documentElement.classList.toggle("dark", dark);
     var palette = localStorage.getItem("palette");
     if (palette) document.documentElement.setAttribute("data-palette", palette);
+    if (localStorage.getItem("sidebar") === "collapsed") {
+      document.documentElement.setAttribute("data-sidebar", "collapsed");
+    }
   } catch (e) {}
 })();
 `;

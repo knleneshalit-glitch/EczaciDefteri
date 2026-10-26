@@ -112,7 +112,7 @@ export default async function ListingUpdatesPage(props: PageProps<"/updates">) {
     "w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none";
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <History className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Grup İçindeki Teklif Güncellemeleri
@@ -215,7 +215,7 @@ export default async function ListingUpdatesPage(props: PageProps<"/updates">) {
                 })}
                 {pageItems.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={5} className="px-4 py-10 text-left sm:text-center text-sm text-slate-500">
                       Kayıt bulunamadı.
                     </td>
                   </tr>

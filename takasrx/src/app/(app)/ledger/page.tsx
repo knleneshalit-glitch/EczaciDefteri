@@ -153,7 +153,7 @@ export default async function LedgerPage(props: PageProps<"/ledger">) {
     "rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-sm text-slate-900 dark:text-slate-100 focus:border-emerald-500 focus:outline-none";
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
@@ -358,7 +358,7 @@ export default async function LedgerPage(props: PageProps<"/ledger">) {
                 })}
                 {productRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={8} className="px-3 py-10 text-left sm:text-center text-sm text-slate-500">
                       Bu tarih aralığında kayıt bulunamadı.
                     </td>
                   </tr>
@@ -408,7 +408,7 @@ export default async function LedgerPage(props: PageProps<"/ledger">) {
               ))}
               {balanceRows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-left sm:text-center text-sm text-slate-500">
                     Bu tarih aralığında bakiye hareketi yok.
                   </td>
                 </tr>

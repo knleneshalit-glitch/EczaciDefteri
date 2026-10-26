@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { Sun, Moon } from "lucide-react";
 
-export default function ThemeToggle({ className }: { className?: string }) {
+export default function ThemeToggle({
+  className,
+  labelClassName,
+}: {
+  className?: string;
+  labelClassName?: string;
+}) {
   const [isDark, setIsDark] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -22,6 +28,7 @@ export default function ThemeToggle({ className }: { className?: string }) {
       type="button"
       onClick={toggle}
       aria-label="Temayı değiştir"
+      title="Temayı değiştir"
       className={
         className ??
         "flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
@@ -34,7 +41,7 @@ export default function ThemeToggle({ className }: { className?: string }) {
       ) : (
         <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
       )}
-      {isDark === null ? "" : isDark ? "Açık Tema" : "Koyu Tema"}
+      <span className={labelClassName}>{isDark === null ? "" : isDark ? "Açık Tema" : "Koyu Tema"}</span>
     </button>
   );
 }

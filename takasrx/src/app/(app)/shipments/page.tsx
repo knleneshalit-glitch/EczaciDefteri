@@ -107,7 +107,7 @@ export default async function ShipmentsPage(props: PageProps<"/shipments">) {
   const card = "rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900";
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <Truck className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Sevkiyat Takibi
@@ -334,7 +334,7 @@ export default async function ShipmentsPage(props: PageProps<"/shipments">) {
                 })}
                 {activeOutgoing.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-3 py-8 text-left sm:text-center text-slate-500">
                       Yolda olan gönderiminiz yok.
                     </td>
                   </tr>
@@ -403,7 +403,7 @@ export default async function ShipmentsPage(props: PageProps<"/shipments">) {
                 })}
                 {activeIncoming.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-3 py-8 text-left sm:text-center text-slate-500">
                       Size gelmekte olan paket yok.
                     </td>
                   </tr>
@@ -482,7 +482,7 @@ export default async function ShipmentsPage(props: PageProps<"/shipments">) {
               })}
               {history.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                  <td colSpan={6} className="px-3 py-8 text-left sm:text-center text-slate-500">
                     Bu dönemde tamamlanan sevkiyat yok.
                   </td>
                 </tr>
@@ -552,7 +552,7 @@ export default async function ShipmentsPage(props: PageProps<"/shipments">) {
                 })}
                 {searchResults.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-3 py-8 text-left sm:text-center text-slate-500">
                       &quot;{q}&quot; ile eşleşen sevkiyat bulunamadı.
                     </td>
                   </tr>

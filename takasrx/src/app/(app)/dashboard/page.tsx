@@ -29,6 +29,7 @@ import { istanbulDateKey, istanbulDayStartFromKey } from "@/lib/dates";
 import PeriodPicker from "@/components/PeriodPicker";
 import AnnouncementsPanel from "@/components/AnnouncementsPanel";
 import CariOzetiPager from "@/components/CariOzetiPager";
+import HelpTip from "@/components/HelpTip";
 import { findFavoriteMatches } from "@/lib/favorite-matches";
 import { effectiveUnitPrice } from "@/lib/pricing";
 
@@ -58,25 +59,22 @@ function EarningsTile({
     slate: "border-slate-400/50 bg-slate-500/10 text-slate-700 dark:text-slate-300",
   };
   return (
-    <div className={`relative flex gap-3 rounded-xl border p-3 ${TONES[tone]}`}>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm">
+    <div className={`relative flex gap-3 rounded-xl border p-2.5 sm:p-3 ${TONES[tone]}`}>
+      <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm sm:flex">
         <Icon className="h-4 w-4" strokeWidth={1.75} />
       </span>
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">{label}</p>
-        <p className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{value.toFixed(2)} ₺</p>
+        <p className="pr-4 text-[11px] font-semibold leading-tight text-emerald-800 dark:text-emerald-300">{label}</p>
+        <p className="mt-0.5 whitespace-nowrap text-base font-extrabold text-slate-900 dark:text-slate-100 sm:text-lg">
+          {value.toFixed(2)} ₺
+        </p>
         {chip && (
-          <span className={`mt-0.5 inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[tone]}`}>
+          <span className={`mt-0.5 inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase leading-tight ${CHIP[tone]}`}>
             {chip}
           </span>
         )}
       </div>
-      <span
-        title={help}
-        className="absolute right-2 top-2 flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-red-400 text-[10px] font-bold text-red-500"
-      >
-        ?
-      </span>
+      <HelpTip text={help} />
     </div>
   );
 }
@@ -91,19 +89,21 @@ function EarningsCard({
   earnings: EarningsSummary;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 shadow-sm sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         {picker}
         <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{title}</p>
       </div>
-      <div className="mt-3 flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 sm:px-4 sm:py-3">
         <span className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-          <TrendingUp className="h-4 w-4" strokeWidth={2} />
+          <TrendingUp className="h-4 w-4 shrink-0" strokeWidth={2} />
           Toplam TakasRX Kazancım
         </span>
-        <span className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400">{toplamKazanc(earnings).toFixed(2)} ₺</span>
+        <span className="whitespace-nowrap text-lg font-extrabold text-emerald-700 dark:text-emerald-400 sm:text-xl">
+          {toplamKazanc(earnings).toFixed(2)} ₺
+        </span>
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
         <EarningsTile
           label="Alımlarımdan Kazancım"
           value={earnings.alimKazanci}
@@ -191,12 +191,16 @@ function StatCard({
   const badgeBg = BADGES[accent ?? "slate"];
   const valueLength = String(value).length;
   const valueSizeClass =
-    valueLength > 8 ? "text-lg" : valueLength > 6 ? "text-xl" : "text-3xl";
+    valueLength > 8
+      ? "text-base sm:text-lg"
+      : valueLength > 6
+        ? "text-lg sm:text-xl"
+        : "text-2xl sm:text-3xl";
 
   return (
     <Link
       href={href}
-      className={`group flex flex-col rounded-xl border p-5 shadow-sm hover:shadow-md transition ${
+      className={`group flex flex-col rounded-xl border p-3 shadow-sm hover:shadow-md transition sm:p-5 ${
         highlight
           ? "border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-500/10"
           : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-400"
@@ -206,15 +210,15 @@ function StatCard({
         <p className={`min-w-0 flex-1 whitespace-nowrap font-bold leading-tight ${valueSizeClass} ${color}`}>
           {value}
         </p>
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${badgeBg} ${color}`}>
-          <Icon className="h-5 w-5" strokeWidth={1.75} />
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full sm:h-11 sm:w-11 ${badgeBg} ${color}`}>
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={1.75} />
         </span>
       </div>
-      <p className="mt-2 text-sm font-medium uppercase tracking-wide text-slate-500 break-words">{label}</p>
+      <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500 break-words sm:text-sm">{label}</p>
       {highlight && (
-        <p className="mt-0.5 text-xs font-bold uppercase text-amber-700 dark:text-amber-400">{highlight}</p>
+        <p className="mt-0.5 text-[11px] font-bold uppercase text-amber-700 dark:text-amber-400 sm:text-xs">{highlight}</p>
       )}
-      <span className="mt-auto flex items-center gap-0.5 pt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400 opacity-0 transition group-hover:opacity-100">
+      <span className="mt-auto hidden items-center gap-0.5 pt-3 text-xs font-medium text-emerald-600 dark:text-emerald-400 opacity-0 transition group-hover:opacity-100 sm:flex">
         Tümünü Görüntüle
         <ChevronRight className="h-3.5 w-3.5" strokeWidth={2} />
       </span>
@@ -323,10 +327,10 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="bg-gradient-to-r from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent">
+    <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="bg-gradient-to-r from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-2xl font-extrabold tracking-tight text-transparent sm:text-3xl">
             Ana Sayfa
           </h1>
           <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
@@ -336,14 +340,14 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
         </div>
         <Link
           href="/groups?tab=kesfet"
-          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          className="flex items-center gap-1.5 whitespace-nowrap rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
         >
           <Search className="h-4 w-4" strokeWidth={1.75} />
           Grupları Keşfet
         </Link>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:mt-6 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
         <StatCard
           label="Gruptaki Aktif Teklifler"
           value={marketListingsCount}
@@ -390,18 +394,18 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
         />
       </div>
 
-      <section className="mt-8 overflow-hidden rounded-2xl border border-emerald-500/30">
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-emerald-700 to-emerald-600 px-5 py-3 text-white">
+      <section className="mt-6 rounded-2xl border border-emerald-500/30 sm:mt-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-[15px] bg-gradient-to-r from-emerald-700 to-emerald-600 px-4 py-3 text-white sm:px-5">
           <h2 className="flex items-center gap-2 text-lg font-bold">
             <TrendingUp className="h-5 w-5" strokeWidth={2} />
             Kazancım
           </h2>
-          <span className="flex items-center gap-3 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold">
+          <span className="flex items-center gap-2 whitespace-nowrap rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-bold">
             BAKİYEM
             <span className={toplamCari < 0 ? "text-red-200" : "text-white"}>{toplamCari.toFixed(2)} ₺</span>
           </span>
         </div>
-        <div className="grid gap-4 bg-slate-50 dark:bg-slate-950/40 p-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 bg-slate-50 p-2 dark:bg-slate-950/40 sm:gap-4 sm:p-4 xl:grid-cols-2">
           <EarningsCard
             title={`${monthLabel(selectedMonth)} Ayı Kazanç Bilgileri`}
             earnings={monthEarnings}
@@ -427,13 +431,13 @@ export default async function DashboardPage(props: PageProps<"/dashboard">) {
             }
           />
         </div>
-        <p className="border-t border-emerald-500/20 bg-amber-50 dark:bg-amber-500/5 px-5 py-2 text-[11px] text-amber-800 dark:text-amber-300">
+        <p className="rounded-b-[15px] border-t border-emerald-500/20 bg-amber-50 dark:bg-amber-500/5 px-4 py-2 text-[11px] text-amber-800 dark:text-amber-300 sm:px-5">
           Herhangi bir iskonto/MF içermeyen tekliflerden yapılan alımlar yüzdelik kazanç hesabına
           yansımaz. Bakiye transferi teklifleri de kazanç hesabına yansımaz.
         </p>
       </section>
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-[1.3fr_1fr]">
+      <div className="mt-8 grid grid-cols-1 gap-8 sm:mt-10 lg:grid-cols-[1.3fr_1fr]">
         <div>
           <section>
             <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900 dark:text-slate-100">

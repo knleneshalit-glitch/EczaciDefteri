@@ -22,7 +22,7 @@ export default async function FavoritesPage() {
   const card = "rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900";
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
+    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <Star className="h-6 w-6 fill-amber-400 text-amber-500" strokeWidth={1.75} />
         Favori Ürünlerim
@@ -32,7 +32,7 @@ export default async function FavoritesPage() {
         bildirim alırsınız.
       </p>
 
-      <section className={`${card} mt-6 p-5`}>
+      <section className={`${card} mt-6 p-4 sm:p-5`}>
         <FavoriteAddForm />
       </section>
 
@@ -40,77 +40,79 @@ export default async function FavoritesPage() {
         <h2 className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
           Favorilerim ({favorites.length})
         </h2>
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-100 dark:bg-slate-800/40 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Ürün</th>
-              <th className="px-4 py-2">Barkod</th>
-              <th className="px-4 py-2">Gruplarımdaki Aktif İlan</th>
-              <th className="px-4 py-2">En İyi Net Fiyat</th>
-              <th className="px-4 py-2 text-right" />
-            </tr>
-          </thead>
-          <tbody>
-            {favorites.map((f) => {
-              const own = matchesFor(f);
-              const prices = own.map((l) => effectiveUnitPrice(l)).filter((p): p is number => p != null);
-              const best = prices.length ? Math.min(...prices) : null;
-              return (
-                <tr key={f.id} className="border-t border-slate-200 dark:border-slate-800/60">
-                  <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-slate-100">
-                    <span className="flex items-center gap-1.5">
-                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" strokeWidth={1.75} />
-                      {f.medicineName}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{f.barkod ?? "—"}</td>
-                  <td className="px-4 py-2.5">
-                    {own.length > 0 ? (
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                        {own.length} ilan
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-slate-100 dark:bg-slate-800/40 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Ürün</th>
+                <th className="px-4 py-2">Barkod</th>
+                <th className="px-4 py-2">Gruplarımdaki Aktif İlan</th>
+                <th className="px-4 py-2">En İyi Net Fiyat</th>
+                <th className="px-4 py-2 text-right" />
+              </tr>
+            </thead>
+            <tbody>
+              {favorites.map((f) => {
+                const own = matchesFor(f);
+                const prices = own.map((l) => effectiveUnitPrice(l)).filter((p): p is number => p != null);
+                const best = prices.length ? Math.min(...prices) : null;
+                return (
+                  <tr key={f.id} className="border-t border-slate-200 dark:border-slate-800/60">
+                    <td className="px-4 py-2.5 font-medium text-slate-900 dark:text-slate-100">
+                      <span className="flex items-center gap-1.5">
+                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" strokeWidth={1.75} />
+                        {f.medicineName}
                       </span>
-                    ) : (
-                      <span className="text-xs text-slate-500">Şu an ilan yok</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 font-semibold text-emerald-600 dark:text-emerald-400">
-                    {best != null ? `${best.toFixed(2)} ₺` : "—"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-end gap-2">
-                      {own.length > 0 && (
-                        <Link
-                          href={`/market?q=${encodeURIComponent(f.medicineName)}`}
-                          className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline"
-                        >
-                          İlanları Gör
-                          <ArrowRight className="h-3 w-3" strokeWidth={2} />
-                        </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400">{f.barkod ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      {own.length > 0 ? (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                          {own.length} ilan
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-500">Şu an ilan yok</span>
                       )}
-                      <form action={removeFavoriteAction.bind(null, f.id)}>
-                        <button
-                          title="Favorilerden çıkar"
-                          className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          Kaldır
-                        </button>
-                      </form>
-                    </div>
+                    </td>
+                    <td className="px-4 py-2.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                      {best != null ? `${best.toFixed(2)} ₺` : "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-2">
+                        {own.length > 0 && (
+                          <Link
+                            href={`/market?q=${encodeURIComponent(f.medicineName)}`}
+                            className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:underline"
+                          >
+                            İlanları Gör
+                            <ArrowRight className="h-3 w-3" strokeWidth={2} />
+                          </Link>
+                        )}
+                        <form action={removeFavoriteAction.bind(null, f.id)}>
+                          <button
+                            title="Favorilerden çıkar"
+                            className="flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            Kaldır
+                          </button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {favorites.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-left sm:text-center text-sm text-slate-500">
+                    Henüz favori ürününüz yok. Yukarıdan ekleyebilir ya da bir ilan sayfasındaki yıldıza
+                    basabilirsiniz.
                   </td>
                 </tr>
-              );
-            })}
-            {favorites.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
-                  Henüz favori ürününüz yok. Yukarıdan ekleyebilir ya da bir ilan sayfasındaki yıldıza
-                  basabilirsiniz.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="mt-8">

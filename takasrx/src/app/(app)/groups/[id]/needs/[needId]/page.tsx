@@ -66,8 +66,8 @@ export default async function NeedDetailPage(props: PageProps<"/groups/[id]/need
   const StatusIcon = STATUS_ICON[need.status];
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 py-10">
-      <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between">
           <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-slate-100">
             <HelpCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />

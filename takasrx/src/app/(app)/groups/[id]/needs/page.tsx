@@ -34,7 +34,7 @@ export default async function GroupNeedsPage(props: PageProps<"/groups/[id]/need
   });
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="flex items-center justify-between">
         <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
           <HelpCircle className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />

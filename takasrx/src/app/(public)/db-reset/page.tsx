@@ -16,7 +16,7 @@ export default function DbResetPage() {
   const labelClass = "mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300";
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-10 sm:justify-center sm:py-16">
       <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5">
         <h2 className="flex items-center gap-2 text-lg font-bold text-emerald-700 dark:text-emerald-400">
           <UserPlus className="h-5 w-5" strokeWidth={1.75} />

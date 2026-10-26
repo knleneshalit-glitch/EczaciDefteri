@@ -9,7 +9,7 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState(loginAction, undefined);
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-10 sm:justify-center sm:py-16">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <LogIn className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Giriş Yap

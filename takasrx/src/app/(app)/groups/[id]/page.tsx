@@ -81,10 +81,10 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2">
+    <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{group.name}</h1>
             {group.closedAt && (
               <span className="flex items-center gap-1 rounded bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
@@ -99,7 +99,7 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
           )}
         </div>
         {isApproved && (
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap gap-2 lg:justify-end">
             <Link
               href={`/groups/${group.id}/members`}
               className="flex items-center gap-1.5 rounded-md border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -165,7 +165,7 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       </div>
 
       {!membership && (
-        <div className="mt-8 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center">
+        <div className="mt-8 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-6 text-center">
           <Lock className="mx-auto h-6 w-6 text-slate-500" strokeWidth={1.5} />
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Bu grubun takas ilanlarını görmek için üye olmanız gerekiyor.
@@ -184,14 +184,14 @@ export default async function GroupDetailPage(props: PageProps<"/groups/[id]">) 
       )}
 
       {membership?.status === "PENDING" && (
-        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-800 dark:text-amber-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 sm:p-6 text-center text-sm text-amber-800 dark:text-amber-300">
           <Clock className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Katılım isteğiniz grup yöneticisinin onayını bekliyor.
         </div>
       )}
 
       {membership?.status === "REJECTED" && (
-        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-sm text-red-800 dark:text-red-300">
+        <div className="mt-8 flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-4 sm:p-6 text-center text-sm text-red-800 dark:text-red-300">
           <XCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} />
           Bu gruba katılım isteğiniz reddedildi.
         </div>

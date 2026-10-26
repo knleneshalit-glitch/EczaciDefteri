@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -132,6 +132,7 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
   const [query, setQuery] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const panelRef = useRef<HTMLElement>(null);
   const [isPending, startTransition] = useTransition();
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -210,6 +211,10 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
   function selectItem(key: string) {
     setActiveKey(key);
     setSelected(new Set());
+    // Paneller alt alta dizildiğinde (dar ekran) seçilen kaydın paneline kaydır.
+    if (!window.matchMedia("(min-width: 80rem)").matches) {
+      panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function toggleLine(id: string) {
@@ -373,7 +378,9 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
           <h2 className="border-b border-slate-200 dark:border-slate-800 px-4 py-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
             {view === "urun" ? "Ürün Gönderimleri" : "Eczane Gönderimleri"}
             <span className="ml-2 text-xs font-normal text-slate-500">
-              {view === "urun" ? "Ürün seçin, ilgili eczaneleri sağ panelde yönetin." : "Eczane seçin, ilgili ürünleri sağ panelde yönetin."}
+              {view === "urun" ? "Ürün seçin, ilgili eczaneleri " : "Eczane seçin, ilgili ürünleri "}
+              <span className="xl:hidden">alttaki</span>
+              <span className="hidden xl:inline">sağ</span> panelde yönetin.
             </span>
           </h2>
           <div className="max-h-[560px] overflow-y-auto">
@@ -425,7 +432,7 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
                   ))}
                   {productRows.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                      <td colSpan={5} className="px-3 py-8 text-left sm:text-center text-slate-500">
                         Bu sekmede kayıt yok.
                       </td>
                     </tr>
@@ -483,7 +490,7 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
                   ))}
                   {pharmacyRows.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-slate-500">
+                      <td colSpan={4} className="px-3 py-8 text-left sm:text-center text-slate-500">
                         Bu sekmede kayıt yok.
                       </td>
                     </tr>
@@ -494,7 +501,10 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <section
+          ref={panelRef}
+          className="scroll-mt-16 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lg:scroll-mt-4"
+        >
           <div className="border-b border-slate-200 dark:border-slate-800 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -605,7 +615,10 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
           </div>
 
           {!activeKey ? (
-            <p className="px-4 py-16 text-center text-sm text-slate-500">Lütfen soldan bir kayıt seçiniz.</p>
+            <p className="px-4 py-16 text-center text-sm text-slate-500">
+              Lütfen <span className="xl:hidden">yukarıdaki listeden</span>
+              <span className="hidden xl:inline">soldan</span> bir kayıt seçiniz.
+            </p>
           ) : (
             <div className="max-h-[480px] overflow-y-auto">
               <table className="w-full text-left text-xs">
@@ -705,7 +718,7 @@ export default function ShipmentsBoard({ products, lines }: { products: BoardPro
                   })}
                   {panelLines.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                      <td colSpan={5} className="px-3 py-8 text-left sm:text-center text-slate-500">
                         Bu sekmede seçilen kayda ait gönderim yok.
                       </td>
                     </tr>

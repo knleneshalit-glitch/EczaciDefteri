@@ -13,7 +13,7 @@ export default async function ImportListingsPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
       <Link href="/listings" className="inline-flex items-center gap-1 text-sm text-slate-600 dark:text-slate-400 hover:underline">
         <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         Talep Oluştur - Yönet

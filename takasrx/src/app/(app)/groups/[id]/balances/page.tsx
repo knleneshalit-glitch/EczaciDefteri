@@ -39,7 +39,7 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
     .sort((a, b) => a.toplam - b.toplam);
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 py-10">
+    <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
         <Wallet className="h-6 w-6 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
         Grup Bakiyeleri / Grup Yükü
@@ -185,7 +185,7 @@ export default async function GroupBalancesPage(props: PageProps<"/groups/[id]/b
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-6 text-left sm:text-center text-slate-500">
                   Kayıt bulunamadı
                 </td>
               </tr>

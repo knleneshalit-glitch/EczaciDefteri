@@ -21,7 +21,7 @@ export default function BalanceLimitForm({
       action={formAction}
       className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4"
     >
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+      <label className="flex w-full items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 sm:w-auto sm:pb-2">
         <input type="checkbox" name="balanceLimitEnabled" defaultChecked={enabled} />
         Bakiye Kısıtlaması
       </label>
